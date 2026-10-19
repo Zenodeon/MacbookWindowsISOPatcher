@@ -1,0 +1,913 @@
+use crate::{
+    domain::*,
+    download,
+    platform::{self, MountedIso},
+    wim,
+};
+use anyhow::{Context, Result, ensure};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+use walkdir::WalkDir;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PreparedBuild {
+    pub request: BuildRequest,
+    pub assets_root: PathBuf,
+}
+
+fn copy_file(source: &Path, target: &Path, cancel: &Cancellation) -> Result<()> {
+    let mut input = File::open(source)?;
+    let mut output = File::create(target)?;
+    let mut buffer = vec![0u8; 1024 * 1024];
+    loop {
+        cancel.check()?;
+        let n = input.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        output.write_all(&buffer[..n])?;
+    }
+    Ok(())
+}
+
+pub fn copy_tree(source: &Path, dest: &Path, cancel: &Cancellation) -> Result<()> {
+    ensure!(
+        source.is_dir(),
+        "Source folder missing: {}",
+        source.display()
+    );
+    fs::create_dir_all(dest)?;
+    for entry in WalkDir::new(source).follow_links(false) {
+        cancel.check()?;
+        let entry = entry?;
+        ensure!(
+            !entry.file_type().is_symlink(),
+            "Symbolic links are not allowed in build inputs"
+        );
+        let target = dest.join(entry.path().strip_prefix(source)?);
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&target)?;
+        } else if entry.file_type().is_file() {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            copy_file(entry.path(), &target, cancel)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_paths(req: &BuildRequest) -> Result<()> {
+    req.selected_images()?;
+    ensure!(
+        cfg!(windows),
+        "Patching is currently available on Windows only"
+    );
+    ensure!(
+        req.inventory.iso.is_absolute()
+            && req.output.is_absolute()
+            && req.workspace.is_absolute()
+            && req.cache.is_absolute(),
+        "Build paths must be absolute"
+    );
+    ensure!(
+        !req.output.exists(),
+        "The output already exists. Choose a new filename"
+    );
+    ensure!(
+        req.output
+            .extension()
+            .is_some_and(|v| v.eq_ignore_ascii_case("iso")),
+        "The output must end in .iso"
+    );
+    ensure!(
+        req.output != req.inventory.iso,
+        "The original ISO cannot be overwritten"
+    );
+    ensure!(req.seven_zip.is_file(), "7-Zip is missing");
+    ensure!(
+        req.oscdimg.is_file(),
+        "Install Windows ADK Deployment Tools, or select oscdimg.exe"
+    );
+    for path in [&req.workspace, &req.cache] {
+        fs::create_dir_all(path)?;
+    }
+    let output_parent = req.output.parent().context("Output parent is missing")?;
+    ensure!(output_parent.is_dir(), "Output folder does not exist");
+    let work = req.workspace.canonicalize()?;
+    let cache = req.cache.canonicalize()?;
+    let output_parent = output_parent.canonicalize()?;
+    ensure!(
+        !output_parent.starts_with(&cache),
+        "Save the output outside the download cache"
+    );
+    let required = req.required_space()?;
+    ensure!(
+        fs2::available_space(&cache)? >= 8 * GIB,
+        "The driver cache needs at least 8 GiB free for downloading and extraction"
+    );
+    ensure!(
+        fs2::available_space(&work)? >= required,
+        "Not enough workspace disk space; allow at least {:.1} GiB",
+        required as f64 / GIB as f64
+    );
+    ensure!(
+        fs2::available_space(output_parent)? >= req.inventory.iso_size.saturating_add(8 * GIB),
+        "Output disk needs room for the patched ISO (source size plus at least 8 GiB)"
+    );
+    Ok(())
+}
+
+pub fn preflight(req: &BuildRequest) -> Result<()> {
+    validate_paths(req)
+}
+
+/// All network downloads and third-party archive extraction run without elevation.
+/// Copy a complete, job-specific input tree; the worker validates it again.
+pub fn prepare(req: BuildRequest, emit: &Emit, cancel: &Cancellation) -> Result<PreparedBuild> {
+    validate_paths(&req)?;
+    let assets = download::prepare(&req.cache, &req.seven_zip, emit, cancel)?;
+    let assets_root = assets
+        .intel
+        .ancestors()
+        .find(|p| {
+            p.file_name()
+                .is_some_and(|s| s.to_string_lossy().starts_with("extract-"))
+        })
+        .context("Driver extraction root missing")?
+        .to_owned();
+    let manifest = serde_json::json!({"intel": assets.intel, "bootcamp": assets.bootcamp, "drivers": assets.drivers});
+    fs::write(
+        assets_root.join("assets.json"),
+        serde_json::to_vec(&manifest)?,
+    )?;
+    Ok(PreparedBuild {
+        request: req,
+        assets_root,
+    })
+}
+
+fn dism(args: Vec<String>, emit: &Emit, cancel: &Cancellation) -> Result<()> {
+    let mut all = vec!["/English".into()];
+    all.extend(args);
+    platform::run(
+        &platform::system_binary("dism.exe"),
+        &all,
+        emit,
+        cancel,
+        false,
+    )
+}
+
+struct ImageMount {
+    mount: PathBuf,
+    emit: Emit,
+    active: bool,
+}
+impl ImageMount {
+    fn open(
+        wim: &Path,
+        index: u32,
+        mount: &Path,
+        emit: &Emit,
+        cancel: &Cancellation,
+    ) -> Result<Self> {
+        fs::create_dir_all(mount)?;
+        // Arm cleanup before mounting: cancellation can arrive while DISM finishes.
+        let guard = Self {
+            mount: mount.to_owned(),
+            emit: emit.clone(),
+            active: true,
+        };
+        dism(
+            vec![
+                "/Mount-Image".into(),
+                format!("/ImageFile:{}", wim.display()),
+                format!("/Index:{index}"),
+                format!("/MountDir:{}", mount.display()),
+                "/CheckIntegrity".into(),
+            ],
+            emit,
+            cancel,
+        )?;
+        Ok(guard)
+    }
+    fn commit(mut self, cancel: &Cancellation) -> Result<()> {
+        dism(
+            vec![
+                "/Unmount-Image".into(),
+                format!("/MountDir:{}", self.mount.display()),
+                "/Commit".into(),
+                "/CheckIntegrity".into(),
+            ],
+            &self.emit,
+            cancel,
+        )?;
+        self.active = false;
+        Ok(())
+    }
+}
+impl Drop for ImageMount {
+    fn drop(&mut self) {
+        if self.active {
+            (self.emit)(Event::Log("Discarding app-owned image mount…".into()));
+            if let Err(error) = dism(
+                vec![
+                    "/Unmount-Image".into(),
+                    format!("/MountDir:{}", self.mount.display()),
+                    "/Discard".into(),
+                ],
+                &self.emit,
+                &Cancellation::default(),
+            ) {
+                (self.emit)(Event::Log(format!(
+                    "Mount cleanup requires recovery: {error:#}"
+                )));
+            }
+        }
+    }
+}
+
+pub fn run(prepared: PreparedBuild, emit: Emit, cancel: Cancellation) -> Result<PathBuf> {
+    ensure!(
+        platform::is_admin(),
+        "The build worker must run as administrator"
+    );
+    let req = &prepared.request;
+    validate_paths(req)?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(req.workspace.join(".build.lock"))?;
+    fs2::FileExt::try_lock_exclusive(&lock)
+        .context("Another build is using this working folder")?;
+    recover_mounts(&req.workspace, &emit, &cancel)?;
+    ensure!(
+        fs::metadata(&req.inventory.iso)?.len() == req.inventory.iso_size
+            && platform::modified(&req.inventory.iso)? == req.inventory.iso_modified,
+        "The source ISO changed since scanning. Scan it again"
+    );
+    // Do not run arbitrary user-supplied executables with elevation.
+    let signature = platform::powershell(
+        r#"$s=Get-AuthenticodeSignature -LiteralPath $env:PATCHER_TOOL; if($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation'){throw 'oscdimg.exe must have a valid Microsoft signature'}"#,
+        &[("PATCHER_TOOL", req.oscdimg.as_os_str())],
+    );
+    signature.context("ISO tool verification failed. Use the Microsoft ADK copy of oscdimg.exe")?;
+    let job = req
+        .workspace
+        .join(format!("build-{}", uuid::Uuid::new_v4()));
+    fs::create_dir(&job)?;
+    fs::write(job.join("job.json"), serde_json::to_vec_pretty(req)?)?;
+    let file = Arc::new(Mutex::new(
+        OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(job.join("build.log"))?,
+    ));
+    let original = emit;
+    let emit: Emit = Arc::new(move |event| {
+        if let Ok(mut file) = file.lock() {
+            let _ = writeln!(
+                file,
+                "{}",
+                serde_json::to_string(&event).unwrap_or_default()
+            );
+        }
+        original(event);
+    });
+    emit(Event::Log(format!(
+        "Build workspace and log: {}",
+        job.display()
+    )));
+    let result = run_job(&prepared, &job, &emit, &cancel);
+    if result.is_err() {
+        emit(Event::Log(format!(
+            "Build files retained for diagnosis: {}",
+            job.display()
+        )));
+    }
+    result
+}
+
+fn load_assets(prepared: &PreparedBuild, cancel: &Cancellation) -> Result<download::Assets> {
+    #[derive(serde::Deserialize)]
+    struct Manifest {
+        intel: PathBuf,
+        bootcamp: PathBuf,
+        drivers: PathBuf,
+    }
+    let root = prepared.assets_root.canonicalize()?;
+    ensure!(
+        root.starts_with(prepared.request.cache.canonicalize()?),
+        "Assets must be inside the app cache"
+    );
+    let manifest: Manifest = serde_json::from_slice(&fs::read(root.join("assets.json"))?)?;
+    for p in [&manifest.intel, &manifest.bootcamp, &manifest.drivers] {
+        ensure!(
+            p.canonicalize()?.starts_with(&root),
+            "Asset path escaped extraction root"
+        );
+    }
+    download::verify(
+        &prepared.request.cache.join("win64_15.45.5174.exe"),
+        download::INTEL_SHA256,
+        cancel,
+    )?;
+    download::verify(
+        &prepared.request.cache.join("BootCampESD-041-88734.pkg"),
+        download::APPLE_SHA256,
+        cancel,
+    )?;
+    validate_intel(&manifest.intel)?;
+    Ok(download::Assets {
+        intel: manifest.intel,
+        bootcamp: manifest.bootcamp,
+        drivers: manifest.drivers,
+    })
+}
+
+fn run_job(
+    prepared: &PreparedBuild,
+    job: &Path,
+    emit: &Emit,
+    cancel: &Cancellation,
+) -> Result<PathBuf> {
+    let req = &prepared.request;
+    let assets = load_assets(prepared, cancel)?;
+    stage(
+        emit,
+        "Checking Windows media",
+        "Rechecking image metadata before servicing",
+    );
+    let source = MountedIso::open(&req.inventory.iso)?;
+    let fresh = platform::scan_root(&req.inventory.iso, &source.root)?;
+    ensure!(
+        fresh.images == req.inventory.images && fresh.install_file == req.inventory.install_file,
+        "Windows image metadata changed. Scan again"
+    );
+    let root = job.join("iso-root");
+    stage(
+        emit,
+        "Copying Windows media",
+        "Your original ISO stays unchanged",
+    );
+    fs::create_dir(&root)?;
+    for entry in WalkDir::new(&source.root).follow_links(false) {
+        cancel.check()?;
+        let entry = entry?;
+        let rel = entry.path().strip_prefix(&source.root)?;
+        let normalized = rel
+            .to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase();
+        if [
+            "sources/install.wim",
+            "sources/install.esd",
+            "sources/ei.cfg",
+            "sources/pid.txt",
+        ]
+        .contains(&normalized.as_str())
+        {
+            continue;
+        }
+        ensure!(!entry.file_type().is_symlink(), "Source ISO contains links");
+        let dest = root.join(rel);
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&dest)?;
+        } else if entry.file_type().is_file() {
+            copy_file(entry.path(), &dest, cancel)?;
+        }
+    }
+    ensure!(
+        !root.join("$WinPEDriver$").exists(),
+        "Source contains custom WinPE drivers. Use original Microsoft media"
+    );
+    let selected = req.selected_images()?;
+    let target = root.join("sources/install.wim");
+    for (n, image) in selected.iter().enumerate() {
+        stage(
+            emit,
+            "Exporting selected editions",
+            format!("{} ({}/{})", image.name, n + 1, selected.len()),
+        );
+        dism(
+            vec![
+                "/Export-Image".into(),
+                format!(
+                    "/SourceImageFile:{}",
+                    source
+                        .root
+                        .join("sources")
+                        .join(&req.inventory.install_file)
+                        .display()
+                ),
+                format!("/SourceIndex:{}", image.index),
+                format!("/DestinationImageFile:{}", target.display()),
+                "/Compress:max".into(),
+                "/CheckIntegrity".into(),
+            ],
+            emit,
+            cancel,
+        )?;
+    }
+    drop(source);
+    let pe_drivers = root.join("$WinPEDriver$");
+    fs::create_dir(&pe_drivers)?;
+    for folder in BOOT_ALLOWLIST {
+        copy_tree(
+            &assets.drivers.join(folder),
+            &pe_drivers.join(folder),
+            cancel,
+        )?;
+    }
+    validate_boot_drivers(&pe_drivers)?;
+    copy_tree(&assets.bootcamp, &root.join("BootCamp"), cancel)?;
+    fs::write(root.join("autounattend.xml"), ANSWER_FILE)?;
+    let edition_cfg = if selected.len() == 1 {
+        format!(
+            "[EditionID]\r\n{}\r\n[Channel]\r\nRetail\r\n[VL]\r\n0\r\n",
+            selected[0].edition
+        )
+    } else {
+        "[Channel]\r\nRetail\r\n[VL]\r\n0\r\n".into()
+    };
+    fs::write(root.join("sources/ei.cfg"), edition_cfg)?;
+    for (n, image) in selected.iter().enumerate() {
+        stage(
+            emit,
+            "Patching Windows editions",
+            format!("{} ({}/{})", image.name, n + 1, selected.len()),
+        );
+        let mount = ImageMount::open(
+            &target,
+            n as u32 + 1,
+            &job.join("mount-install"),
+            emit,
+            cancel,
+        )?;
+        inject_signed_driver(&mount.mount, &assets.intel, emit, cancel)?;
+        copy_tree(&assets.drivers, &mount.mount.join("Drivers"), cancel)?;
+        copy_tree(&assets.bootcamp, &mount.mount.join("BootCamp"), cancel)?;
+        fs::create_dir_all(mount.mount.join("Windows/Setup/Scripts"))?;
+        fs::write(
+            mount.mount.join("Windows/Setup/Scripts/SetupComplete.cmd"),
+            include_bytes!("../payloads/a1706/SetupComplete.cmd"),
+        )?;
+        validate_signed_store(&mount.mount, &assets.intel)?;
+        if n == 0 {
+            let support = job.join("boot-support");
+            fs::create_dir_all(support.join("en-US"))?;
+            for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
+                let source = mount.mount.join("Windows/System32").join(rel);
+                if source.is_file() {
+                    fs::copy(&source, support.join(rel))?;
+                }
+            }
+        }
+        mount.commit(cancel)?;
+    }
+    stage(
+        emit,
+        "Patching Windows Setup",
+        "Signed Iris driver and v17 HDMI startup sequence",
+    );
+    let boot = root.join("sources/boot.wim");
+    let mount = ImageMount::open(&boot, 2, &job.join("mount-boot"), emit, cancel)?;
+    inject_signed_driver(&mount.mount, &assets.intel, emit, cancel)?;
+    write_boot_payload(&mount.mount)?;
+    for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
+        let source = job.join("boot-support").join(rel);
+        if source.is_file() {
+            fs::copy(&source, mount.mount.join("Windows/System32").join(rel))?;
+        }
+    }
+    ensure!(
+        mount
+            .mount
+            .join("Windows/System32/DisplaySwitch.exe")
+            .is_file(),
+        "DisplaySwitch.exe missing from Windows image"
+    );
+    validate_signed_store(&mount.mount, &assets.intel)?;
+    check_registry(&mount.mount)?;
+    mount.commit(cancel)?;
+    stage(
+        emit,
+        "Verifying output images",
+        "Checking edition mapping and boot-path payloads",
+    );
+    let images = wim::read_images(&target)?;
+    ensure!(
+        images.len() == selected.len(),
+        "Output edition count does not match selection"
+    );
+    for (n, expected) in selected.iter().enumerate() {
+        ensure!(
+            images[n].index == n as u32 + 1 && images[n].edition == expected.edition,
+            "Output edition mapping mismatch"
+        );
+    }
+    ensure!(
+        !ANSWER_FILE.contains("DiskConfiguration") && !ANSWER_FILE.contains("ImageInstall"),
+        "Answer file contains disk automation"
+    );
+    fs::write(root.join("README-A1706.txt"), INSTALL_GUIDE)?;
+    // Keep the temporary ISO on the output filesystem for an atomic, no-clobber publication.
+    let partial = req
+        .output
+        .parent()
+        .unwrap()
+        .join(format!(".a1706-{}.partial.iso", uuid::Uuid::new_v4()));
+    stage(
+        emit,
+        "Building patched ISO",
+        "Creating BIOS and UEFI bootable media",
+    );
+    let args = oscdimg_args(&root, &partial);
+    let built = platform::run(&req.oscdimg, &args, emit, cancel, true);
+    if let Err(error) = built {
+        let _ = fs::remove_file(&partial);
+        return Err(error);
+    }
+    stage(
+        emit,
+        "Checking finished ISO",
+        "Reading the final ISO and verifying its selected editions",
+    );
+    let final_check = (|| -> Result<()> {
+        let mounted = MountedIso::open(&partial)?;
+        let output_images = wim::read_images(&mounted.root.join("sources/install.wim"))?;
+        ensure!(
+            output_images == images,
+            "Finished ISO image metadata did not match"
+        );
+        ensure!(
+            mounted.root.join("BootCamp/Setup.exe").is_file(),
+            "Boot Camp installer is missing from final ISO"
+        );
+        validate_boot_drivers(&mounted.root.join("$WinPEDriver$"))?;
+        cancel.check()?;
+        Ok(())
+    })();
+    if let Err(error) = final_check {
+        let _ = fs::remove_file(&partial);
+        return Err(error);
+    }
+    // hard_link fails if destination exists; unlike rename on Unix it never replaces a file.
+    platform::publish_iso(&partial, &req.output)
+        .context("Could not publish ISO. The validated temporary ISO is retained")?;
+    emit(Event::Log(format!(
+        "Completed. Build log: {}",
+        job.join("build.log").display()
+    )));
+    // Large staging files belong to this UUID job only. Retain job.json and build.log.
+    ensure!(
+        root.canonicalize()?.starts_with(job.canonicalize()?),
+        "Cleanup path escaped build workspace"
+    );
+    if let Err(error) = fs::remove_dir_all(&root) {
+        emit(Event::Log(format!(
+            "ISO is ready; temporary media cleanup failed: {error}"
+        )));
+    }
+    Ok(req.output.clone())
+}
+
+fn inject_signed_driver(
+    mount: &Path,
+    intel: &Path,
+    emit: &Emit,
+    cancel: &Cancellation,
+) -> Result<()> {
+    ensure!(
+        download::find_file(&mount.join("Windows/INF"), "igdiris64.inf").is_none(),
+        "Unsigned slim Iris driver found in source"
+    );
+    if validate_signed_store(mount, intel).is_ok() {
+        emit(Event::Log(
+            "The exact signed Iris package is already present; skipping duplicate import".into(),
+        ));
+        return Ok(());
+    }
+    dism(
+        vec![
+            format!("/Image:{}", mount.display()),
+            "/Add-Driver".into(),
+            format!("/Driver:{}", intel.join("igdlh64.inf").display()),
+        ],
+        emit,
+        cancel,
+    )
+}
+fn text_file(path: &Path) -> Result<String> {
+    let bytes = fs::read(path)?;
+    if bytes.starts_with(&[0xff, 0xfe]) {
+        Ok(String::from_utf16(
+            &bytes[2..]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|x| u16::from_le_bytes([x[0], x[1]]))
+                .collect::<Vec<_>>(),
+        )?)
+    } else {
+        Ok(String::from_utf8_lossy(&bytes).to_string())
+    }
+}
+pub fn validate_intel(dir: &Path) -> Result<()> {
+    let inf = text_file(&dir.join("igdlh64.inf"))?;
+    let compact = inf
+        .lines()
+        .map(|l| {
+            l.split(';')
+                .next()
+                .unwrap_or("")
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_ascii_lowercase();
+    ensure!(
+        compact.contains("driverver=11/08/2020,21.20.16.5174"),
+        "Unexpected Intel driver version"
+    );
+    ensure!(
+        compact.contains("catalogfile=igdlh.cat") && dir.join("igdlh.cat").is_file(),
+        "Signed Intel catalog missing"
+    );
+    ensure!(
+        compact
+            .lines()
+            .any(|l| l.contains("iskld_w10_ds") && l.contains("dev_1927")),
+        "Intel driver does not support the expected Iris hardware"
+    );
+    if cfg!(windows) {
+        platform::powershell(
+            r#"$s=Get-AuthenticodeSignature -LiteralPath $env:PATCHER_CAT; if($s.Status -ne 'Valid'){throw 'Intel driver catalog signature is invalid'}"#,
+            &[("PATCHER_CAT", dir.join("igdlh.cat").as_os_str())],
+        )?;
+    }
+    Ok(())
+}
+fn validate_signed_store(mount: &Path, intel: &Path) -> Result<()> {
+    let store = mount.join("Windows/System32/DriverStore/FileRepository");
+    let expected = fs::read(intel.join("igdlh64.inf"))?;
+    let mut found = false;
+    for entry in WalkDir::new(&store).into_iter().filter_map(Result::ok) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        ensure!(
+            name != "igdiris64.inf",
+            "Unsigned Iris package is still in the driver store"
+        );
+        if name.ends_with(".inf") {
+            let text = text_file(entry.path())?.to_ascii_lowercase();
+            if text.contains("dev_1927") {
+                let catalog = text
+                    .lines()
+                    .filter_map(|l| l.split(';').next())
+                    .find_map(|line| {
+                        let (key, value) = line.split_once('=')?;
+                        key.trim()
+                            .starts_with("catalogfile")
+                            .then(|| value.trim().trim_matches('"').to_owned())
+                    })
+                    .context("An unsigned Iris INF was found in the image")?;
+                ensure!(
+                    entry.path().parent().unwrap().join(catalog).is_file(),
+                    "An Iris package is missing its catalog"
+                );
+                if text.contains("21.20.16.5174") {
+                    ensure!(
+                        fs::read(entry.path())? == expected,
+                        "An altered Intel 21.20.16.5174 INF was found"
+                    );
+                }
+            }
+        }
+        if name == "igdlh64.inf" && fs::read(entry.path())? == expected {
+            let catalog = entry.path().parent().unwrap().join("igdlh.cat");
+            ensure!(
+                fs::read(catalog)? == fs::read(intel.join("igdlh.cat"))?,
+                "Intel catalog changed"
+            );
+            found = true;
+        }
+    }
+    ensure!(
+        found,
+        "Signed Intel package is missing from the driver store"
+    );
+    Ok(())
+}
+pub fn validate_boot_drivers(root: &Path) -> Result<()> {
+    for child in fs::read_dir(root)? {
+        let child = child?;
+        let name = child.file_name().to_string_lossy().to_string();
+        ensure!(
+            BOOT_ALLOWLIST.contains(&name.as_str()),
+            "Forbidden boot-path driver folder: {name}"
+        );
+    }
+    for name in BOOT_ALLOWLIST {
+        ensure!(root.join(name).is_dir(), "Boot driver {name} missing");
+    }
+    Ok(())
+}
+fn check_registry(mount: &Path) -> Result<()> {
+    platform::powershell(
+        r#"
+        $name='A1706_'+[Guid]::NewGuid().ToString('N')
+        & "$env:SystemRoot\System32\reg.exe" load "HKLM\$name" "$env:PATCHER_MOUNT\Windows\System32\config\SYSTEM" | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Cannot load offline SYSTEM hive'}
+        try {
+          $basic=Get-ItemPropertyValue "Registry::HKEY_LOCAL_MACHINE\$name\ControlSet001\Services\BasicDisplay" Start
+          $iris=Get-ItemPropertyValue "Registry::HKEY_LOCAL_MACHINE\$name\ControlSet001\Services\igfx" Start
+          if($basic -ne 1 -or $iris -ne 3){throw 'Unsafe BasicDisplay/igfx service startup settings'}
+        } finally { [GC]::Collect(); [GC]::WaitForPendingFinalizers(); & "$env:SystemRoot\System32\reg.exe" unload "HKLM\$name" | Out-Null }
+    "#,
+        &[("PATCHER_MOUNT", mount.as_os_str())],
+    )?;
+    Ok(())
+}
+fn write_boot_payload(mount: &Path) -> Result<()> {
+    let dir = mount.join("Windows/System32");
+    let script = include_bytes!("../payloads/a1706/a1706.cmd");
+    ensure!(
+        script.is_ascii() && !script.contains(&0),
+        "Startup script must be ASCII with no NULs"
+    );
+    fs::write(dir.join("a1706.cmd"), script)?;
+    fs::write(
+        dir.join("winpeshl.ini"),
+        include_bytes!("../payloads/a1706/winpeshl.ini"),
+    )?;
+    #[cfg(windows)]
+    {
+        for (name, bytes) in [
+            (
+                "a1706iris.exe",
+                include_bytes!(concat!(env!("OUT_DIR"), "/a1706iris.exe")).as_slice(),
+            ),
+            (
+                "a1706dlg.exe",
+                include_bytes!(concat!(env!("OUT_DIR"), "/a1706dlg.exe")).as_slice(),
+            ),
+            (
+                "a1706cue.exe",
+                include_bytes!(concat!(env!("OUT_DIR"), "/a1706cue.exe")).as_slice(),
+            ),
+            (
+                "a1706gpu.exe",
+                include_bytes!(concat!(env!("OUT_DIR"), "/a1706gpu.exe")).as_slice(),
+            ),
+        ] {
+            fs::write(dir.join(name), bytes)?;
+        }
+    }
+    Ok(())
+}
+
+fn recover_mounts(workspace: &Path, emit: &Emit, cancel: &Cancellation) -> Result<()> {
+    let json = platform::powershell(
+        "@((Get-WindowsImage -Mounted) | ForEach-Object { $_.Path }) | ConvertTo-Json -Compress",
+        &[],
+    )?;
+    let mounts: Vec<PathBuf> = if json.trim().is_empty() {
+        vec![]
+    } else {
+        serde_json::from_str(&json)?
+    };
+    let workspace = workspace.canonicalize()?;
+    for path in mounts {
+        cancel.check()?;
+        let Ok(path) = path.canonicalize() else {
+            continue;
+        };
+        let Some(job) = path.parent() else {
+            continue;
+        };
+        if job.parent() != Some(workspace.as_path()) {
+            continue;
+        }
+        if !path
+            .file_name()
+            .is_some_and(|v| v == "mount-boot" || v == "mount-install")
+        {
+            continue;
+        }
+        let name = job.file_name().unwrap().to_string_lossy();
+        if !name
+            .strip_prefix("build-")
+            .is_some_and(|s| uuid::Uuid::parse_str(s).is_ok())
+        {
+            continue;
+        }
+        let Some(recorded) = fs::read(job.join("job.json"))
+            .ok()
+            .and_then(|data| serde_json::from_slice::<BuildRequest>(&data).ok())
+        else {
+            continue;
+        };
+        if recorded.model != MODEL_ID
+            || recorded.workspace.canonicalize().ok().as_ref() != Some(&workspace)
+        {
+            continue;
+        }
+        stage(
+            emit,
+            "Recovering interrupted build",
+            format!("Discarding app-owned mount {}", path.display()),
+        );
+        dism(
+            vec![
+                "/Unmount-Image".into(),
+                format!("/MountDir:{}", path.display()),
+                "/Discard".into(),
+            ],
+            emit,
+            cancel,
+        )?;
+    }
+    Ok(())
+}
+pub fn oscdimg_args(root: &Path, output: &Path) -> Vec<String> {
+    vec![
+        "-m".into(),
+        "-u2".into(),
+        "-udfver102".into(),
+        "-lESD-ISO".into(),
+        format!(
+            "-bootdata:2#p0,e,b{}#pEF,e,b{}",
+            root.join("boot/etfsboot.com").display(),
+            root.join("efi/microsoft/boot/efisys.bin").display()
+        ),
+        root.display().to_string(),
+        output.display().to_string(),
+    ]
+}
+pub const ANSWER_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <DriverPaths><PathAndCredentials wcm:action="add" wcm:keyValue="1"><Path>\$WinPEDriver$</Path></PathAndCredentials></DriverPaths>
+    </component>
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"><UserData><AcceptEula>true</AcceptEula></UserData></component>
+  </settings>
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-PnpCustomizationsNonWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <DriverPaths><PathAndCredentials wcm:action="add" wcm:keyValue="1"><Path>C:\Drivers</Path></PathAndCredentials></DriverPaths>
+    </component>
+  </settings>
+</unattend>
+"#;
+pub const INSTALL_GUIDE: &str = "MacBook Pro A1706 — installation\r\n\r\n1. In macOS, create the BOOTCAMP partition using Boot Camp Assistant. Do not give it this ISO.\r\n2. Copy this ISO to a Ventoy USB and use WIMBOOT (press w). Keep the USB connected.\r\n3. Select and format only BOOTCAMP in Windows Setup. Leave the Mac and recovery partitions alone.\r\n4. After reaching Windows, check that Iris 550 uses driver 21.20.16.5174.\r\n5. Run C:\\BootCamp\\Setup.exe as administrator, then reboot for Touch Bar and full trackpad support. Do not run the old IntelHDGraphics64 installer.\r\n\r\nOnly Pro was validated in the source project. Other editions and this app's generated ISOs require hardware testing. The HDMI fix targets the 2016 A1706 with its internal display disconnected.\r\n\r\nLogs are saved under A1706Logs on writable media.\r\n";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn iso_has_both_boot_entries_without_optimization() {
+        let args = oscdimg_args(Path::new("C:/a b/media"), Path::new("C:/out.iso"));
+        assert!(!args.contains(&"-o".into()));
+        assert!(args.contains(&"-lESD-ISO".into()));
+        assert!(args[4].contains("#p0,e,b"));
+        assert!(args[4].contains("#pEF,e,b"));
+    }
+    #[test]
+    fn answer_file_never_automates_disks() {
+        for forbidden in [
+            "DiskConfiguration",
+            "ImageInstall",
+            "WillWipeDisk",
+            "ProductKey",
+        ] {
+            assert!(!ANSWER_FILE.contains(forbidden));
+        }
+    }
+    #[test]
+    fn runtime_waits_for_gpu_before_setup() {
+        let script = include_str!("../payloads/a1706/a1706.cmd");
+        assert!(
+            script.find(":waitiris").unwrap() < script.find("set \"MSG=launching setup").unwrap()
+        );
+        assert!(script.contains("a1706gpu.exe"));
+        assert!(!script.contains("3&11583659"));
+        assert_eq!(
+            script.matches("pnputil /restart-device \"!GPU!\"").count(),
+            1
+        );
+        assert!(!script.contains("/ForceUnsigned"));
+        assert!(!script.as_bytes().contains(&0));
+    }
+}

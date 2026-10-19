@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+payloads/a1706/*.cmd text eol=crlf
+payloads/a1706/*.ini text eol=crlf
