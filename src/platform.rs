@@ -112,6 +112,37 @@ pub fn modified(path: &Path) -> Result<u64> {
         .duration_since(UNIX_EPOCH)?
         .as_secs())
 }
+
+/// Dismount only the selected ISO, without servicing or discarding any WIM image.
+pub fn dismount_iso(iso: &Path) -> Result<bool> {
+    ensure!(cfg!(windows), "ISO dismounting currently requires Windows");
+    let iso = iso
+        .canonicalize()
+        .context("Choose an existing ISO file to dismount")?;
+    ensure!(
+        iso.is_file()
+            && iso
+                .extension()
+                .is_some_and(|s| s.eq_ignore_ascii_case("iso")),
+        "Select a local .iso file"
+    );
+    let result = powershell(
+        r#"
+        $image=Get-DiskImage -ImagePath $env:PATCHER_ISO
+        if($image.Attached) {
+            Dismount-DiskImage -ImagePath $env:PATCHER_ISO | Out-Null
+            if((Get-DiskImage -ImagePath $env:PATCHER_ISO).Attached){throw 'The ISO is still mounted. Close programs using it and retry.'}
+            'dismounted'
+        } else { 'already-dismounted' }
+    "#,
+        &[("PATCHER_ISO", iso.as_os_str())],
+    )?;
+    match result.trim() {
+        "dismounted" => Ok(true),
+        "already-dismounted" => Ok(false),
+        _ => bail!("Could not confirm ISO dismount status"),
+    }
+}
 pub fn scan(iso: &Path) -> Result<Inventory> {
     let iso = iso.canonicalize().context("Select an existing ISO file")?;
     ensure!(

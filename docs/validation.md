@@ -18,6 +18,12 @@
 
 ## Automated
 
+The current 19 tests, Clippy with warnings denied, and release build pass.
+The official ADK bootstrapper download and Microsoft signature verification were
+exercised without installing it. The default window was inspected at 1240 × 700
+content pixels; proportional fitting is covered by tests. Live ADK installation,
+ISO dismount, and the dismount confirmation flow still need integration testing.
+
 Run `cargo test --all-targets` and `cargo clippy --all-targets -- -D warnings`.
 Tests cover metadata compatibility, real image indices, edition validation,
 boot command composition, startup ordering, and absence of disk automation.

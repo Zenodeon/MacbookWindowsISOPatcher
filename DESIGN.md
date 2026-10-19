@@ -19,6 +19,11 @@ Exo 2 for body/controls/headings, and Space Mono for diagnostic logs. Embed font
 for offline use, retaining bundled fallback fonts for unsupported characters.
 Use 15px body, 13px metadata, and 26px screen titles. Use 8px control spacing and 24px
 between sections. Controls must remain keyboard accessible and resize with the window.
+Start at 1240 × 700 logical pixels, fitting that ratio to smaller monitors.
+Allow free resizing; below 900px use a narrower rail and tighter content margins.
+Keep missing downloads in a red section above Build setup. ADK setup reports its
+download/install state there and automatically detects the installed tool.
+Dismount requires a confirmation modal and returns to the source page on success.
 Status uses explicit text as well as color. Unknown progress uses a spinner;
 download progress is derived from received bytes. No simulated build percentages.
 

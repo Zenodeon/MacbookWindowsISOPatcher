@@ -28,66 +28,73 @@ impl PatcherApp {
         );
         let colors = appearance::palette(ctx);
         Self::section(ui, "Source file", colors.source, |ui| {
-            ui.add_enabled_ui(!self.scanning, |ui| {
-                let hovering = ctx.input(|i| !i.raw.hovered_files.is_empty());
-                let (rect, response) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), 98.0),
-                    egui::Sense::click(),
-                );
-                ui.painter().rect_filled(rect, 8, colors.drop);
-                ui.painter().rect_stroke(
-                    rect,
-                    8,
-                    egui::Stroke::new(
-                        1.0_f32,
-                        if hovering || response.hovered() {
-                            colors.accent
-                        } else {
-                            ui.visuals().widgets.noninteractive.bg_stroke.color
-                        },
-                    ),
-                    egui::StrokeKind::Inside,
-                );
-                ui.painter().text(
-                    rect.center() - egui::vec2(0.0, 12.0),
-                    egui::Align2::CENTER_CENTER,
-                    if hovering {
-                        "Release to scan your ISO"
-                    } else {
-                        "Drop your ISO here"
-                    },
-                    egui::FontId::proportional(20.0),
-                    ui.visuals().text_color(),
-                );
-                ui.painter().text(
-                    rect.center() + egui::vec2(0.0, 16.0),
-                    egui::Align2::CENTER_CENTER,
-                    "or click to browse",
-                    egui::FontId::proportional(14.0),
-                    colors.muted,
-                );
-                if response
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .clicked()
-                    && let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Windows ISO", &["iso"])
-                        .pick_file()
-                {
-                    self.iso = path.display().to_string();
-                    self.scan(ctx);
-                }
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.iso)
-                            .hint_text("Or paste an ISO path…")
-                            .desired_width((ui.available_width() - 105.0).max(120.0)),
+            ui.add_enabled_ui(
+                !self.scanning && !self.dismounting && !self.installing_adk,
+                |ui| {
+                    let hovering = ctx.input(|i| !i.raw.hovered_files.is_empty());
+                    let (rect, response) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), 98.0),
+                        egui::Sense::click(),
                     );
-                    if Self::primary(ui, "Scan ISO", !self.iso.trim().is_empty() && cfg!(windows)) {
+                    ui.painter().rect_filled(rect, 8, colors.drop);
+                    ui.painter().rect_stroke(
+                        rect,
+                        8,
+                        egui::Stroke::new(
+                            1.0_f32,
+                            if hovering || response.hovered() {
+                                colors.accent
+                            } else {
+                                ui.visuals().widgets.noninteractive.bg_stroke.color
+                            },
+                        ),
+                        egui::StrokeKind::Inside,
+                    );
+                    ui.painter().text(
+                        rect.center() - egui::vec2(0.0, 12.0),
+                        egui::Align2::CENTER_CENTER,
+                        if hovering {
+                            "Release to scan your ISO"
+                        } else {
+                            "Drop your ISO here"
+                        },
+                        egui::FontId::proportional(20.0),
+                        ui.visuals().text_color(),
+                    );
+                    ui.painter().text(
+                        rect.center() + egui::vec2(0.0, 16.0),
+                        egui::Align2::CENTER_CENTER,
+                        "or click to browse",
+                        egui::FontId::proportional(14.0),
+                        colors.muted,
+                    );
+                    if response
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                        .clicked()
+                        && let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Windows ISO", &["iso"])
+                            .pick_file()
+                    {
+                        self.iso = path.display().to_string();
                         self.scan(ctx);
                     }
-                });
-            });
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.iso)
+                                .hint_text("Or paste an ISO path…")
+                                .desired_width((ui.available_width() - 105.0).max(120.0)),
+                        );
+                        if Self::primary(
+                            ui,
+                            "Scan ISO",
+                            !self.iso.trim().is_empty() && cfg!(windows),
+                        ) {
+                            self.scan(ctx);
+                        }
+                    });
+                },
+            );
             if self.scanning {
                 ui.horizontal(|ui| {
                     ui.spinner();
@@ -192,16 +199,66 @@ impl PatcherApp {
                 );
             }
         });
-        Self::section(ui, "Build setup", colors.model, |ui| {
-            let missing_tools = !PathBuf::from(&self.settings.oscdimg).is_file()
-                || !PathBuf::from(&self.settings.seven_zip).is_file();
-            ui.label(if missing_tools {
-                "Install or select the missing build tools below."
-            } else {
-                "Build tools are ready."
+        let missing_tools = !PathBuf::from(&self.settings.oscdimg).is_file()
+            || !PathBuf::from(&self.settings.seven_zip).is_file()
+            || self.installing_adk;
+        if missing_tools {
+            Self::section(ui, "Missing downloads", colors.missing, |ui| {
+                ui.label("Install these tools, then detect them again or select their files.");
+                if !PathBuf::from(&self.settings.seven_zip).is_file() {
+                    if ui.button("Download 7-Zip").clicked() {
+                        let _ = webbrowser::open(platform::SEVEN_ZIP_URL);
+                    }
+                    Self::file_field(
+                        ui,
+                        "7-Zip (7z.exe)",
+                        &mut self.settings.seven_zip,
+                        "exe",
+                        false,
+                    );
+                }
+                if !PathBuf::from(&self.settings.oscdimg).is_file() || self.installing_adk {
+                    if ui
+                        .add_enabled(
+                            !self.installing_adk && !self.dismounting,
+                            egui::Button::new("Download & install ADK tools"),
+                        )
+                        .clicked()
+                    {
+                        self.install_adk(ui.ctx());
+                    }
+                    ui.label(
+                        RichText::new("Installs Microsoft Deployment Tools. Windows will request administrator approval.")
+                            .size(13.0)
+                            .color(colors.muted),
+                    );
+                    if self.installing_adk {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spinner();
+                            ui.label(&self.adk_status);
+                        });
+                    }
+                    ui.hyperlink_to(
+                        "Microsoft download page / manual installation",
+                        platform::ADK_URL,
+                    );
+                    Self::file_field(
+                        ui,
+                        "ISO tool (oscdimg.exe)",
+                        &mut self.settings.oscdimg,
+                        "exe",
+                        false,
+                    );
+                }
+                if ui.button("Detect installed tools again").clicked() {
+                    self.settings.oscdimg = platform::find_oscdimg().display().to_string();
+                    self.settings.seven_zip = platform::find_seven_zip().display().to_string();
+                }
             });
+        }
+        Self::section(ui, "Build setup", colors.model, |ui| {
             egui::CollapsingHeader::new("Tools & download cache")
-                .default_open(missing_tools)
+                .default_open(false)
                 .show(ui, |ui| {
                     Self::file_field(
                         ui,
@@ -210,11 +267,6 @@ impl PatcherApp {
                         "exe",
                         false,
                     );
-                    if !PathBuf::from(&self.settings.seven_zip).is_file()
-                        && ui.link("Install 7-Zip").clicked()
-                    {
-                        let _ = webbrowser::open(platform::SEVEN_ZIP_URL);
-                    }
                     Self::file_field(
                         ui,
                         "Microsoft ADK (oscdimg.exe)",
@@ -222,12 +274,6 @@ impl PatcherApp {
                         "exe",
                         false,
                     );
-                    if !PathBuf::from(&self.settings.oscdimg).is_file() {
-                        ui.label("Choose Deployment Tools in the Windows ADK installer.");
-                        if ui.link("Microsoft ADK installation guide").clicked() {
-                            let _ = webbrowser::open(platform::ADK_URL);
-                        }
-                    }
                     if ui.button("Detect installed tools again").clicked() {
                         self.settings.oscdimg = platform::find_oscdimg().display().to_string();
                         self.settings.seven_zip = platform::find_seven_zip().display().to_string();
@@ -236,7 +282,7 @@ impl PatcherApp {
                 });
             egui::CollapsingHeader::new("What happens during the build?").show(ui, |ui| {
                 ui.label("Downloads about 610 MB of verified Intel and Apple drivers once, then reuses the cache.");
-                ui.label("Administrator approval is required. Your original ISO stays unchanged; disk partitioning remains manual.");
+                ui.label("Administrator approval is required. Your original ISO stays unchanged.");
             });
         });
     }

@@ -15,7 +15,12 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    can be scanned with **Scan ISO**.
 3. Select A1706 and one or more compatible Windows editions.
 4. Choose a new output filename and a working folder with enough free disk space.
-5. Install missing build prerequisites using the links in **Build tools**.
+5. Install missing prerequisites using **Missing downloads**, highlighted above
+   **Build setup**. **Download & install ADK tools** downloads Microsoft's installer,
+   verifies its signature, requests UAC, and installs Deployment Tools only. Its
+   progress appears in the panel; the ISO tool is detected automatically afterward.
+   A manual Microsoft download link is also available. The panel disappears once
+   both tools are found.
 6. Start the build. Multiple editions show an optional donation page linking to
    [Ko-fi](https://ko-fi.com/zenodeon); **Continue without donating** always works.
 7. Approve UAC when the separate image-servicing worker starts.
@@ -25,6 +30,15 @@ logs and `job.json` stay in the chosen working folder. Existing output files and
 the original ISO are never overwritten. Cancellation waits for an active DISM
 operation to reach a safe boundary. Retrying with the same working folder
 recovers identifiable app-owned mounts from interrupted builds.
+
+Use **Dismount ISO** to eject the selected source ISO from Windows without
+changing its file. Confirm in the popup to dismount and return to the first page.
+It is unavailable during scans, builds, ADK installation, and another dismount.
+
+The initial content size is 1240 × 700 logical pixels. On smaller monitors it
+fits proportionally with room for window borders and the taskbar. The window
+remains resizable; compact spacing, wrapping and scrolling keep controls usable
+at smaller sizes. The aspect ratio is a starting proportion, not a resize lock.
 
 The sidebar includes a persistent Ko-fi button, the GitHub repository link, and
 **by zenodeon** linking to the creator's website. Choose **System**, **Light**, or

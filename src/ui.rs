@@ -2,7 +2,7 @@ use crate::appearance::{self, ThemeMode};
 #[path = "ui_pages.rs"]
 mod pages;
 use eframe::egui::{self, Color32, RichText};
-use macbook_iso_patcher::{domain::*, engine, ipc, platform};
+use macbook_iso_patcher::{domain::*, engine, ipc, platform, prerequisites};
 use std::{
     collections::BTreeSet,
     path::PathBuf,
@@ -13,6 +13,14 @@ use std::{
 const REPO_URL: &str = "https://github.com/Zenodeon/MacbookWindowsISOPatcher";
 fn muted(ui: &egui::Ui) -> Color32 {
     appearance::palette(ui.ctx()).muted
+}
+
+fn fitted_window_size(monitor: egui::Vec2) -> egui::Vec2 {
+    let preferred = egui::vec2(1240.0, 700.0);
+    let scale = ((monitor.x - 48.0) / preferred.x)
+        .min((monitor.y - 96.0) / preferred.y)
+        .clamp(0.1, 1.0);
+    preferred * scale
 }
 
 fn dropped_iso(files: &[egui::DroppedFile]) -> Result<Option<PathBuf>, String> {
@@ -39,6 +47,9 @@ fn dropped_iso(files: &[egui::DroppedFile]) -> Result<Option<PathBuf>, String> {
 }
 enum Message {
     Scanned(Result<Inventory, String>),
+    Dismounted(Result<bool, String>),
+    AdkStatus(String),
+    AdkInstalled(Result<(PathBuf, bool), String>),
     Build(Event),
 }
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -63,6 +74,12 @@ pub struct PatcherApp {
     sender: mpsc::Sender<Message>,
     busy: bool,
     scanning: bool,
+    dismounting: bool,
+    confirm_dismount: bool,
+    installing_adk: bool,
+    adk_status: String,
+    window_fitted: bool,
+    notice: Option<String>,
     cancel: Cancellation,
     error: Option<String>,
     stage: String,
@@ -119,6 +136,12 @@ impl PatcherApp {
             receiver,
             busy: false,
             scanning: false,
+            dismounting: false,
+            confirm_dismount: false,
+            installing_adk: false,
+            adk_status: String::new(),
+            window_fitted: false,
+            notice: None,
             cancel: Cancellation::default(),
             error: None,
             stage: String::new(),
@@ -143,6 +166,42 @@ impl PatcherApp {
     fn consume(&mut self) {
         while let Ok(message) = self.receiver.try_recv() {
             match message {
+                Message::AdkStatus(status) => self.adk_status = status,
+                Message::AdkInstalled(result) => {
+                    self.installing_adk = false;
+                    match result {
+                        Ok((tool, reboot)) => {
+                            self.settings.oscdimg = tool.display().to_string();
+                            self.persist_settings();
+                            self.notice = Some(if reboot {
+                                "ADK tools installed. Windows requests a restart before building."
+                                    .into()
+                            } else {
+                                "ADK tools installed and ready.".into()
+                            });
+                        }
+                        Err(error) => self.error = Some(error),
+                    }
+                }
+                Message::Dismounted(result) => {
+                    self.dismounting = false;
+                    match result {
+                        Ok(changed) => {
+                            self.error = None;
+                            self.page = 0;
+                            self.inventory = None;
+                            self.selected.clear();
+                            self.donation = false;
+                            self.finished = None;
+                            self.notice = Some(if changed {
+                                "ISO dismounted.".into()
+                            } else {
+                                "ISO is already dismounted.".into()
+                            });
+                        }
+                        Err(error) => self.error = Some(error),
+                    }
+                }
                 Message::Scanned(result) => {
                     self.scanning = false;
                     match result {
@@ -206,6 +265,10 @@ impl PatcherApp {
         }
     }
     fn scan(&mut self, ctx: &egui::Context) {
+        if self.busy || self.scanning || self.dismounting || self.installing_adk {
+            return;
+        }
+        self.notice = None;
         self.error = None;
         self.inventory = None;
         self.selected.clear();
@@ -216,6 +279,48 @@ impl PatcherApp {
         std::thread::spawn(move || {
             let result = platform::scan(&iso).map_err(|e| format!("{e:#}"));
             let _ = tx.send(Message::Scanned(result));
+            ctx.request_repaint();
+        });
+    }
+    fn dismount(&mut self, ctx: &egui::Context) {
+        if self.busy
+            || self.scanning
+            || self.dismounting
+            || self.installing_adk
+            || self.iso.trim().is_empty()
+        {
+            return;
+        }
+        self.dismounting = true;
+        self.error = None;
+        self.notice = None;
+        let iso = PathBuf::from(self.iso.trim());
+        let tx = self.sender.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = platform::dismount_iso(&iso).map_err(|e| format!("{e:#}"));
+            let _ = tx.send(Message::Dismounted(result));
+            ctx.request_repaint();
+        });
+    }
+    fn install_adk(&mut self, ctx: &egui::Context) {
+        if self.busy || self.scanning || self.dismounting || self.installing_adk {
+            return;
+        }
+        self.installing_adk = true;
+        self.error = None;
+        self.notice = None;
+        self.adk_status = "Preparing ADK download…".into();
+        let cache = PathBuf::from(&self.settings.cache);
+        let tx = self.sender.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let status = |status| {
+                let _ = tx.send(Message::AdkStatus(status));
+                ctx.request_repaint();
+            };
+            let result = prerequisites::install_adk(&cache, &status).map_err(|e| format!("{e:#}"));
+            let _ = tx.send(Message::AdkInstalled(result));
             ctx.request_repaint();
         });
     }
@@ -235,6 +340,9 @@ impl PatcherApp {
         })
     }
     fn begin(&mut self, ctx: &egui::Context) {
+        if self.busy || self.scanning || self.dismounting || self.installing_adk {
+            return;
+        }
         let req = match self.request().and_then(|r| {
             engine::preflight(&r)?;
             Ok(r)
@@ -441,12 +549,28 @@ impl PatcherApp {
 impl eframe::App for PatcherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.consume();
+        if !self.window_fitted
+            && let Some(monitor) = ctx.input(|i| i.viewport().monitor_size)
+        {
+            let size = fitted_window_size(monitor);
+            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+                size.x.min(640.0),
+                size.y.min(400.0),
+            )));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+            self.window_fitted = true;
+        }
+        let compact = ctx.content_rect().width() < 900.0;
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         if !dropped.is_empty() {
-            if self.busy || self.scanning {
+            if self.busy
+                || self.scanning
+                || self.dismounting
+                || self.installing_adk
+                || self.confirm_dismount
+            {
                 self.error = Some(
-                    "Wait for the current scan or build to finish before dropping another ISO."
-                        .into(),
+                    "Wait for the current operation to finish before dropping another ISO.".into(),
                 );
             } else {
                 match dropped_iso(&dropped) {
@@ -462,7 +586,7 @@ impl eframe::App for PatcherApp {
                 }
             }
         }
-        if self.busy || self.scanning {
+        if self.busy || self.scanning || self.dismounting || self.installing_adk {
             ctx.request_repaint_after(Duration::from_millis(150));
         }
         if self.busy && ctx.input(|i| i.viewport().close_requested()) {
@@ -470,12 +594,12 @@ impl eframe::App for PatcherApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
         egui::SidePanel::left("workflow")
-            .exact_width(220.0)
+            .exact_width(if compact { 180.0 } else { 220.0 })
             .resizable(false)
             .frame(
                 egui::Frame::new()
                     .fill(appearance::palette(ctx).rail)
-                    .inner_margin(22.0),
+                    .inner_margin(if compact { 14.0 } else { 22.0 }),
             )
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical()
@@ -484,7 +608,7 @@ impl eframe::App for PatcherApp {
                         ui.add_space(10.0);
                         ui.label(
                             RichText::new("MacBook\nISO Patcher")
-                                .font(appearance::display_font(22.0)),
+                                .font(appearance::display_font(if compact { 18.0 } else { 22.0 })),
                         );
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("by").color(muted(ui)));
@@ -595,11 +719,11 @@ impl eframe::App for PatcherApp {
                         }
                     } else if self.page > 0
                         && ui
-                            .button(if self.donation {
+                            .add_enabled(!self.dismounting && !self.installing_adk, egui::Button::new(if self.donation {
                                 "Back to review"
                             } else {
                                 "Back"
-                            })
+                            }))
                             .clicked()
                     {
                         if self.donation {
@@ -609,8 +733,16 @@ impl eframe::App for PatcherApp {
                         }
                         self.error = None;
                     }
+                    if !self.iso.trim().is_empty()
+                        && ui.add_enabled(
+                            cfg!(windows) && !self.busy && !self.scanning && !self.dismounting && !self.installing_adk,
+                            egui::Button::new(if self.dismounting { "Dismounting…" } else { "Dismount ISO" }),
+                        ).on_hover_text("Dismount the selected source ISO from Windows. The ISO file stays unchanged.").clicked()
+                    {
+                        self.confirm_dismount = true;
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if !self.busy && !self.scanning && !self.donation {
+                        if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation {
                             if self.page == 1
                                 && Self::primary(ui, "Review build", !self.selected.is_empty())
                             {
@@ -645,10 +777,14 @@ impl eframe::App for PatcherApp {
             .frame(
                 egui::Frame::new()
                     .fill(appearance::palette(ctx).canvas)
-                    .inner_margin(30.0),
+                    .inner_margin(if compact { 14.0 } else { 30.0 }),
             )
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    if let Some(notice) = &self.notice {
+                        ui.label(notice);
+                        ui.add_space(10.0);
+                    }
                     if let Some(error) = &self.error {
                         ui.group(|ui| {
                             ui.colored_label(
@@ -672,7 +808,11 @@ impl eframe::App for PatcherApp {
                 });
             });
         if ctx.input(|i| !i.raw.hovered_files.is_empty())
-            && (self.page != 0 || self.busy || self.scanning)
+            && (self.page != 0
+                || self.busy
+                || self.scanning
+                || self.dismounting
+                || self.installing_adk)
         {
             let rect = ctx.viewport_rect();
             let painter = ctx.layer_painter(egui::LayerId::new(
@@ -683,14 +823,35 @@ impl eframe::App for PatcherApp {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                if self.busy || self.scanning {
-                    "Finish the current scan or build first"
+                if self.busy || self.scanning || self.dismounting || self.installing_adk {
+                    "Finish the current operation first"
                 } else {
                     "Drop one Windows ISO to start a new scan"
                 },
                 egui::FontId::proportional(23.0),
                 Color32::WHITE,
             );
+        }
+        if self.confirm_dismount {
+            let modal = egui::Modal::new(egui::Id::new("confirm-dismount")).show(ctx, |ui| {
+                ui.set_max_width(380.0);
+                ui.heading("Dismount this ISO?");
+                ui.label(PathBuf::from(self.iso.trim()).file_name().unwrap_or_default().to_string_lossy());
+                ui.label("This ejects the selected ISO from Windows and returns you to the first page. The ISO file stays unchanged.");
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.confirm_dismount = false;
+                    }
+                    if Self::primary(ui, "Dismount ISO", true) {
+                        self.confirm_dismount = false;
+                        self.dismount(ctx);
+                    }
+                });
+            });
+            if modal.should_close() {
+                self.confirm_dismount = false;
+            }
         }
         // Optional renderer-level screenshot for release QA; no OS screen scraping.
         if let Some(path) = std::env::var_os("MACBOOK_PATCHER_SCREENSHOT") {
@@ -724,6 +885,22 @@ impl eframe::App for PatcherApp {
 #[cfg(test)]
 mod drop_tests {
     use super::*;
+    #[test]
+    fn startup_fits_smaller_monitors_without_changing_proportions() {
+        for monitor in [
+            egui::vec2(1920.0, 1080.0),
+            egui::vec2(1024.0, 768.0),
+            egui::vec2(800.0, 600.0),
+        ] {
+            let size = fitted_window_size(monitor);
+            assert!(size.x <= monitor.x - 48.0 && size.y <= monitor.y - 96.0);
+            assert!((size.x / size.y - 1240.0 / 700.0).abs() < 0.001);
+        }
+        assert_eq!(
+            fitted_window_size(egui::vec2(1920.0, 1080.0)),
+            egui::vec2(1240.0, 700.0)
+        );
+    }
     #[test]
     fn accepts_one_local_iso_case_insensitively() {
         let path = std::env::temp_dir().join(format!("drop-test-{}.ISO", uuid::Uuid::new_v4()));
