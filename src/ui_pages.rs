@@ -1,0 +1,243 @@
+use super::*;
+
+impl PatcherApp {
+    pub(super) fn section(
+        ui: &mut egui::Ui,
+        title: &str,
+        fill: Color32,
+        content: impl FnOnce(&mut egui::Ui),
+    ) {
+        egui::Frame::new()
+            .fill(fill)
+            .corner_radius(12)
+            .inner_margin(18.0)
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.label(RichText::new(title).size(18.0).strong());
+                ui.add_space(4.0);
+                content(ui);
+            });
+        ui.add_space(14.0);
+    }
+
+    pub(super) fn input_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        Self::heading(
+            ui,
+            "Start with a Windows ISO",
+            "Drop a file or browse. Your original ISO stays unchanged.",
+        );
+        let colors = appearance::palette(ctx);
+        Self::section(ui, "Source file", colors.source, |ui| {
+            ui.add_enabled_ui(!self.scanning, |ui| {
+                let hovering = ctx.input(|i| !i.raw.hovered_files.is_empty());
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), 98.0),
+                    egui::Sense::click(),
+                );
+                ui.painter().rect_filled(rect, 8, colors.drop);
+                ui.painter().rect_stroke(
+                    rect,
+                    8,
+                    egui::Stroke::new(
+                        1.0_f32,
+                        if hovering || response.hovered() {
+                            colors.accent
+                        } else {
+                            ui.visuals().widgets.noninteractive.bg_stroke.color
+                        },
+                    ),
+                    egui::StrokeKind::Inside,
+                );
+                ui.painter().text(
+                    rect.center() - egui::vec2(0.0, 12.0),
+                    egui::Align2::CENTER_CENTER,
+                    if hovering {
+                        "Release to scan your ISO"
+                    } else {
+                        "Drop your ISO here"
+                    },
+                    egui::FontId::proportional(20.0),
+                    ui.visuals().text_color(),
+                );
+                ui.painter().text(
+                    rect.center() + egui::vec2(0.0, 16.0),
+                    egui::Align2::CENTER_CENTER,
+                    "or click to browse",
+                    egui::FontId::proportional(14.0),
+                    colors.muted,
+                );
+                if response
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .clicked()
+                    && let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Windows ISO", &["iso"])
+                        .pick_file()
+                {
+                    self.iso = path.display().to_string();
+                    self.scan(ctx);
+                }
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.iso)
+                            .hint_text("Or paste an ISO path…")
+                            .desired_width((ui.available_width() - 105.0).max(120.0)),
+                    );
+                    if Self::primary(ui, "Scan ISO", !self.iso.trim().is_empty() && cfg!(windows)) {
+                        self.scan(ctx);
+                    }
+                });
+            });
+            if self.scanning {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Reading Windows editions…");
+                });
+            } else {
+                ui.label(
+                    RichText::new("Windows 10 · 64-bit · English (US)")
+                        .size(13.0)
+                        .color(colors.muted),
+                );
+            }
+        });
+        Self::section(ui, "Supported Mac", colors.model, |ui| {
+            ui.label(RichText::new("MacBook Pro 13-inch · 2016 · A1706").strong());
+            ui.label("External HDMI fix for a disconnected internal display.");
+            egui::CollapsingHeader::new("Compatibility details").show(ui, |ui| {
+                ui.label("MacBookPro13,2 · Iris 550 · Touch Bar · T1");
+                ui.label("Requires Windows 10 x64, en-US, builds 19041–19045. Windows 11 and split SWM images are not supported.");
+            });
+        });
+        if !cfg!(windows) {
+            ui.colored_label(
+                colors.error,
+                "ISO scanning and patching currently require Windows.",
+            );
+        }
+    }
+
+    pub(super) fn editions_page(&mut self, ui: &mut egui::Ui) {
+        Self::heading(
+            ui,
+            "Choose your Mac and editions",
+            "Include one edition or keep several choices in Windows Setup.",
+        );
+        let colors = appearance::palette(ui.ctx());
+        Self::section(ui, "MacBook model", colors.model, |ui| {
+            egui::ComboBox::from_id_salt("model")
+                .selected_text("A1706 — MacBook Pro 13-inch, 2016")
+                .width(420.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_label(true, "A1706 — MacBook Pro 13-inch, 2016")
+                        .clicked();
+                });
+            ui.label(
+                RichText::new("Touch Bar · Iris 550 · T1")
+                    .size(13.0)
+                    .color(colors.muted),
+            );
+        });
+        Self::section(ui, "Windows editions", colors.source, |ui| {
+            if let Some(inv) = &self.inventory {
+                for image in &inv.images {
+                    let reason = image.unsupported_reason();
+                    let mut checked = self.selected.contains(&image.index);
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.add_enabled(reason.is_none(), egui::Checkbox::new(&mut checked, &image.name)).changed() {
+                            if checked { self.selected.insert(image.index); } else { self.selected.remove(&image.index); }
+                        }
+                        ui.label(RichText::new(if image.source_tested() { "Source-tested Pro" } else { "Hardware unverified" }).size(12.0).color(colors.muted))
+                            .on_hover_text("Pro was validated in the source project. This app’s generated ISOs still need hardware testing.");
+                    });
+                    if let Some(reason) = reason {
+                        ui.label(RichText::new(reason).size(13.0).color(colors.muted));
+                    }
+                }
+            }
+            ui.add_space(6.0);
+            ui.label(RichText::new(format!("{} selected", self.selected.len())).strong());
+        });
+    }
+
+    pub(super) fn review_page(&mut self, ui: &mut egui::Ui) {
+        Self::heading(
+            ui,
+            "Review your build",
+            "Iris graphics, the HDMI fix, and Boot Camp drivers will be included.",
+        );
+        let colors = appearance::palette(ui.ctx());
+        Self::section(ui, "Included editions", colors.source, |ui| {
+            if let Some(inv) = &self.inventory {
+                for image in &inv.images {
+                    if self.selected.contains(&image.index) {
+                        ui.label(&image.name);
+                    }
+                }
+            }
+        });
+        Self::section(ui, "Output & workspace", colors.surface, |ui| {
+            Self::file_field(ui, "Save patched ISO", &mut self.output, "iso", true);
+            Self::folder_field(ui, "Temporary working folder", &mut self.settings.work);
+            if let Ok(req) = self.request()
+                && let Ok(space) = req.required_space()
+            {
+                ui.label(
+                    RichText::new(format!(
+                        "Workspace: allow {:.1} GiB free, plus room for your output ISO.",
+                        space as f64 / GIB as f64
+                    ))
+                    .size(13.0)
+                    .color(colors.muted),
+                );
+            }
+        });
+        Self::section(ui, "Build setup", colors.model, |ui| {
+            let missing_tools = !PathBuf::from(&self.settings.oscdimg).is_file()
+                || !PathBuf::from(&self.settings.seven_zip).is_file();
+            ui.label(if missing_tools {
+                "Install or select the missing build tools below."
+            } else {
+                "Build tools are ready."
+            });
+            egui::CollapsingHeader::new("Tools & download cache")
+                .default_open(missing_tools)
+                .show(ui, |ui| {
+                    Self::file_field(
+                        ui,
+                        "7-Zip (7z.exe)",
+                        &mut self.settings.seven_zip,
+                        "exe",
+                        false,
+                    );
+                    if !PathBuf::from(&self.settings.seven_zip).is_file()
+                        && ui.link("Install 7-Zip").clicked()
+                    {
+                        let _ = webbrowser::open(platform::SEVEN_ZIP_URL);
+                    }
+                    Self::file_field(
+                        ui,
+                        "Microsoft ADK (oscdimg.exe)",
+                        &mut self.settings.oscdimg,
+                        "exe",
+                        false,
+                    );
+                    if !PathBuf::from(&self.settings.oscdimg).is_file() {
+                        ui.label("Choose Deployment Tools in the Windows ADK installer.");
+                        if ui.link("Microsoft ADK installation guide").clicked() {
+                            let _ = webbrowser::open(platform::ADK_URL);
+                        }
+                    }
+                    if ui.button("Detect installed tools again").clicked() {
+                        self.settings.oscdimg = platform::find_oscdimg().display().to_string();
+                        self.settings.seven_zip = platform::find_seven_zip().display().to_string();
+                    }
+                    Self::folder_field(ui, "Driver download cache", &mut self.settings.cache);
+                });
+            egui::CollapsingHeader::new("What happens during the build?").show(ui, |ui| {
+                ui.label("Downloads about 610 MB of verified Intel and Apple drivers once, then reuses the cache.");
+                ui.label("Administrator approval is required. Your original ISO stays unchanged; disk partitioning remains manual.");
+            });
+        });
+    }
+}

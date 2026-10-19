@@ -1,4 +1,7 @@
-use eframe::egui::{self, Color32, RichText, Vec2};
+use crate::appearance::{self, ThemeMode};
+#[path = "ui_pages.rs"]
+mod pages;
+use eframe::egui::{self, Color32, RichText};
 use macbook_iso_patcher::{domain::*, engine, ipc, platform};
 use std::{
     collections::BTreeSet,
@@ -7,8 +10,33 @@ use std::{
     time::Duration,
 };
 
-const BLUE: Color32 = Color32::from_rgb(24, 76, 145);
-const MUTED: Color32 = Color32::from_rgb(78, 88, 103);
+const REPO_URL: &str = "https://github.com/Zenodeon/MacbookWindowsISOPatcher";
+fn muted(ui: &egui::Ui) -> Color32 {
+    appearance::palette(ui.ctx()).muted
+}
+
+fn dropped_iso(files: &[egui::DroppedFile]) -> Result<Option<PathBuf>, String> {
+    if files.is_empty() {
+        return Ok(None);
+    }
+    if files.len() != 1 {
+        return Err("Drop one Windows ISO at a time.".into());
+    }
+    let path = files[0]
+        .path
+        .clone()
+        .ok_or("Drop a local ISO file from File Explorer.")?;
+    if !path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("iso"))
+    {
+        return Err("Choose a Windows .iso file.".into());
+    }
+    if !path.is_file() {
+        return Err("The dropped ISO cannot be read. Choose an existing local file.".into());
+    }
+    Ok(Some(path))
+}
 enum Message {
     Scanned(Result<Inventory, String>),
     Build(Event),
@@ -19,6 +47,8 @@ struct Settings {
     cache: String,
     seven_zip: String,
     oscdimg: String,
+    #[serde(default)]
+    theme: ThemeMode,
 }
 
 pub struct PatcherApp {
@@ -47,24 +77,7 @@ pub struct PatcherApp {
 }
 impl PatcherApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let mut style = (*cc.egui_ctx.style()).clone();
-        style.visuals = egui::Visuals::light();
-        style.visuals.panel_fill = Color32::from_rgb(248, 249, 251);
-        style.visuals.override_text_color = Some(Color32::from_rgb(29, 38, 51));
-        style.visuals.selection.bg_fill = BLUE;
-        style.spacing.item_spacing = Vec2::new(10.0, 10.0);
-        style.spacing.button_padding = Vec2::new(14.0, 9.0);
-        style.spacing.interact_size.y = 34.0;
-        style
-            .text_styles
-            .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
-        style
-            .text_styles
-            .insert(egui::TextStyle::Button, egui::FontId::proportional(15.0));
-        style
-            .text_styles
-            .insert(egui::TextStyle::Heading, egui::FontId::proportional(26.0));
-        cc.egui_ctx.set_style(style);
+        appearance::install(&cc.egui_ctx);
         let dirs = directories::ProjectDirs::from("com", "Zenodeon", "MacBookISOPatcher")
             .expect("User profile is required");
         let settings_file = dirs.config_dir().join("settings.json");
@@ -85,6 +98,15 @@ impl PatcherApp {
             settings.oscdimg = platform::find_oscdimg().display().to_string();
         }
         let (sender, receiver) = mpsc::channel();
+        // Renderer QA override is transient; never changes saved preferences.
+        if std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some() {
+            match std::env::var("MACBOOK_PATCHER_THEME").as_deref() {
+                Ok("dark") => settings.theme = ThemeMode::Dark,
+                Ok("light") => settings.theme = ThemeMode::Light,
+                _ => (),
+            }
+        }
+        settings.theme.apply(&cc.egui_ctx);
         Self {
             page: 0,
             iso: String::new(),
@@ -162,6 +184,7 @@ impl PatcherApp {
                         self.logs.push(text);
                     }
                     Event::Finished(path) => {
+                        self.error = None;
                         self.busy = false;
                         self.finished = Some(path);
                         self.stage = "Your patched ISO is ready".into();
@@ -256,13 +279,14 @@ impl PatcherApp {
     fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
         ui.heading(title);
         ui.add_space(4.0);
-        ui.label(RichText::new(description).color(MUTED));
+        ui.label(RichText::new(description).color(muted(ui)));
         ui.add_space(20.0);
     }
     fn primary(ui: &mut egui::Ui, label: &str, enabled: bool) -> bool {
         ui.add_enabled(
             enabled,
-            egui::Button::new(RichText::new(label).color(Color32::WHITE)).fill(BLUE),
+            egui::Button::new(RichText::new(label).color(Color32::WHITE))
+                .fill(appearance::palette(ui.ctx()).primary),
         )
         .clicked()
     }
@@ -311,218 +335,133 @@ impl PatcherApp {
             }
         });
     }
-    fn input_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        Self::heading(
-            ui,
-            "Start with your Windows ISO",
-            "Choose original Microsoft media. We’ll scan the editions before making any changes.",
-        );
-        ui.add_enabled_ui(!self.scanning, |ui| {
-            Self::file_field(ui, "Windows ISO", &mut self.iso, "iso", false);
-            ui.add_space(12.0);
-            if Self::primary(
-                ui,
-                "Scan Windows editions",
-                !self.iso.trim().is_empty() && cfg!(windows),
-            ) {
-                self.scan(ctx);
-            }
-        });
-        if self.scanning {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label("Mounting the ISO read-only and reading image metadata…");
-            });
-        }
-        ui.add_space(28.0);
-        ui.separator();
-        ui.add_space(16.0);
-        ui.label(RichText::new("First supported model").strong());
-        ui.label(MODEL_NAME);
-        ui.label("A1706 · MacBookPro13,2 · Intel Iris Graphics 550 · T1");
-        ui.add_space(12.0);
-        ui.label("This profile reproduces the v17 external HDMI fix for a Mac with its internal display disconnected.");
-        ui.label(RichText::new("Supported media: x64 Windows 10, en-US, build 19041–19045. Windows 11 and split SWM images are not supported yet.").color(MUTED));
-        if !cfg!(windows) {
-            ui.colored_label(Color32::DARK_RED, "This build can show the interface, but ISO scanning and patching currently require Windows.");
-        }
-    }
-    fn editions_page(&mut self, ui: &mut egui::Ui) {
-        Self::heading(
-            ui,
-            "Choose your Mac and Windows editions",
-            "Include one edition or keep several choices in Windows Setup.",
-        );
-        ui.label(RichText::new("MacBook model").strong());
-        egui::ComboBox::from_id_salt("model")
-            .selected_text("A1706 — MacBook Pro 13-inch, 2016")
-            .width(420.0)
-            .show_ui(ui, |ui| {
-                ui.selectable_label(true, "A1706 — MacBook Pro 13-inch, 2016")
-                    .clicked();
-            });
-        ui.label(RichText::new("MacBookPro13,2 · Iris 550 · Touch Bar · T1 (not T2)").color(MUTED));
-        ui.add_space(18.0);
-        ui.label(RichText::new("Editions found in your ISO").strong());
-        if let Some(inv) = &self.inventory {
-            for image in &inv.images {
-                let reason = image.unsupported_reason();
-                let enabled = reason.is_none();
-                let mut checked = self.selected.contains(&image.index);
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(enabled, egui::Checkbox::new(&mut checked, &image.name)).changed() {
-                            if checked { self.selected.insert(image.index); } else { self.selected.remove(&image.index); }
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new(format!("{} · build {}", image.language, image.build)).size(13.0).color(MUTED));
-                        });
-                    });
-                    let status = reason.unwrap_or_else(|| if image.source_tested() { "Pro was validated in the source project; this app’s output still needs hardware testing.".into() } else { "Compatible metadata · hardware testing pending".into() });
-                    ui.label(RichText::new(status).size(13.0).color(MUTED));
-                });
-            }
-        }
-        ui.add_space(10.0);
-        ui.label(format!("{} edition(s) selected", self.selected.len()));
-    }
-    fn review_page(&mut self, ui: &mut egui::Ui) {
-        Self::heading(
-            ui,
-            "Review your patched ISO",
-            "The build adds the signed Iris driver, the v17 HDMI startup sequence, and Apple Boot Camp drivers.",
-        );
-        if let Some(inv) = &self.inventory {
-            ui.label(RichText::new("Included editions").strong());
-            for i in &inv.images {
-                if self.selected.contains(&i.index) {
-                    ui.label(&i.name);
-                }
-            }
-        }
-        ui.add_space(12.0);
-        Self::file_field(ui, "Save patched ISO", &mut self.output, "iso", true);
-        ui.add_space(12.0);
-        Self::folder_field(
-            ui,
-            "Working folder (large temporary files)",
-            &mut self.settings.work,
-        );
-        if let Ok(req) = self.request()
-            && let Ok(space) = req.required_space()
-        {
-            ui.label(RichText::new(format!("Allow at least {:.1} GiB free in the working folder, plus space for the output ISO.", space as f64 / GIB as f64)).color(MUTED));
-        }
-        ui.add_space(8.0);
-        egui::CollapsingHeader::new("Build tools and download cache").default_open(!PathBuf::from(&self.settings.oscdimg).is_file()).show(ui, |ui| {
-            Self::file_field(ui, "7-Zip (7z.exe)", &mut self.settings.seven_zip, "exe", false);
-            if !PathBuf::from(&self.settings.seven_zip).is_file() && ui.link("Install 7-Zip").clicked() { let _ = webbrowser::open(platform::SEVEN_ZIP_URL); }
-            Self::file_field(ui, "Microsoft ADK (oscdimg.exe)", &mut self.settings.oscdimg, "exe", false);
-            if !PathBuf::from(&self.settings.oscdimg).is_file() {
-                ui.label("Install Windows ADK and select Deployment Tools. The WinPE add-on is not required.");
-                if ui.link("Open Microsoft ADK installation guide").clicked() { let _ = webbrowser::open(platform::ADK_URL); }
-                if ui.button("Detect installed tools again").clicked() {
-                    self.settings.oscdimg = platform::find_oscdimg().display().to_string();
-                    self.settings.seven_zip = platform::find_seven_zip().display().to_string();
-                }
-            }
-            Self::folder_field(ui, "Verified driver download cache", &mut self.settings.cache);
-        });
-        ui.add_space(12.0);
-        ui.label("Driver download: Intel 15.45.34.5174 and Apple Boot Camp 041-88734 (about 610 MB total). Verified downloads are reused.");
-        ui.label(RichText::new("Administrator approval is needed for image servicing. Partition selection stays manual. Your original ISO is preserved.").color(MUTED));
-    }
     fn donation_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         Self::heading(
             ui,
-            "Support the project, if you’d like",
-            "Your ISO will include multiple Windows editions. Donations help support the patcher.",
+            "Support the project",
+            "Your multi-edition build works with or without a donation.",
         );
-        ui.label("Payment is optional. Both options below let you build the same ISO.");
-        ui.add_space(22.0);
-        if Self::primary(ui, "Donate on Ko-fi", true) {
-            match webbrowser::open(DONATION_URL) {
-                Ok(_) => self.donation_clicked = true,
-                Err(e) => {
-                    self.error = Some(format!(
-                        "Could not open your browser: {e}. You can continue without donating."
-                    ))
+        Self::section(
+            ui,
+            "Optional support",
+            appearance::palette(ui.ctx()).model,
+            |ui| {
+                if Self::primary(ui, "Donate on Ko-fi", true) {
+                    match webbrowser::open(DONATION_URL) {
+                        Ok(_) => self.donation_clicked = true,
+                        Err(e) => {
+                            self.error = Some(format!(
+                                "Could not open your browser: {e}. You can continue without donating."
+                            ))
+                        }
+                    }
                 }
-            }
-        }
-        ui.hyperlink_to("ko-fi.com/zenodeon", DONATION_URL);
-        ui.add_space(16.0);
-        if ui
-            .button(if self.donation_clicked {
-                "Continue to build"
-            } else {
-                "Continue without donating"
-            })
-            .clicked()
-        {
-            self.begin(ctx);
-        }
-        ui.add_space(18.0);
-        ui.label(
-            RichText::new("The app does not check or record whether you donate.").color(MUTED),
+                ui.hyperlink_to("ko-fi.com/zenodeon", DONATION_URL);
+                ui.add_space(16.0);
+                if ui
+                    .button(if self.donation_clicked {
+                        "Continue to build"
+                    } else {
+                        "Continue without donating"
+                    })
+                    .clicked()
+                {
+                    self.begin(ctx);
+                }
+                ui.add_space(18.0);
+                ui.label(
+                    RichText::new("The app does not check or record whether you donate.")
+                        .color(muted(ui)),
+                );
+            },
         );
     }
     fn build_page(&mut self, ui: &mut egui::Ui) {
         Self::heading(ui, &self.stage, &self.detail);
-        if self.busy {
-            ui.horizontal(|ui| { ui.spinner(); ui.label(if self.cancel.is_cancelled() { "Cancellation requested. Waiting for the current servicing operation to finish safely…" } else { "Keep the app open while the build is running." }); });
-        }
-        if let Some((name, received, total)) = &self.download {
-            ui.label(name);
-            if let Some(total) = total.filter(|t| *t > 0) {
-                ui.add(egui::ProgressBar::new(*received as f32 / total as f32).show_percentage());
+        let colors = appearance::palette(ui.ctx());
+        Self::section(ui, "Progress", colors.source, |ui| {
+            if self.busy {
+                ui.horizontal(|ui| { ui.spinner(); ui.label(if self.cancel.is_cancelled() { "Cancellation requested. Waiting for the current servicing operation to finish safely…" } else { "Keep the app open while the build is running." }); });
             }
-            ui.label(format!(
-                "{:.1} MB downloaded",
-                *received as f64 / 1_000_000.0
-            ));
-        }
+            if let Some((name, received, total)) = &self.download {
+                ui.label(name);
+                if let Some(total) = total.filter(|t| *t > 0) {
+                    ui.add(
+                        egui::ProgressBar::new(*received as f32 / total as f32).show_percentage(),
+                    );
+                }
+                ui.label(format!(
+                    "{:.1} MB downloaded",
+                    *received as f64 / 1_000_000.0
+                ));
+            }
+        });
         if let Some(path) = &self.finished {
-            ui.label(RichText::new(path.display().to_string()).strong());
-            if ui.button("Open output folder").clicked()
-                && let Err(error) = platform::open_folder(path.parent().unwrap())
-            {
-                self.error = Some(format!("Could not open output folder: {error:#}"));
-            }
-            ui.add_space(14.0);
-            ui.label("1. Create the BOOTCAMP partition in macOS first.");
-            ui.label("2. Boot this ISO through Ventoy WIMBOOT (press w).");
-            ui.label("3. Select only BOOTCAMP in Windows Setup.");
-            ui.label("4. On the Windows desktop, run C:\\BootCamp\\Setup.exe as administrator and reboot.");
-            ui.label(RichText::new("Hardware testing of this app’s output remains required. Do not run the old Intel graphics installer.").color(MUTED));
+            Self::section(ui, "Your patched ISO", colors.model, |ui| {
+                ui.label(RichText::new(path.display().to_string()).strong());
+                if ui.button("Open output folder").clicked()
+                    && let Err(error) = platform::open_folder(path.parent().unwrap())
+                {
+                    self.error = Some(format!("Could not open output folder: {error:#}"));
+                }
+                ui.add_space(14.0);
+                ui.label("1. Create the BOOTCAMP partition in macOS first.");
+                ui.label("2. Boot this ISO through Ventoy WIMBOOT (press w).");
+                ui.label("3. Select only BOOTCAMP in Windows Setup.");
+                ui.label("4. On the Windows desktop, run C:\\BootCamp\\Setup.exe as administrator and reboot.");
+                ui.label(RichText::new("Hardware testing of this app’s output remains required. Do not run the old Intel graphics installer.").color(muted(ui)));
+            });
         }
         ui.add_space(12.0);
-        egui::CollapsingHeader::new("Build log")
-            .default_open(true)
-            .show(ui, |ui| {
-                if ui.button("Save visible log…").clicked()
-                    && let Some(path) = rfd::FileDialog::new()
-                        .set_file_name("macbook-patcher.log")
-                        .save_file()
-                {
-                    let _ = std::fs::write(path, self.logs.join("\n"));
-                }
-                egui::ScrollArea::vertical()
-                    .id_salt("log")
-                    .max_height(280.0)
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        for line in &self.logs {
-                            ui.monospace(line);
-                        }
-                    });
-            });
+        Self::section(ui, "Build details", colors.surface, |ui| {
+            egui::CollapsingHeader::new("Show build log")
+                .default_open(false)
+                .show(ui, |ui| {
+                    if ui.button("Save visible log…").clicked()
+                        && let Some(path) = rfd::FileDialog::new()
+                            .set_file_name("macbook-patcher.log")
+                            .save_file()
+                    {
+                        let _ = std::fs::write(path, self.logs.join("\n"));
+                    }
+                    egui::ScrollArea::vertical()
+                        .id_salt("log")
+                        .max_height(280.0)
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            for line in &self.logs {
+                                ui.monospace(line);
+                            }
+                        });
+                });
+        });
     }
 }
 
 impl eframe::App for PatcherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.consume();
+        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
+        if !dropped.is_empty() {
+            if self.busy || self.scanning {
+                self.error = Some(
+                    "Wait for the current scan or build to finish before dropping another ISO."
+                        .into(),
+                );
+            } else {
+                match dropped_iso(&dropped) {
+                    Ok(Some(path)) => {
+                        self.iso = path.display().to_string();
+                        self.page = 0;
+                        self.donation = false;
+                        self.finished = None;
+                        self.scan(ctx);
+                    }
+                    Err(error) => self.error = Some(error),
+                    Ok(None) => (),
+                }
+            }
+        }
         if self.busy || self.scanning {
             ctx.request_repaint_after(Duration::from_millis(150));
         }
@@ -531,49 +470,117 @@ impl eframe::App for PatcherApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
         egui::SidePanel::left("workflow")
-            .exact_width(205.0)
+            .exact_width(220.0)
             .resizable(false)
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(234, 238, 244))
+                    .fill(appearance::palette(ctx).rail)
                     .inner_margin(22.0),
             )
             .show(ctx, |ui| {
-                ui.add_space(10.0);
-                ui.label(RichText::new("MacBook\nISO Patcher").size(24.0).strong());
-                ui.add_space(32.0);
-                for (n, label) in ["Windows ISO", "Mac & editions", "Review", "Build"]
-                    .iter()
-                    .enumerate()
-                {
-                    let current = self.page == n;
-                    ui.label(
-                        RichText::new(*label)
-                            .size(16.0)
-                            .color(if current { BLUE } else { MUTED })
-                            .strong(),
-                    );
-                    if current {
-                        ui.label(RichText::new("Current step").size(12.0).color(MUTED));
-                    }
-                    ui.add_space(16.0);
-                }
-                ui.add_space(24.0);
-                ui.separator();
-                ui.add_space(10.0);
-                ui.label(
-                    RichText::new("A1706 profile\nv17 HDMI fix")
-                        .size(13.0)
-                        .color(MUTED),
-                );
-                ui.label(
-                    RichText::new("v0.1.0 · Rust desktop")
-                        .size(12.0)
-                        .color(MUTED),
-                );
+                egui::ScrollArea::vertical()
+                    .id_salt("workflow-scroll")
+                    .show(ui, |ui| {
+                        ui.add_space(10.0);
+                        ui.label(
+                            RichText::new("MacBook\nISO Patcher")
+                                .font(appearance::display_font(22.0)),
+                        );
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("by").color(muted(ui)));
+                            ui.add(egui::Hyperlink::from_label_and_url(
+                                RichText::new("zenodeon").font(appearance::display_font(16.0)),
+                                "https://zenodeon.com/",
+                            ));
+                        });
+                        ui.add_space(22.0);
+                        for (n, label) in ["Windows ISO", "Mac & editions", "Review", "Build"]
+                            .iter()
+                            .enumerate()
+                        {
+                            let current = self.page == n;
+                            ui.label(
+                                RichText::new(*label)
+                                    .size(16.0)
+                                    .color(if current {
+                                        appearance::palette(ctx).accent
+                                    } else {
+                                        muted(ui)
+                                    })
+                                    .strong(),
+                            );
+                            if current {
+                                ui.label(RichText::new("Current step").size(12.0).color(muted(ui)));
+                            }
+                            ui.add_space(10.0);
+                        }
+                        ui.add_space(12.0);
+                        ui.separator();
+                        ui.add_space(10.0);
+                        ui.label(
+                            RichText::new("A1706 profile\nv17 HDMI fix")
+                                .size(13.0)
+                                .color(muted(ui)),
+                        );
+                        ui.label(
+                            RichText::new("v0.1.0 · Rust desktop")
+                                .size(12.0)
+                                .color(muted(ui)),
+                        );
+                        ui.add_space(12.0);
+                        ui.label(RichText::new("Appearance").size(13.0).color(muted(ui)));
+                        let previous = self.settings.theme;
+                        egui::ComboBox::from_id_salt("theme")
+                            .selected_text(format!("{:?}", self.settings.theme))
+                            .width(150.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.settings.theme,
+                                    ThemeMode::System,
+                                    "System",
+                                );
+                                ui.selectable_value(
+                                    &mut self.settings.theme,
+                                    ThemeMode::Light,
+                                    "Light",
+                                );
+                                ui.selectable_value(
+                                    &mut self.settings.theme,
+                                    ThemeMode::Dark,
+                                    "Dark",
+                                );
+                            });
+                        if previous != self.settings.theme {
+                            self.settings.theme.apply(ctx);
+                            self.persist_settings();
+                        }
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button("Ko-fi")
+                                .on_hover_text("Support zenodeon on Ko-fi")
+                                .clicked()
+                                && let Err(error) = webbrowser::open(DONATION_URL)
+                            {
+                                self.error = Some(format!("Could not open Ko-fi: {error}"));
+                            }
+                            if ui
+                                .button("GitHub")
+                                .on_hover_text("Open the patcher repository")
+                                .clicked()
+                                && let Err(error) = webbrowser::open(REPO_URL)
+                            {
+                                self.error = Some(format!("Could not open GitHub: {error}"));
+                            }
+                        });
+                    });
             });
         egui::TopBottomPanel::bottom("actions")
-            .frame(egui::Frame::new().fill(Color32::WHITE).inner_margin(16.0))
+            .frame(
+                egui::Frame::new()
+                    .fill(appearance::palette(ctx).footer)
+                    .inner_margin(16.0),
+            )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     if self.busy {
@@ -637,7 +644,7 @@ impl eframe::App for PatcherApp {
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(248, 249, 251))
+                    .fill(appearance::palette(ctx).canvas)
                     .inner_margin(30.0),
             )
             .show(ctx, |ui| {
@@ -645,7 +652,7 @@ impl eframe::App for PatcherApp {
                     if let Some(error) = &self.error {
                         ui.group(|ui| {
                             ui.colored_label(
-                                Color32::from_rgb(155, 33, 33),
+                                appearance::palette(ctx).error,
                                 RichText::new("Action needed").strong(),
                             );
                             ui.label(error);
@@ -664,6 +671,27 @@ impl eframe::App for PatcherApp {
                     }
                 });
             });
+        if ctx.input(|i| !i.raw.hovered_files.is_empty())
+            && (self.page != 0 || self.busy || self.scanning)
+        {
+            let rect = ctx.viewport_rect();
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("iso-drop-hint"),
+            ));
+            painter.rect_filled(rect, 0, Color32::from_black_alpha(215));
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                if self.busy || self.scanning {
+                    "Finish the current scan or build first"
+                } else {
+                    "Drop one Windows ISO to start a new scan"
+                },
+                egui::FontId::proportional(23.0),
+                Color32::WHITE,
+            );
+        }
         // Optional renderer-level screenshot for release QA; no OS screen scraping.
         if let Some(path) = std::env::var_os("MACBOOK_PATCHER_SCREENSHOT") {
             self.screenshot_frames += 1;
@@ -690,5 +718,43 @@ impl eframe::App for PatcherApp {
             }
             ctx.request_repaint_after(Duration::from_millis(100));
         }
+    }
+}
+
+#[cfg(test)]
+mod drop_tests {
+    use super::*;
+    #[test]
+    fn accepts_one_local_iso_case_insensitively() {
+        let path = std::env::temp_dir().join(format!("drop-test-{}.ISO", uuid::Uuid::new_v4()));
+        std::fs::write(&path, b"drop validation fixture").unwrap();
+        let file = egui::DroppedFile {
+            path: Some(path.clone()),
+            ..Default::default()
+        };
+        assert_eq!(dropped_iso(&[file]).unwrap(), Some(path.clone()));
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn rejects_multiple_non_iso_and_browser_drops() {
+        let file = egui::DroppedFile {
+            path: Some("example.txt".into()),
+            ..Default::default()
+        };
+        assert!(dropped_iso(std::slice::from_ref(&file)).is_err());
+        assert!(dropped_iso(&[file.clone(), file]).is_err());
+        assert!(dropped_iso(&[egui::DroppedFile::default()]).is_err());
+        assert_eq!(dropped_iso(&[]).unwrap(), None);
+    }
+    #[test]
+    fn rejects_missing_iso_paths() {
+        let path = std::env::temp_dir().join(format!("missing-{}.iso", uuid::Uuid::new_v4()));
+        assert!(
+            dropped_iso(&[egui::DroppedFile {
+                path: Some(path),
+                ..Default::default()
+            }])
+            .is_err()
+        );
     }
 }

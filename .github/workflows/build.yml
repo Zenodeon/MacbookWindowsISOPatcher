@@ -13,7 +13,16 @@ jobs:
       - run: cargo test --locked --all-targets
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo build --locked --release
+      - name: Package desktop app and font notices
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist/MacBookISOPatcher-Windows-x64/Font-Licenses -Force | Out-Null
+          Copy-Item target/release/macbook-iso-patcher.exe dist/MacBookISOPatcher-Windows-x64/MacBookISOPatcher.exe
+          Copy-Item README.md dist/MacBookISOPatcher-Windows-x64/README.md
+          Copy-Item assets/fonts/*-OFL.txt dist/MacBookISOPatcher-Windows-x64/Font-Licenses/
+          Copy-Item assets/fonts/README.md dist/MacBookISOPatcher-Windows-x64/Font-Licenses/README.md
+          Compress-Archive -Path dist/MacBookISOPatcher-Windows-x64 -DestinationPath dist/MacBookISOPatcher-Windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: MacBookISOPatcher-Windows-x64
-          path: target/release/macbook-iso-patcher.exe
+          path: dist/MacBookISOPatcher-Windows-x64.zip

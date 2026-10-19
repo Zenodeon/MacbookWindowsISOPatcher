@@ -10,7 +10,9 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 ## Use
 
 1. Run `macbook-iso-patcher.exe` on x64 Windows 10 or 11.
-2. Select an original Microsoft Windows 10 ISO and scan it.
+2. Drop an original Microsoft Windows 10 ISO onto the app, or click the drop zone
+   to browse. Dropped and browsed files are scanned automatically; pasted paths
+   can be scanned with **Scan ISO**.
 3. Select A1706 and one or more compatible Windows editions.
 4. Choose a new output filename and a working folder with enough free disk space.
 5. Install missing build prerequisites using the links in **Build tools**.
@@ -23,6 +25,11 @@ logs and `job.json` stay in the chosen working folder. Existing output files and
 the original ISO are never overwritten. Cancellation waits for an active DISM
 operation to reach a safe boundary. Retrying with the same working folder
 recovers identifiable app-owned mounts from interrupted builds.
+
+The sidebar includes a persistent Ko-fi button, the GitHub repository link, and
+**by zenodeon** linking to the creator's website. Choose **System**, **Light**, or
+**Dark** under Appearance; the choice is saved between runs. Atomed, Exo 2 and
+Space Mono from zenodeon.com are embedded for offline use.
 
 ## Prerequisites
 

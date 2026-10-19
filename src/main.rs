@@ -1,4 +1,5 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+mod appearance;
 mod ui;
 fn main() -> eframe::Result {
     let args: Vec<_> = std::env::args().skip(1).collect();
@@ -18,6 +19,7 @@ fn main() -> eframe::Result {
     }
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
+            .with_drag_and_drop(true)
             .with_inner_size([1040.0, 760.0])
             .with_min_inner_size([820.0, 600.0]),
         ..Default::default()

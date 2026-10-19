@@ -3,8 +3,12 @@
 ## Verified on 2026-10-19
 
 - Windows MSVC release build and compilation of all four WinPE helpers.
-- 14 automated tests, formatting check, and Clippy with warnings denied.
-- Renderer screenshot inspection of the native start screen.
+- 17 automated tests, formatting check, and Clippy with warnings denied.
+- Renderer screenshot inspection of the native start screen in light and dark
+  themes, with embedded website fonts, creator branding, and sidebar links.
+- Native file-drop handling is enabled; drop validation tests cover a local ISO,
+  uppercase extension, multiple files, wrong file type, browser-only drops,
+  and nonexistent paths. Complete ISO scans still require real Windows media.
 - Complete preparation from the actual pinned Intel/Apple downloads: archive
   hashing, Intel Burn cabinet and file-manifest reconstruction, valid catalog
   signature, Apple archive/DMG/driver EXE extraction, all 27 boot-path folders,
