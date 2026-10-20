@@ -15,8 +15,8 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    driver is selected automatically for that model's external display output.
    Selecting a model alone does not download anything. The button starts downloading
    that model's files in the background and opens the Windows ISO page.
-   Download bytes, progress, completion and Retry stay centered below the footer
-   buttons. Completion turns green. Switching models cancels the previous transfer cleanly;
+   Download bytes, progress, completion and Retry stay in the center between the
+   footer buttons. Completion turns green. Switching models cancels the previous transfer cleanly;
    press the start button again to download the newly selected model's files.
    Verified shared packages are reused from the cache; failed downloads offer Retry.
    All listed models can build after their downloads finish. The **2016 A1706 /

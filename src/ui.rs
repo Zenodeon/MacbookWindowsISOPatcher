@@ -849,21 +849,8 @@ impl eframe::App for PatcherApp {
                     .inner_margin(16.0),
             )
             .show(ctx, |ui| {
-                if self.page == Page::Review && !self.donation && !self.busy {
-                    let colors = appearance::palette(ctx);
-                    if !self.drivers_ready() {
-                        ui.label(RichText::new("Build unlocks when this model's driver download finishes.").size(13.0).color(colors.muted));
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        if self.model().is_some_and(|model| !model.hardware_verified()) {
-                            ui.colored_label(colors.warning, "Unverified hardware · You can still build.");
-                        }
-                        ui.hyperlink_to("Report success or a problem on GitHub", format!("{REPO_URL}/issues/new"))
-                            .on_hover_text("Include your Mac model, Windows edition, and what worked or failed.");
-                    });
-                    ui.add_space(8.0);
-                }
                 ui.horizontal(|ui| {
+                    ui.set_min_height(42.0);
                     if self.busy {
                         if ui
                             .add_enabled(
@@ -934,10 +921,9 @@ impl eframe::App for PatcherApp {
                         );
                         let label = if rect.width() < 320.0 { model.identifier } else { model.name };
                         let tooltip = format!("{}\n{}", model.name, model.identifier);
-                        ui.put(rect, egui::Label::new(RichText::new(label).size(13.0).color(muted(ui))).truncate()).on_hover_text(tooltip);
+                        self.driver_download_footer(ui, rect, label, &tooltip);
                     }
                 });
-                self.driver_download_footer(ui);
             });
         let scroll_page = (self.page, self.donation);
         let reset_scroll = self.scroll_page != scroll_page;

@@ -391,6 +391,11 @@ impl PatcherApp {
                     "Unverified hardware. You can build after the driver download finishes.",
                 );
             }
+            ui.hyperlink_to(
+                "Report success or a problem on GitHub",
+                format!("{REPO_URL}/issues/new"),
+            )
+            .on_hover_text("Include your Mac model, Windows edition, and what worked or failed.");
             ui.add_space(12.0);
         }
         Self::section(ui, "Included editions", colors.source, |ui| {

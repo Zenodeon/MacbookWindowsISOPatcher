@@ -56,8 +56,11 @@ donating visible. Payment never changes the available functionality.
 The sidebar always provides the theme selector, by zenodeon website attribution,
 Ko-fi button, and GitHub repository button. It scrolls on short windows.
 Center the selected Mac model in the footer gap between the action buttons.
-Keep driver bytes, progress, ready/error state and Retry centered below that row;
-do not repeat a driver download section inside the scrolling page. Label the
+Keep driver bytes, progress, ready/error state and Retry inside the center gap of
+that same compact action row, without adding footer rows. Narrow gaps show the
+percentage with full byte/package details on hover. Keep the GitHub result-report
+link beside the selected-model information on Review.
+Do not repeat a driver download section inside the scrolling page. Label the
 primary build action Build ISO and place a thin progress bar inside it. Use actual
 download bytes when known and an animated indicator for unmeasured build stages.
 On the source page, put Selected Mac in a neutral section above the blue Source

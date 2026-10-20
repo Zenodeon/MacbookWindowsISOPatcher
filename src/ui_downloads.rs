@@ -71,7 +71,7 @@ impl PatcherApp {
             return Some(("Files & drivers downloaded".into(), colors.success));
         }
         if self.drivers.error.is_some() {
-            return Some(("Driver download failed · Retry below".into(), colors.error));
+            return Some(("Driver download failed".into(), colors.error));
         }
         let status = if let Some((name, received, Some(total))) = &self.drivers.progress {
             let package = if name.ends_with(".pkg") {
@@ -200,14 +200,20 @@ impl PatcherApp {
         }
         response
             .on_disabled_hover_text(if self.busy {
-                "The current build stage is shown below."
+                "The current build stage is shown in the footer."
             } else {
                 "Finish the selected model's downloads before building."
             })
             .clicked()
     }
 
-    pub(super) fn driver_download_footer(&mut self, ui: &mut egui::Ui) {
+    pub(super) fn driver_download_footer(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        model: &str,
+        tooltip: &str,
+    ) {
         let colors = appearance::palette(ui.ctx());
         let status = if self.busy {
             Some((self.stage.clone(), colors.muted))
@@ -215,68 +221,131 @@ impl PatcherApp {
             self.driver_footer_status(ui.ctx())
         };
         let Some((status, color)) = status else {
+            ui.put(
+                rect,
+                egui::Label::new(RichText::new(model).size(13.0).color(colors.muted)).truncate(),
+            )
+            .on_hover_text(tooltip);
             return;
         };
-        ui.add_space(6.0);
-        ui.vertical_centered(|ui| {
-            ui.set_max_width(ui.available_width().min(620.0));
-            let progress = if self.busy {
-                self.download.as_ref()
-            } else {
-                self.current_driver_transfer()
-            };
-            if let Some((name, received, total)) = progress {
-                let package = if name.ends_with(".pkg") {
-                    "Apple Boot Camp drivers"
-                } else {
-                    "Intel graphics"
-                };
-                let detail = if let Some(total) = total.filter(|total| *total > 0) {
-                    format!(
-                        "{package} · {:.1} / {:.1} MB · {:.0}%",
-                        *received as f64 / 1_000_000.0,
-                        total as f64 / 1_000_000.0,
-                        download_fraction(*received, Some(total)).unwrap_or(0.0) * 100.0
-                    )
-                } else {
-                    format!(
-                        "{package} · {:.1} MB received",
-                        *received as f64 / 1_000_000.0
-                    )
-                };
-                ui.label(RichText::new(detail).size(12.0).color(color))
-                    .on_hover_text(name);
-                if let Some(fraction) = download_fraction(*received, *total) {
-                    ui.add(
-                        egui::ProgressBar::new(fraction)
-                            .desired_width(ui.available_width())
-                            .desired_height(5.0),
-                    );
-                } else {
-                    ui.spinner();
-                }
-            } else {
-                ui.add(egui::Label::new(RichText::new(&status).size(12.0).color(color)).truncate())
-                    .on_hover_text(if self.busy {
-                        self.detail.clone()
-                    } else {
-                        status
-                    });
-            }
-            if !self.busy
-                && let Some(error) = &self.drivers.error
-            {
-                ui.add(
-                    egui::Label::new(RichText::new(error).size(12.0).color(colors.error))
-                        .truncate(),
+        let area = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 38.0));
+        let model_rect = egui::Rect::from_min_size(area.min, egui::vec2(area.width(), 14.0));
+        ui.put(
+            model_rect,
+            egui::Label::new(RichText::new(model).size(12.0).color(colors.muted)).truncate(),
+        )
+        .on_hover_text(tooltip);
+        let status_rect = egui::Rect::from_min_size(
+            area.min + egui::vec2(0.0, 15.0),
+            egui::vec2(area.width(), 17.0),
+        );
+        if !self.busy
+            && let Some(error) = &self.drivers.error
+        {
+            let status_rect = egui::Rect::from_center_size(
+                status_rect.center(),
+                egui::vec2(status_rect.width().min(240.0), status_rect.height()),
+            );
+            let retry = egui::Rect::from_min_max(
+                egui::pos2(status_rect.right() - 46.0, status_rect.top()),
+                status_rect.max,
+            );
+            let text = egui::Rect::from_min_max(
+                status_rect.min,
+                egui::pos2(retry.left() - 6.0, status_rect.bottom()),
+            );
+            ui.put(
+                text,
+                egui::Label::new(
+                    RichText::new("Download failed")
+                        .size(11.0)
+                        .color(colors.error),
                 )
-                .on_hover_text(error);
-                if ui.small_button("Retry driver download").clicked() {
-                    self.drivers.key = None;
-                    ui.ctx().request_repaint();
-                }
+                .truncate(),
+            )
+            .on_hover_text(error);
+            if ui
+                .put(retry, egui::Link::new(RichText::new("Retry").size(11.0)))
+                .on_hover_text(error)
+                .clicked()
+            {
+                self.drivers.key = None;
+                ui.ctx().request_repaint();
             }
-        });
+            return;
+        }
+        let progress = if self.busy {
+            self.download.as_ref()
+        } else {
+            self.current_driver_transfer()
+        };
+        let mut fraction = None;
+        let (text, detail) = if let Some((name, received, total)) = progress {
+            let package = if name.ends_with(".pkg") {
+                "Boot Camp"
+            } else {
+                "Intel graphics"
+            };
+            fraction = download_fraction(*received, *total);
+            let detail = if let Some(total) = total.filter(|total| *total > 0) {
+                format!(
+                    "Downloading {package} · {:.1} / {:.1} MB · {:.0}%",
+                    *received as f64 / 1_000_000.0,
+                    total as f64 / 1_000_000.0,
+                    fraction.unwrap_or(0.0) * 100.0
+                )
+            } else {
+                format!(
+                    "Downloading {package} · {:.1} MB received",
+                    *received as f64 / 1_000_000.0
+                )
+            };
+            let text = if area.width() < 340.0 {
+                fraction.map_or_else(
+                    || "Downloading…".into(),
+                    |value| format!("Downloading · {:.0}%", value * 100.0),
+                )
+            } else {
+                detail.clone()
+            };
+            (text, format!("{name}\n{detail}"))
+        } else {
+            (
+                status.clone(),
+                if self.busy {
+                    self.detail.clone()
+                } else {
+                    status
+                },
+            )
+        };
+        ui.put(
+            status_rect,
+            egui::Label::new(RichText::new(text).size(11.0).color(color)).truncate(),
+        )
+        .on_hover_text(detail);
+        if self.busy || self.drivers.running || progress.is_some() {
+            let track =
+                egui::Rect::from_min_max(egui::pos2(area.left(), area.bottom() - 4.0), area.max);
+            ui.painter()
+                .rect_filled(track, 2, colors.muted.gamma_multiply(0.2));
+            let fill = if let Some(fraction) = fraction {
+                egui::Rect::from_min_size(
+                    track.min,
+                    egui::vec2(track.width() * fraction, track.height()),
+                )
+            } else {
+                let phase = (ui.input(|i| i.time) * 0.65).fract() as f32;
+                let start = track.left() + (phase * 1.3 - 0.3) * track.width();
+                ui.ctx().request_repaint_after(Duration::from_millis(32));
+                egui::Rect::from_min_size(
+                    egui::pos2(start, track.top()),
+                    egui::vec2(track.width() * 0.3, track.height()),
+                )
+                .intersect(track)
+            };
+            ui.painter().rect_filled(fill, 2, colors.accent);
+        }
     }
 }
 
