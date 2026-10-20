@@ -10,24 +10,26 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 ## Use
 
 1. Run `macbook-iso-patcher.exe` on x64 Windows 10 or 11.
-2. Drop an original Microsoft Windows 10 ISO onto the app, or click the drop zone
+2. Choose the verified **2016 A1706 / MacBookPro13,2** profile, then continue to
+   **Windows ISO**. Other listed models are unverified and cannot be used yet.
+3. Drop an original Microsoft Windows 10 ISO onto the app, or click the drop zone
    to browse. Dropped and browsed files are scanned automatically; pasted paths
    can be scanned with **Scan ISO**.
-3. Select A1706 and click the rounded edition rows to select or deselect them.
+4. Click the rounded edition rows to select or deselect them.
    Pro has a green **Hardware Verified** label based on the original project's
    A1706 result; other editions have an orange **Unverified** label. This app's
    generated ISOs still need hardware validation.
-4. Choose a new output filename and a working folder with enough free disk space.
-5. Install missing prerequisites using **Missing downloads**, highlighted above
+5. Choose a new output filename and a working folder with enough free disk space.
+6. Install missing prerequisites using **Missing downloads**, highlighted above
    **Build setup**. **Download & install ADK tools** downloads Microsoft's installer,
    verifies its signature, requests UAC, and installs Deployment Tools only. Its
    progress appears in the panel; the ISO tool is detected automatically afterward.
    A manual Microsoft download link is also available. Once both tools are found,
    the panel stays visible as a green **Build tools ready** section. **Build setup**
    appears above **Output & workspace**.
-6. Start the build. Multiple editions show an optional donation page linking to
+7. Start the build. Multiple editions show an optional donation page linking to
    [Ko-fi](https://ko-fi.com/zenodeon); **Continue without donating** always works.
-7. Approve UAC when the separate image-servicing worker starts.
+8. Approve UAC when the separate image-servicing worker starts.
 
 The GUI downloads and verifies Intel and Apple drivers before elevation. Build
 logs and `job.json` stay in the chosen working folder. Existing output files and
@@ -35,9 +37,16 @@ the original ISO are never overwritten. Cancellation waits for an active DISM
 operation to reach a safe boundary. Retrying with the same working folder
 recovers identifiable app-owned mounts from interrupted builds.
 
-Use **Dismount ISO** to eject the selected source ISO from Windows without
-changing its file. Confirm in the popup to dismount and return to the first page.
-It is unavailable during scans, builds, ADK installation, and another dismount.
+After a successful scan, the source ISO stays mounted for the current session.
+**Dismount ISO** replaces the return/back action and appears only once an ISO has
+been scanned. Confirm in the popup to eject it and return to **Windows ISO**;
+the ISO file stays unchanged. Use **Edit editions** on Review to change editions.
+Dismount is unavailable during scans, builds, ADK installation, and another dismount.
+Normal app closure releases a source mount created by the app. Closing during a
+scan waits for its result; closing during a build first requests safe cancellation
+and waits for worker cleanup. Pre-existing user mounts are preserved on closure.
+An explicit Dismount action ejects the selected ISO even if it was mounted before
+the app opened. Forced process termination cannot guarantee cleanup.
 
 The initial content size is 1240 × 700 logical pixels. On smaller monitors it
 fits proportionally with room for window borders and the taskbar. The window

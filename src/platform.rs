@@ -71,6 +71,20 @@ pub struct MountedIso {
     owned: bool,
 }
 impl MountedIso {
+    /// Explicit user eject can also dismount a previously mounted source.
+    pub fn dismount(&mut self) -> Result<bool> {
+        let changed = dismount_iso(&self.iso)?;
+        self.owned = false;
+        Ok(changed)
+    }
+    /// Closing the app releases only a mount it created itself.
+    pub fn cleanup(&mut self) -> Result<bool> {
+        if self.owned {
+            self.dismount()
+        } else {
+            Ok(false)
+        }
+    }
     pub fn open(iso: &Path) -> Result<Self> {
         ensure!(cfg!(windows), "ISO scanning currently requires Windows");
         let script = r#"
@@ -144,6 +158,12 @@ pub fn dismount_iso(iso: &Path) -> Result<bool> {
     }
 }
 pub fn scan(iso: &Path) -> Result<Inventory> {
+    scan_mounted(iso).map(|(inventory, _mount)| inventory)
+}
+
+/// Keep the source mounted for the GUI session. Failed scans still drop their
+/// mount guard; non-GUI scans can continue using `scan` for immediate cleanup.
+pub fn scan_mounted(iso: &Path) -> Result<(Inventory, MountedIso)> {
     let iso = iso.canonicalize().context("Select an existing ISO file")?;
     ensure!(
         iso.extension()
@@ -151,7 +171,8 @@ pub fn scan(iso: &Path) -> Result<Inventory> {
         "Select a .iso file"
     );
     let mount = MountedIso::open(&iso)?;
-    scan_root(&iso, &mount.root)
+    let inventory = scan_root(&iso, &mount.root)?;
+    Ok((inventory, mount))
 }
 pub fn scan_root(iso: &Path, root: &Path) -> Result<Inventory> {
     ensure!(

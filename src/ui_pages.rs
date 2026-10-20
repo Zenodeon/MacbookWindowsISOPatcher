@@ -1,6 +1,99 @@
 use super::*;
 
 impl PatcherApp {
+    pub(super) fn model_page(&mut self, ui: &mut egui::Ui) {
+        Self::heading(
+            ui,
+            "Choose your MacBook",
+            "Select a model before choosing your Windows ISO.",
+        );
+        let colors = appearance::palette(ui.ctx());
+        Self::section(ui, "Available profile", colors.model, |ui| {
+            let mut text = egui::text::LayoutJob::default();
+            text.append(
+                "MacBook Pro 13-inch · 2016 · A1706\n",
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(17.0),
+                    color: ui.visuals().text_color(),
+                    ..Default::default()
+                },
+            );
+            text.append(
+                "Hardware Verified",
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(13.0),
+                    color: colors.success,
+                    ..Default::default()
+                },
+            );
+            if self.model_selected {
+                text.append(
+                    "  ·  Selected",
+                    0.0,
+                    egui::TextFormat {
+                        font_id: egui::FontId::proportional(13.0),
+                        color: colors.accent,
+                        ..Default::default()
+                    },
+                );
+            }
+            if ui
+                .add(
+                    egui::Button::new(text)
+                        .selected(self.model_selected)
+                        .fill(colors.surface)
+                        .stroke(egui::Stroke::new(
+                            1.0_f32,
+                            if self.model_selected {
+                                colors.accent
+                            } else {
+                                ui.visuals().widgets.noninteractive.bg_stroke.color
+                            },
+                        ))
+                        .corner_radius(10)
+                        .min_size(egui::vec2(ui.available_width(), 76.0))
+                        .wrap(),
+                )
+                .clicked()
+            {
+                self.model_selected = true;
+            }
+            ui.label(
+                RichText::new("MacBookPro13,2 · Iris 550 · Touch Bar · T1")
+                    .size(13.0)
+                    .color(colors.muted),
+            );
+            ui.label(RichText::new("Windows 10 Pro was verified in the original project with the internal display disconnected and external HDMI in use.").size(13.0).color(colors.muted));
+        });
+        Self::section(ui, "Other models", colors.surface, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            ui.spacing_mut().interact_size.y = 20.0;
+            for (name, identifier) in [
+                (
+                    "MacBook Pro 13-inch · 2016 · Two Thunderbolt 3 ports",
+                    "MacBookPro13,1",
+                ),
+                ("MacBook Pro 15-inch · 2016", "MacBookPro13,3"),
+                (
+                    "MacBook Pro 13-inch · 2017 · Four Thunderbolt 3 ports",
+                    "MacBookPro14,2",
+                ),
+            ] {
+                ui.label(RichText::new(name).strong());
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(colors.warning, "Unverified · Not supported yet");
+                    ui.label(RichText::new(identifier).size(13.0).color(colors.muted));
+                });
+                ui.add_space(6.0);
+            }
+            ui.hyperlink_to(
+                "Identify your MacBook model",
+                "https://support.apple.com/en-us/108052",
+            );
+        });
+    }
     pub(super) fn section(
         ui: &mut egui::Ui,
         title: &str,
@@ -108,7 +201,7 @@ impl PatcherApp {
                 );
             }
         });
-        Self::section(ui, "Supported Mac", colors.model, |ui| {
+        Self::section(ui, "Selected Mac", colors.model, |ui| {
             ui.label(RichText::new("MacBook Pro 13-inch · 2016 · A1706").strong());
             ui.label("External HDMI fix for a disconnected internal display.");
             egui::CollapsingHeader::new("Compatibility details").show(ui, |ui| {
@@ -127,24 +220,12 @@ impl PatcherApp {
     pub(super) fn editions_page(&mut self, ui: &mut egui::Ui) {
         Self::heading(
             ui,
-            "Choose your Mac and editions",
+            "Choose Windows editions",
             "Include one edition or keep several choices in Windows Setup.",
         );
         let colors = appearance::palette(ui.ctx());
-        Self::section(ui, "MacBook model", colors.model, |ui| {
-            egui::ComboBox::from_id_salt("model")
-                .selected_text("A1706 — MacBook Pro 13-inch, 2016")
-                .width(420.0)
-                .show_ui(ui, |ui| {
-                    ui.selectable_label(true, "A1706 — MacBook Pro 13-inch, 2016")
-                        .clicked();
-                });
-            ui.label(
-                RichText::new("Touch Bar · Iris 550 · T1")
-                    .size(13.0)
-                    .color(colors.muted),
-            );
-        });
+        ui.label(RichText::new("A1706 · MacBook Pro 13-inch · 2016").color(colors.muted));
+        ui.add_space(12.0);
         Self::section(ui, "Windows editions", colors.source, |ui| {
             if let Some(inv) = &self.inventory {
                 for image in &inv.images {
@@ -252,6 +333,15 @@ impl PatcherApp {
                         ui.label(&image.name);
                     }
                 }
+            }
+            if ui
+                .add_enabled(
+                    !self.closing && !self.dismounting && !self.installing_adk,
+                    egui::Button::new("Edit editions"),
+                )
+                .clicked()
+            {
+                self.page = Page::Editions;
             }
         });
         let missing_tools = !PathBuf::from(&self.settings.oscdimg).is_file()

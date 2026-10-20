@@ -48,9 +48,18 @@ fn dropped_iso(files: &[egui::DroppedFile]) -> Result<Option<PathBuf>, String> {
     }
     Ok(Some(path))
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Page {
+    Model,
+    Iso,
+    Editions,
+    Review,
+    Build,
+}
+
 enum Message {
-    Scanned(Result<Inventory, String>),
-    Dismounted(Result<bool, String>),
+    Scanned(Result<(Inventory, platform::MountedIso), String>),
+    Dismounted(Result<bool, String>, Option<platform::MountedIso>),
     AdkStatus(String),
     AdkInstalled(Result<(PathBuf, bool), String>),
     Build(Event),
@@ -66,10 +75,14 @@ struct Settings {
 }
 
 pub struct PatcherApp {
-    page: usize,
+    page: Page,
+    model_selected: bool,
     iso: String,
     output: String,
     inventory: Option<Inventory>,
+    iso_mount: Option<platform::MountedIso>,
+    closing: bool,
+    close_ready: bool,
     selected: BTreeSet<u32>,
     settings: Settings,
     settings_file: PathBuf,
@@ -128,10 +141,14 @@ impl PatcherApp {
         }
         settings.theme.apply(&cc.egui_ctx);
         let app = Self {
-            page: 0,
+            page: Page::Model,
+            model_selected: false,
             iso: String::new(),
             output: String::new(),
             inventory: None,
+            iso_mount: None,
+            closing: false,
+            close_ready: false,
             selected: BTreeSet::new(),
             settings,
             settings_file,
@@ -193,29 +210,38 @@ impl PatcherApp {
                         Err(error) => self.error = Some(error),
                     }
                 }
-                Message::Dismounted(result) => {
+                Message::Dismounted(result, mount) => {
                     self.dismounting = false;
+                    self.iso_mount = mount;
                     match result {
                         Ok(changed) => {
                             self.error = None;
-                            self.page = 0;
+                            self.page = Page::Iso;
                             self.inventory = None;
                             self.selected.clear();
                             self.donation = false;
                             self.finished = None;
-                            self.notice = Some(if changed {
-                                "ISO dismounted.".into()
+                            self.notice = if self.closing {
+                                None
                             } else {
-                                "ISO is already dismounted.".into()
-                            });
+                                Some(if changed {
+                                    "ISO dismounted.".into()
+                                } else {
+                                    "ISO is already dismounted.".into()
+                                })
+                            };
                         }
-                        Err(error) => self.error = Some(error),
+                        Err(error) => {
+                            self.closing = false;
+                            self.error = Some(error);
+                        }
                     }
                 }
                 Message::Scanned(result) => {
                     self.scanning = false;
                     match result {
-                        Ok(inv) => {
+                        Ok((inv, mount)) => {
+                            self.iso_mount = Some(mount);
                             self.selected.clear();
                             if let Some(pro) = inv
                                 .images
@@ -229,7 +255,7 @@ impl PatcherApp {
                                 source.join("Win10_A1706_Patched.iso").display().to_string();
                             self.iso = inv.iso.display().to_string();
                             self.inventory = Some(inv);
-                            self.page = 1;
+                            self.page = Page::Editions;
                             self.error = None;
                         }
                         Err(error) => self.error = Some(error),
@@ -275,7 +301,14 @@ impl PatcherApp {
         }
     }
     fn scan(&mut self, ctx: &egui::Context) {
-        if self.busy || self.scanning || self.dismounting || self.installing_adk {
+        if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
+            return;
+        }
+        if !self.model_selected || self.iso_mount.is_some() {
+            self.error = Some(
+                "Choose your model first, and dismount the current ISO before selecting another."
+                    .into(),
+            );
             return;
         }
         self.notice = None;
@@ -287,34 +320,37 @@ impl PatcherApp {
         let tx = self.sender.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let result = platform::scan(&iso).map_err(|e| format!("{e:#}"));
+            let result = platform::scan_mounted(&iso).map_err(|e| format!("{e:#}"));
             let _ = tx.send(Message::Scanned(result));
             ctx.request_repaint();
         });
     }
-    fn dismount(&mut self, ctx: &egui::Context) {
-        if self.busy
-            || self.scanning
-            || self.dismounting
-            || self.installing_adk
-            || self.iso.trim().is_empty()
-        {
+    fn dismount(&mut self, ctx: &egui::Context, only_owned: bool) {
+        if self.busy || self.scanning || self.dismounting || (!only_owned && self.installing_adk) {
             return;
         }
+        let Some(mut mount) = self.iso_mount.take() else {
+            return;
+        };
         self.dismounting = true;
         self.error = None;
         self.notice = None;
-        let iso = PathBuf::from(self.iso.trim());
         let tx = self.sender.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let result = platform::dismount_iso(&iso).map_err(|e| format!("{e:#}"));
-            let _ = tx.send(Message::Dismounted(result));
+            let result = if only_owned {
+                mount.cleanup()
+            } else {
+                mount.dismount()
+            }
+            .map_err(|e| format!("{e:#}"));
+            let retained = if result.is_err() { Some(mount) } else { None };
+            let _ = tx.send(Message::Dismounted(result, retained));
             ctx.request_repaint();
         });
     }
     fn install_adk(&mut self, ctx: &egui::Context) {
-        if self.busy || self.scanning || self.dismounting || self.installing_adk {
+        if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
             return;
         }
         self.installing_adk = true;
@@ -350,7 +386,7 @@ impl PatcherApp {
         })
     }
     fn begin(&mut self, ctx: &egui::Context) {
-        if self.busy || self.scanning || self.dismounting || self.installing_adk {
+        if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
             return;
         }
         let req = match self.request().and_then(|r| {
@@ -364,7 +400,7 @@ impl PatcherApp {
             }
         };
         self.persist_settings();
-        self.page = 3;
+        self.page = Page::Build;
         self.donation = false;
         self.busy = true;
         self.finished = None;
@@ -578,18 +614,24 @@ impl eframe::App for PatcherApp {
                 || self.dismounting
                 || self.installing_adk
                 || self.confirm_dismount
+                || self.closing
+                || self.iso_mount.is_some()
             {
                 self.error = Some(
-                    "Wait for the current operation to finish before dropping another ISO.".into(),
+                    "Dismount the current ISO and finish any running operation before choosing another.".into(),
                 );
             } else {
                 match dropped_iso(&dropped) {
                     Ok(Some(path)) => {
-                        self.iso = path.display().to_string();
-                        self.page = 0;
-                        self.donation = false;
-                        self.finished = None;
-                        self.scan(ctx);
+                        if !self.model_selected {
+                            self.error = Some("Select a supported MacBook model first.".into());
+                        } else {
+                            self.iso = path.display().to_string();
+                            self.page = Page::Iso;
+                            self.donation = false;
+                            self.finished = None;
+                            self.scan(ctx);
+                        }
                     }
                     Err(error) => self.error = Some(error),
                     Ok(None) => (),
@@ -599,9 +641,24 @@ impl eframe::App for PatcherApp {
         if self.busy || self.scanning || self.dismounting || self.installing_adk {
             ctx.request_repaint_after(Duration::from_millis(150));
         }
-        if self.busy && ctx.input(|i| i.viewport().close_requested()) {
-            self.cancel.cancel();
+        if !self.close_ready
+            && ctx.input(|i| i.viewport().close_requested())
+            && (self.busy || self.scanning || self.dismounting || self.iso_mount.is_some())
+        {
+            self.closing = true;
+            self.confirm_dismount = false;
+            if self.busy {
+                self.cancel.cancel();
+            }
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
+        if self.closing && !self.busy && !self.scanning && !self.dismounting {
+            if self.iso_mount.is_some() {
+                self.dismount(ctx, true);
+            } else {
+                self.close_ready = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
         egui::SidePanel::left("workflow")
             .exact_width(if compact { 180.0 } else { 220.0 })
@@ -628,13 +685,16 @@ impl eframe::App for PatcherApp {
                             ));
                         });
                         ui.add_space(22.0);
-                        for (n, label) in ["Windows ISO", "Mac & editions", "Review", "Build"]
-                            .iter()
-                            .enumerate()
-                        {
-                            let current = self.page == n;
+                        for (page, label) in [
+                            (Page::Model, "MacBook model"),
+                            (Page::Iso, "Windows ISO"),
+                            (Page::Editions, "Windows editions"),
+                            (Page::Review, "Review"),
+                            (Page::Build, "Build"),
+                        ] {
+                            let current = self.page == page;
                             ui.label(
-                                RichText::new(*label)
+                                RichText::new(label)
                                     .size(16.0)
                                     .color(if current {
                                         appearance::palette(ctx).accent
@@ -727,39 +787,35 @@ impl eframe::App for PatcherApp {
                         {
                             self.cancel.cancel();
                         }
-                    } else if self.page > 0
-                        && ui
-                            .add_enabled(!self.dismounting && !self.installing_adk, egui::Button::new(if self.donation {
-                                "Back to review"
-                            } else {
-                                "Back"
-                            }))
-                            .clicked()
-                    {
-                        if self.donation {
-                            self.donation = false;
-                        } else {
-                            self.page -= 1;
-                        }
+                    } else if self.donation && ui.add_enabled(!self.closing && !self.dismounting && !self.installing_adk, egui::Button::new("Back to review")).clicked() {
+                        self.donation = false;
                         self.error = None;
+                    } else if self.page == Page::Iso && self.inventory.is_none()
+                        && ui.add_enabled(!self.scanning && !self.closing && !self.dismounting, egui::Button::new("Change model")).clicked()
+                    {
+                        self.page = Page::Model;
                     }
-                    if !self.iso.trim().is_empty()
+                    if self.inventory.is_some() && !self.donation
                         && ui.add_enabled(
-                            cfg!(windows) && !self.busy && !self.scanning && !self.dismounting && !self.installing_adk,
+                            cfg!(windows) && !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.closing,
                             egui::Button::new(if self.dismounting { "Dismounting…" } else { "Dismount ISO" }),
                         ).on_hover_text("Dismount the selected source ISO from Windows. The ISO file stays unchanged.").clicked()
                     {
                         self.confirm_dismount = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation {
-                            if self.page == 1
-                                && Self::primary(ui, "Review build", !self.selected.is_empty())
-                            {
-                                self.page = 2;
+                        if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation && !self.closing {
+                            if self.page == Page::Model && Self::primary(ui,"Continue to Windows ISO", self.model_selected) {
+                                self.page = Page::Iso;
                                 self.error = None;
                             }
-                            if self.page == 2
+                            if self.page == Page::Editions
+                                && Self::primary(ui, "Review build", !self.selected.is_empty())
+                            {
+                                self.page = Page::Review;
+                                self.error = None;
+                            }
+                            if self.page == Page::Review
                                 && Self::primary(
                                     ui,
                                     "Build patched ISO",
@@ -791,6 +847,13 @@ impl eframe::App for PatcherApp {
             )
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    if self.closing {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("Finishing cleanup before closing…");
+                        });
+                        ui.add_space(10.0);
+                    }
                     if let Some(notice) = &self.notice {
                         ui.label(notice);
                         ui.add_space(10.0);
@@ -809,16 +872,17 @@ impl eframe::App for PatcherApp {
                         self.donation_page(ui, ctx);
                     } else {
                         match self.page {
-                            0 => self.input_page(ui, ctx),
-                            1 => self.editions_page(ui),
-                            2 => self.review_page(ui),
-                            _ => self.build_page(ui),
+                            Page::Model => self.model_page(ui),
+                            Page::Iso => self.input_page(ui, ctx),
+                            Page::Editions => self.editions_page(ui),
+                            Page::Review => self.review_page(ui),
+                            Page::Build => self.build_page(ui),
                         }
                     }
                 });
             });
         if ctx.input(|i| !i.raw.hovered_files.is_empty())
-            && (self.page != 0
+            && (self.page != Page::Iso
                 || self.busy
                 || self.scanning
                 || self.dismounting
@@ -833,7 +897,11 @@ impl eframe::App for PatcherApp {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                if self.busy || self.scanning || self.dismounting || self.installing_adk {
+                if self.iso_mount.is_some() {
+                    "Dismount the current ISO before choosing another"
+                } else if !self.model_selected {
+                    "Select a supported MacBook model first"
+                } else if self.busy || self.scanning || self.dismounting || self.installing_adk {
                     "Finish the current operation first"
                 } else {
                     "Drop one Windows ISO to start a new scan"
@@ -860,8 +928,10 @@ impl eframe::App for PatcherApp {
                     ui.label(RichText::new("Dismount ISO?").size(23.0).strong());
                     ui.add_space(8.0);
                     ui.label(
-                        RichText::new("Eject the ISO from Windows and return to the first page.")
-                            .color(colors.muted),
+                        RichText::new(
+                            "Eject the ISO from Windows and return to the Windows ISO page.",
+                        )
+                        .color(colors.muted),
                     );
                     ui.add_space(12.0);
                     egui::Frame::new()
@@ -893,7 +963,7 @@ impl eframe::App for PatcherApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if Self::primary(ui, "Dismount ISO", true) {
                             self.confirm_dismount = false;
-                            self.dismount(ctx);
+                            self.dismount(ctx, false);
                         }
                         if ui.button("Keep mounted").clicked() {
                             self.confirm_dismount = false;

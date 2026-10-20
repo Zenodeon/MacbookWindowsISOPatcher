@@ -9,6 +9,27 @@ impl PatcherApp {
         let Ok(view) = std::env::var("MACBOOK_PATCHER_PREVIEW") else {
             return;
         };
+        if view == "mounted-close" {
+            // Used only by the opt-in Windows lifecycle test with its own data ISO.
+            let iso = PathBuf::from(
+                std::env::var_os("MACBOOK_PATCHER_PREVIEW_ISO").expect("Lifecycle test ISO"),
+            );
+            self.iso_mount =
+                Some(platform::MountedIso::open(&iso).expect("Mount lifecycle test ISO"));
+            self.iso = iso.display().to_string();
+            self.model_selected = true;
+            self.page = Page::Iso;
+            return;
+        }
+        if view == "models" {
+            return;
+        }
+        self.model_selected = true;
+        if view == "iso" {
+            self.page = Page::Iso;
+            self.iso = "C:\\Preview\\Windows10_English_x64.iso".into();
+            return;
+        }
         if !["editions", "review-ready", "review-missing", "dismount"].contains(&view.as_str()) {
             return;
         }
@@ -42,7 +63,11 @@ impl PatcherApp {
             .collect(),
         });
         self.selected.insert(1);
-        self.page = if view.starts_with("review") { 2 } else { 1 };
+        self.page = if view.starts_with("review") {
+            Page::Review
+        } else {
+            Page::Editions
+        };
         if view == "review-ready" {
             // Existing fixture paths drive the UI's file-presence state only.
             // The fake ISO cannot pass build preflight; release has no fixtures.

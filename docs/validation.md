@@ -22,7 +22,11 @@ The current 19 tests, Clippy with warnings denied, and release build pass.
 The official ADK bootstrapper download and Microsoft signature verification were
 exercised without installing it. The default window was inspected at 1240 × 700
 content pixels; proportional fitting is covered by tests. Live ADK installation
-and ISO dismount still need integration testing. The edition rows, green tools-ready
+still needs integration testing. Two opt-in Windows integration tests use generated
+48 KiB data ISOs to verify explicit eject, owned/borrowed cleanup, failed scan
+cleanup, and normal GUI closure with both owned and pre-existing mounts:
+`cargo test --test iso_mount -- --ignored --test-threads=1`.
+The edition rows, green tools-ready
 panel, and dismount confirmation were rendered and visually checked in both themes
 using debug-only screenshot fixtures, which are excluded from release builds.
 

@@ -6,11 +6,16 @@ allow explicit Light or Dark and remember the choice in user settings.
 Dark mode uses a charcoal canvas and brighter, clearly separated controls. Separate tasks with
 blue-tinted source/edition sections, violet-tinted Mac/setup sections, and a
 neutral output/details section; use the corresponding pale tints in light mode.
-The permanent left rail explains the four sequential steps. The main work area
+The permanent left rail explains five steps: model, ISO, editions, review, build. The main work area
 uses wide aligned controls and a scrollable edition table, with contextual
 validation and a persistent bottom action row. No decorative imagery or animation.
-The first screen offers a large clickable ISO drop zone. Dropping one local ISO
-anywhere while idle starts its scan; busy jobs reject replacement drops.
+The first screen selects the verified 2016 A1706 profile and lists several other
+models with orange Unverified / Not supported yet status. Only the available
+profile can continue. Model names/identifiers follow Apple's identification page:
+https://support.apple.com/en-us/108052.
+The second screen offers a clickable ISO drop zone. Once a model is selected,
+dropping a local ISO while idle starts its scan. Reject replacement drops while
+a source session is mounted or an operation is running.
 Keep compatibility and build explanations expandable and diagnostic logs collapsed
 by default. Prioritize the action and a short description over repeated prose.
 
@@ -31,6 +36,10 @@ project's hardware evidence in the verified row's tooltip.
 Dismount uses a padded, rounded confirmation modal with a separate filename
 surface and right-aligned Keep mounted / Dismount ISO actions. Return to the
 source page on success.
+Show Dismount only after successful scanning, replacing the ordinary back action.
+Review has an Edit editions action. Keep the source mounted for the session;
+normal closure cleans up app-owned source mounts after scans/builds have stopped.
+Preserve mounts that predate the app unless explicitly ejected by the user.
 Status uses explicit text as well as color. Unknown progress uses a spinner;
 download progress is derived from received bytes. No simulated build percentages.
 
