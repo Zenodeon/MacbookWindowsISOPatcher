@@ -52,8 +52,10 @@ The sidebar always provides the theme selector, by zenodeon website attribution,
 Ko-fi button, and GitHub repository button. It scrolls on short windows.
 Center the selected Mac model in the footer gap between the action buttons.
 Use its identifier on narrow windows, with the full model name in a tooltip.
-Selecting a model starts its driver downloads immediately, without blocking ISO
-selection or scanning. Show real byte progress, a green cached/ready state, and
+Selecting a model only selects it. Pressing Start download & continue to Windows ISO
+authorizes its driver downloads and opens ISO selection without blocking scanning.
+Changing models revokes that authorization until the button is pressed again.
+Show real byte progress, a green cached/ready state, and
 an inline retry action on failure. A compact second footer line keeps progress
 visible while browsing pages. Cancel and finish the previous job before switching
 models or cache locations; ignore late results from an older job. Wait for download

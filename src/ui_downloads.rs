@@ -3,6 +3,7 @@ use macbook_iso_patcher::driver_prefetch;
 
 #[derive(Default)]
 pub(super) struct DriverDownloads {
+    pub requested_model: Option<&'static str>,
     pub key: Option<(&'static str, PathBuf)>,
     pub running: bool,
     pub ready: bool,
@@ -14,6 +15,17 @@ pub(super) struct DriverDownloads {
 }
 
 impl DriverDownloads {
+    pub fn selection_changed(&mut self) {
+        self.requested_model = None;
+        if self.running {
+            self.cancel.cancel();
+        }
+    }
+
+    pub fn requested_for(&self, model: &str) -> bool {
+        self.requested_model == Some(model)
+    }
+
     pub fn finish(&mut self, id: u64, result: Result<(), String>) {
         if id != self.id {
             return;
@@ -36,6 +48,9 @@ impl DriverDownloads {
 impl PatcherApp {
     pub(super) fn driver_footer_status(&self, ctx: &egui::Context) -> Option<(String, Color32)> {
         let model = self.model()?;
+        if !self.drivers.requested_for(model.id) {
+            return None;
+        }
         let (id, _) = self.drivers.key.as_ref()?;
         let colors = appearance::palette(ctx);
         if *id != model.id {
@@ -80,6 +95,10 @@ impl PatcherApp {
         let Some(model) = self.model() else {
             return;
         };
+        // Selecting a row never authorizes a download. Only the start button does.
+        if !self.drivers.requested_for(model.id) {
+            return;
+        }
         let desired = (model.id, PathBuf::from(self.settings.cache.trim()));
         if self.drivers.key.as_ref() == Some(&desired) {
             return;
@@ -118,6 +137,9 @@ impl PatcherApp {
         let Some(model) = self.model() else {
             return;
         };
+        if !self.drivers.requested_for(model.id) {
+            return;
+        }
         let Some((downloading_model, _)) = &self.drivers.key else {
             return;
         };
@@ -209,6 +231,34 @@ impl PatcherApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn selection_requires_explicit_start_for_each_model() {
+        let mut state = DriverDownloads::default();
+        assert!(!state.requested_for(MODEL_ID));
+        state.requested_model = Some(MODEL_ID);
+        assert!(state.requested_for(MODEL_ID));
+        assert!(!state.requested_for("a1708-2016"));
+        state.selection_changed();
+        assert!(!state.requested_for(MODEL_ID));
+        assert!(!state.requested_for("a1708-2016"));
+    }
+
+    #[test]
+    fn changing_selection_cancels_without_authorizing_a_replacement() {
+        let mut state = DriverDownloads {
+            requested_model: Some(MODEL_ID),
+            running: true,
+            id: 1,
+            ..Default::default()
+        };
+        state.selection_changed();
+        assert!(state.cancel.is_cancelled());
+        state.requested_model = Some("a1708-2016");
+        state.finish(1, Err("cancelled".into()));
+        assert!(state.requested_for("a1708-2016"));
+        assert!(!state.running);
+        assert!(state.key.is_none());
+    }
     #[test]
     fn late_completion_cannot_finish_the_new_models_job() {
         let mut state = DriverDownloads {

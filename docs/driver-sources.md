@@ -37,7 +37,9 @@ from that path; the missing Thunderbolt MSI is not needed for HDMI.
 
 ## Downloads for selected models
 
-Selecting a model downloads its archives without extracting or installing them.
+Pressing Start download & continue to Windows ISO downloads the selected model's
+archives without extracting or installing them. Selecting a model alone does not
+start any downloads.
 The mappings were checked against Apple's Software Update catalog and English
 Boot Camp distributions on 2026-10-20. Downloads do not enable an unimplemented
 ISO build profile.

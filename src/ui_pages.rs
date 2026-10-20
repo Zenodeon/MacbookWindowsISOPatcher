@@ -81,6 +81,9 @@ impl PatcherApp {
                     )
                     .clicked()
                 {
+                    if self.model_selected != Some(index) {
+                        self.drivers.selection_changed();
+                    }
                     self.model_selected = Some(index);
                     self.error = None;
                     ui.ctx().request_repaint();
@@ -91,7 +94,7 @@ impl PatcherApp {
                 if model.hardware_verified() {
                     ui.label(RichText::new("Windows 10 Pro was verified in the original project using external HDMI with the internal display disconnected.").size(13.0).color(colors.muted));
                 } else {
-                    ui.label(RichText::new("This model is unverified. Its Apple Boot Camp drivers will download; ISO patching is not available yet.").size(13.0).color(colors.warning));
+                    ui.label(RichText::new("This model is unverified. Press Start download to get its Apple Boot Camp drivers. ISO patching is not available yet.").size(13.0).color(colors.warning));
                 }
             }
             ui.hyperlink_to(

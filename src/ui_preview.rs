@@ -21,6 +21,7 @@ impl PatcherApp {
         let driver_preview = std::env::var("MACBOOK_PATCHER_PREVIEW").unwrap_or_default();
         if driver_preview.ends_with("-download") || driver_preview.contains("-driver-") {
             self.model_selected = Some(model_index);
+            self.drivers.requested_model = Some(MODEL_PROFILES[model_index].id);
             self.drivers.key = Some((
                 MODEL_PROFILES[model_index].id,
                 self.settings.cache.trim().into(),

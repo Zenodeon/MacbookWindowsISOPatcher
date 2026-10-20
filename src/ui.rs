@@ -882,7 +882,9 @@ impl eframe::App for PatcherApp {
                     let model_left = ui.cursor().min.x;
                     let model_right = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation && !self.closing {
-                            if self.page == Page::Model && Self::primary(ui,"Continue to Windows ISO", self.model().is_some()) {
+                            if self.page == Page::Model && Self::primary(ui,"Start download & continue to Windows ISO", self.model().is_some()) {
+                                self.drivers.requested_model = self.model().map(|model| model.id);
+                                self.ensure_driver_downloads(ctx);
                                 self.page = Page::Iso;
                                 self.error = None;
                             }

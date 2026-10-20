@@ -10,10 +10,12 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 ## Use
 
 1. Run `macbook-iso-patcher.exe` on x64 Windows 10 or 11.
-2. Choose a model from the single selectable list, then continue to **Windows ISO**.
-   Selection immediately starts downloading that model's files in the background.
+2. Choose a model, then press **Start download & continue to Windows ISO**.
+   Selecting a model alone does not download anything. The button starts downloading
+   that model's files in the background and opens the Windows ISO page.
    Progress stays visible in the footer and the Files & drivers panel, which turns
-   green when complete. Switching models cancels the previous transfer cleanly.
+   green when complete. Switching models cancels the previous transfer cleanly;
+   press the start button again to download the newly selected model's files.
    Verified shared packages are reused from the cache; failed downloads offer Retry.
    The **2016 A1706 / MacBookPro13,2** has the existing build recipe. Other models
    can be selected for ISO inspection, but their model-specific patching recipes
