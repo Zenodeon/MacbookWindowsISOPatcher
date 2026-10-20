@@ -325,11 +325,11 @@ fn load_assets(prepared: &PreparedBuild, cancel: &Cancellation) -> Result<downlo
         )?;
     }
     ensure!(
-        manifest.intel.is_some() == (prepared.request.model == MODEL_ID),
+        manifest.intel.is_some() == (prepared.request.model != "a1707-2016"),
         "Graphics assets do not match the selected model"
     );
     if let Some(intel) = &manifest.intel {
-        validate_intel(intel)?;
+        validate_intel_for_model(intel, &prepared.request.model)?;
     }
     Ok(download::Assets {
         intel: manifest.intel,
@@ -461,7 +461,19 @@ fn run_job(
             cancel,
         )?;
         if let Some(intel) = &assets.intel {
-            inject_signed_driver(&mount.mount, intel, emit, cancel)?;
+            inject_signed_driver(&mount.mount, intel, &req.model, emit, cancel)?;
+        }
+        if req.model == "a1707-2016" {
+            dism(
+                vec![
+                    format!("/Image:{}", mount.mount.display()),
+                    "/Add-Driver".into(),
+                    format!("/Driver:{}", assets.drivers.join("AMDGraphics").display()),
+                    "/Recurse".into(),
+                ],
+                emit,
+                cancel,
+            )?;
         }
         copy_tree(&assets.drivers, &mount.mount.join("Drivers"), cancel)?;
         copy_tree(&assets.bootcamp, &mount.mount.join("BootCamp"), cancel)?;
@@ -471,9 +483,9 @@ fn run_job(
             include_bytes!("../payloads/a1706/SetupComplete.cmd"),
         )?;
         if let Some(intel) = &assets.intel {
-            validate_signed_store(&mount.mount, intel)?;
+            validate_signed_store(&mount.mount, intel, &req.model)?;
         }
-        if n == 0 && assets.intel.is_some() {
+        if n == 0 && req.model == MODEL_ID {
             let support = job.join("boot-support");
             fs::create_dir_all(support.join("en-US"))?;
             for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
@@ -485,7 +497,11 @@ fn run_job(
         }
         mount.commit(cancel)?;
     }
-    if let Some(intel) = &assets.intel {
+    if req.model == MODEL_ID {
+        let intel = assets
+            .intel
+            .as_ref()
+            .context("A1706 Intel graphics missing")?;
         stage(
             emit,
             "Patching Windows Setup",
@@ -493,7 +509,7 @@ fn run_job(
         );
         let boot = root.join("sources/boot.wim");
         let mount = ImageMount::open(&boot, 2, &job.join("mount-boot"), emit, cancel)?;
-        inject_signed_driver(&mount.mount, intel, emit, cancel)?;
+        inject_signed_driver(&mount.mount, intel, &req.model, emit, cancel)?;
         write_boot_payload(&mount.mount)?;
         for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
             let source = job.join("boot-support").join(rel);
@@ -508,7 +524,7 @@ fn run_job(
                 .is_file(),
             "DisplaySwitch.exe missing from Windows image"
         );
-        validate_signed_store(&mount.mount, intel)?;
+        validate_signed_store(&mount.mount, intel, &req.model)?;
         check_registry(&mount.mount)?;
         mount.commit(cancel)?;
     }
@@ -538,8 +554,13 @@ fn run_job(
         fs::write(
             root.join("README-MacBook.txt"),
             format!(
-                "Model: {}\r\nUnverified build using this model's Apple Boot Camp drivers.\r\nRun C:\\BootCamp\\Setup.exe after Windows installation.\r\nReport success or problems at https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues\r\n",
-                req.model
+                "Model: {}\r\nExternal display graphics: {}\r\nUnverified build using this model's selected graphics and Apple Boot Camp drivers.\r\nRun C:\\BootCamp\\Setup.exe after Windows installation.\r\nReport success or problems at https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues\r\n",
+                req.model,
+                if req.model == "a1707-2016" {
+                    "AMD Radeon Pro"
+                } else {
+                    crate::driver_prefetch::intel_graphics(&req.model)?.version
+                }
             ),
         )?;
     }
@@ -607,6 +628,7 @@ fn run_job(
 fn inject_signed_driver(
     mount: &Path,
     intel: &Path,
+    model: &str,
     emit: &Emit,
     cancel: &Cancellation,
 ) -> Result<()> {
@@ -614,9 +636,10 @@ fn inject_signed_driver(
         download::find_file(&mount.join("Windows/INF"), "igdiris64.inf").is_none(),
         "Unsigned slim Iris driver found in source"
     );
-    if validate_signed_store(mount, intel).is_ok() {
+    if validate_signed_store(mount, intel, model).is_ok() {
         emit(Event::Log(
-            "The exact signed Iris package is already present; skipping duplicate import".into(),
+            "The exact signed Intel graphics package is already present; skipping duplicate import"
+                .into(),
         ));
         return Ok(());
     }
@@ -624,7 +647,12 @@ fn inject_signed_driver(
         vec![
             format!("/Image:{}", mount.display()),
             "/Add-Driver".into(),
-            format!("/Driver:{}", intel.join("igdlh64.inf").display()),
+            format!(
+                "/Driver:{}",
+                intel
+                    .join(crate::driver_prefetch::intel_graphics(model)?.inf)
+                    .display()
+            ),
         ],
         emit,
         cancel,
@@ -646,7 +674,11 @@ fn text_file(path: &Path) -> Result<String> {
     }
 }
 pub fn validate_intel(dir: &Path) -> Result<()> {
-    let inf = text_file(&dir.join("igdlh64.inf"))?;
+    validate_intel_for_model(dir, MODEL_ID)
+}
+pub fn validate_intel_for_model(dir: &Path, model: &str) -> Result<()> {
+    let profile = crate::driver_prefetch::intel_graphics(model)?;
+    let inf = text_file(&dir.join(profile.inf))?;
     let compact = inf
         .lines()
         .map(|l| {
@@ -661,30 +693,41 @@ pub fn validate_intel(dir: &Path) -> Result<()> {
         .join("\n")
         .to_ascii_lowercase();
     ensure!(
-        compact.contains("driverver=11/08/2020,21.20.16.5174"),
+        compact.lines().any(|line| line.starts_with("driverver=")
+            && line.ends_with(&format!(",{}", profile.version))),
         "Unexpected Intel driver version"
     );
     ensure!(
-        compact.contains("catalogfile=igdlh.cat") && dir.join("igdlh.cat").is_file(),
+        compact.contains(&format!("catalogfile={}", profile.catalog))
+            && dir.join(profile.catalog).is_file(),
         "Signed Intel catalog missing"
     );
     ensure!(
-        compact
-            .lines()
-            .any(|l| l.contains("iskld_w10_ds") && l.contains("dev_1927")),
-        "Intel driver does not support the expected Iris hardware"
+        supports_generic_gpu(&compact, profile.device_id),
+        "Intel driver does not support this model's graphics hardware"
     );
     if cfg!(windows) {
         platform::powershell(
             r#"$s=Get-AuthenticodeSignature -LiteralPath $env:PATCHER_CAT; if($s.Status -ne 'Valid'){throw 'Intel driver catalog signature is invalid'}"#,
-            &[("PATCHER_CAT", dir.join("igdlh.cat").as_os_str())],
+            &[("PATCHER_CAT", dir.join(profile.catalog).as_os_str())],
         )?;
     }
     Ok(())
 }
-fn validate_signed_store(mount: &Path, intel: &Path) -> Result<()> {
+fn supports_generic_gpu(compact_inf: &str, device_id: &str) -> bool {
+    let hardware = format!("pci\\ven_8086&dev_{device_id}");
+    compact_inf
+        .lines()
+        .filter(|line| !line.starts_with(';'))
+        .filter_map(|line| line.split_once('='))
+        .any(|(key, value)| {
+            key.starts_with('%') && value.split(',').skip(1).any(|id| id.trim() == hardware)
+        })
+}
+fn validate_signed_store(mount: &Path, intel: &Path, model: &str) -> Result<()> {
+    let profile = crate::driver_prefetch::intel_graphics(model)?;
     let store = mount.join("Windows/System32/DriverStore/FileRepository");
-    let expected = fs::read(intel.join("igdlh64.inf"))?;
+    let expected = fs::read(intel.join(profile.inf))?;
     let mut found = false;
     for entry in WalkDir::new(&store).into_iter().filter_map(Result::ok) {
         if !entry.file_type().is_file() {
@@ -697,7 +740,7 @@ fn validate_signed_store(mount: &Path, intel: &Path) -> Result<()> {
         );
         if name.ends_with(".inf") {
             let text = text_file(entry.path())?.to_ascii_lowercase();
-            if text.contains("dev_1927") {
+            if text.contains(&format!("dev_{}", profile.device_id)) {
                 let catalog = text
                     .lines()
                     .filter_map(|l| l.split(';').next())
@@ -707,23 +750,23 @@ fn validate_signed_store(mount: &Path, intel: &Path) -> Result<()> {
                             .starts_with("catalogfile")
                             .then(|| value.trim().trim_matches('"').to_owned())
                     })
-                    .context("An unsigned Iris INF was found in the image")?;
+                    .context("An unsigned Intel graphics INF was found in the image")?;
                 ensure!(
                     entry.path().parent().unwrap().join(catalog).is_file(),
-                    "An Iris package is missing its catalog"
+                    "An Intel graphics package is missing its catalog"
                 );
-                if text.contains("21.20.16.5174") {
+                if text.contains(profile.version) && name == profile.inf {
                     ensure!(
                         fs::read(entry.path())? == expected,
-                        "An altered Intel 21.20.16.5174 INF was found"
+                        "An altered Intel graphics INF was found"
                     );
                 }
             }
         }
-        if name == "igdlh64.inf" && fs::read(entry.path())? == expected {
-            let catalog = entry.path().parent().unwrap().join("igdlh.cat");
+        if name == profile.inf && fs::read(entry.path())? == expected {
+            let catalog = entry.path().parent().unwrap().join(profile.catalog);
             ensure!(
-                fs::read(catalog)? == fs::read(intel.join("igdlh.cat"))?,
+                fs::read(catalog)? == fs::read(intel.join(profile.catalog))?,
                 "Intel catalog changed"
             );
             found = true;
@@ -914,6 +957,25 @@ pub const INSTALL_GUIDE: &str = "MacBook Pro A1706 — installation\r\n\r\n1. In
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn gpu_matching_requires_a_generic_device_mapping_not_an_oem_only_or_comment_match() {
+        assert!(supports_generic_gpu(
+            "%gpu%=ikbld_w10_ds,pci\\ven_8086&dev_5927",
+            "5927"
+        ));
+        assert!(!supports_generic_gpu(
+            "%gpu%=install,pci\\ven_8086&dev_5927&subsys_0000103c",
+            "5927"
+        ));
+        assert!(!supports_generic_gpu(
+            "; %gpu%=install,pci\\ven_8086&dev_5927",
+            "5927"
+        ));
+        assert!(!supports_generic_gpu(
+            "%gpu%=install,pci\\ven_8086&dev_1927",
+            "5927"
+        ));
+    }
     #[test]
     fn unverified_models_accept_available_boot_drivers_but_reject_graphics() {
         let temp = std::env::temp_dir().canonicalize().unwrap();

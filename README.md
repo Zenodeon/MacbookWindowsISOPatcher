@@ -11,6 +11,8 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 
 1. Run `macbook-iso-patcher.exe` on x64 Windows 10 or 11.
 2. Choose a model, then press **Start download & continue to Windows ISO**.
+   Every card lists its graphics hardware and verification status. The graphics
+   driver is selected automatically for that model's external display output.
    Selecting a model alone does not download anything. The button starts downloading
    that model's files in the background and opens the Windows ISO page.
    Progress stays visible in the footer and the Files & drivers panel, which turns
@@ -43,11 +45,14 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 
 The GUI downloads and verifies Intel and Apple drivers before elevation; it does
 not install those drivers on the host. Building waits for the selected model's
-downloads to finish. A1706 uses its tested Intel graphics package separately from
-Apple's remaining hardware drivers. Old `IntelHDGraphics64` and `IntelIrisSetup`
-folders are excluded from its staged Apple drivers, including the post-install pass.
-Other models retain their Apple-supplied graphics drivers and use the available
-allowlisted Apple boot drivers, without the A1706-only Iris/HDMI startup changes.
+downloads to finish. The 2016 13-inch models use Intel **21.20.16.5174**; the 2017
+Iris Plus 650 model uses **27.20.100.9316** from February 2021. The 15-inch A1707
+uses Apple's bundled Radeon Pro drivers for its external output, with no separate
+Intel replacement. Its original Radeon INF packages are staged and added to each
+selected Windows image. Other Apple hardware drivers remain included.
+Old `IntelHDGraphics64` and `IntelIrisSetup` folders are excluded from staged Apple
+drivers, including the post-install pass. Other models use available allowlisted
+Apple boot drivers, without the A1706-only Iris/HDMI startup changes.
 The original signed driver files and Boot Camp software installer stay unmodified. Build
 logs and `job.json` stay in the chosen working folder. Existing output files and
 the original ISO are never overwritten. Cancellation waits for an active DISM

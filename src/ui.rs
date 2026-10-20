@@ -276,8 +276,13 @@ impl PatcherApp {
                             let profile_id = self.model().map(|m| m.id).unwrap_or(MODEL_ID);
                             self.output = source
                                 .join(format!(
-                                    "Win10_{}_Patched.iso",
-                                    profile_id.replace('-', "_")
+                                    "Win10_{}_{}_Patched.iso",
+                                    profile_id.replace('-', "_"),
+                                    if profile_id == "a1707-2016" {
+                                        "AMD"
+                                    } else {
+                                        "Intel"
+                                    }
                                 ))
                                 .display()
                                 .to_string();

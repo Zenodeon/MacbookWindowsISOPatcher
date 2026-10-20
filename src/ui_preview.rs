@@ -13,6 +13,7 @@ impl PatcherApp {
             "models-download" => ("models", 0),
             "iso-download" | "iso-driver-ready" | "iso-driver-error" => ("iso", 0),
             "models-unverified" => ("models", 1),
+            "models-dual" => ("models", 2),
             "iso-unverified" => ("iso", 1),
             "editions-unverified" => ("editions", 1),
             "review-unverified" => ("review-ready", 1),

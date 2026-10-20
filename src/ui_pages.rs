@@ -5,97 +5,115 @@ impl PatcherApp {
         Self::heading(
             ui,
             "Choose your MacBook",
-            "Select a model before choosing your Windows ISO.",
+            "Choose your model. External-display graphics drivers are selected automatically.",
         );
         let colors = appearance::palette(ui.ctx());
         Self::section(ui, "MacBook models", colors.model, |ui| {
             for (index, model) in MODEL_PROFILES.iter().enumerate() {
                 let checked = self.model_selected == Some(index);
-                let mut text = egui::text::LayoutJob::default();
-                text.append(
-                    &format!("{}\n", model.name),
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::proportional(16.0),
-                        color: ui.visuals().text_color(),
-                        ..Default::default()
-                    },
+                let width = ui.available_width();
+                let inner_width = (width - 28.0).max(1.0);
+                let title = ui.painter().layout(
+                    model.name.into(),
+                    egui::FontId::proportional(16.0),
+                    ui.visuals().text_color(),
+                    inner_width,
                 );
-                text.append(
-                    if model.hardware_verified() {
-                        "Hardware Verified"
-                    } else {
-                        "Unverified"
-                    },
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::proportional(13.0),
-                        color: if model.hardware_verified() {
-                            colors.success
+                let details = ui.painter().layout(
+                    format!("{} · {}", model.identifier, model.details),
+                    egui::FontId::proportional(12.0),
+                    colors.muted,
+                    inner_width,
+                );
+                let status_height = 30.0;
+                let height = 24.0 + title.size().y + details.size().y + status_height;
+                let (rect, response) =
+                    ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+                let fill = if checked || response.hovered() {
+                    colors.source
+                } else {
+                    colors.surface
+                };
+                ui.painter().rect(
+                    rect,
+                    10,
+                    fill,
+                    egui::Stroke::new(
+                        1.0_f32,
+                        if checked {
+                            colors.accent
                         } else {
-                            colors.warning
+                            ui.visuals().widgets.noninteractive.bg_stroke.color
                         },
-                        ..Default::default()
-                    },
+                    ),
+                    egui::StrokeKind::Inside,
                 );
-                if checked {
-                    text.append(
-                        "  ·  Selected",
-                        0.0,
-                        egui::TextFormat {
-                            font_id: egui::FontId::proportional(13.0),
-                            color: colors.accent,
-                            ..Default::default()
-                        },
-                    );
-                }
-                text.append(
-                    &format!("\n{} · {}", model.identifier, model.details),
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId::proportional(12.0),
-                        color: colors.muted,
-                        ..Default::default()
-                    },
+                let origin = rect.min + egui::vec2(14.0, 10.0);
+                ui.painter()
+                    .galley(origin, title.clone(), ui.visuals().text_color());
+                let detail_y = origin.y + title.size().y + 3.0;
+                ui.painter().galley(
+                    egui::pos2(origin.x, detail_y),
+                    details.clone(),
+                    colors.muted,
                 );
-                if ui
-                    .add(
-                        egui::Button::new(text)
-                            .selected(checked)
-                            .fill(if checked {
-                                colors.source
-                            } else {
-                                colors.surface
-                            })
-                            .stroke(egui::Stroke::new(
-                                1.0_f32,
-                                if checked {
-                                    colors.accent
-                                } else {
-                                    ui.visuals().widgets.noninteractive.bg_stroke.color
-                                },
-                            ))
-                            .corner_radius(10)
-                            .min_size(egui::vec2(ui.available_width(), 82.0))
-                            .wrap(),
-                    )
-                    .clicked()
-                {
-                    if self.model_selected != Some(index) {
+                if response.clicked() {
+                    if !checked {
                         self.drivers.selection_changed();
                     }
                     self.model_selected = Some(index);
                     self.error = None;
-                    ui.ctx().request_repaint();
                 }
-            }
-            if let Some(model) = self.model() {
-                ui.add_space(4.0);
-                if model.hardware_verified() {
-                    ui.label(RichText::new("Windows 10 Pro was verified in the original project using external HDMI with the internal display disconnected.").size(13.0).color(colors.muted));
+                let status_rect = egui::Rect::from_min_size(
+                    egui::pos2(origin.x, detail_y + details.size().y + 5.0),
+                    egui::vec2(inner_width, status_height),
+                );
+                let mut row = ui.new_child(
+                    egui::UiBuilder::new()
+                        .id_salt(model.id)
+                        .max_rect(status_rect)
+                        .layout(
+                            egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
+                        ),
+                );
+                row.spacing_mut().button_padding = egui::vec2(10.0, 5.0);
+                let badge = egui::Frame::new()
+                    .fill(if model.hardware_verified() {
+                        colors.ready
+                    } else {
+                        Color32::from_rgba_unmultiplied(
+                            colors.warning.r(),
+                            colors.warning.g(),
+                            colors.warning.b(),
+                            24,
+                        )
+                    })
+                    .corner_radius(5)
+                    .inner_margin(egui::Margin::symmetric(7, 3))
+                    .show(&mut row, |ui| {
+                        ui.label(
+                            RichText::new(if model.hardware_verified() {
+                                "Hardware Verified"
+                            } else {
+                                "Unverified"
+                            })
+                            .size(12.0)
+                            .color(if model.hardware_verified() {
+                                colors.success
+                            } else {
+                                colors.warning
+                            }),
+                        );
+                    });
+                badge.response.on_hover_text(if model.hardware_verified() {
+                    "Windows 10 Pro was verified in the original project using external HDMI with the internal display disconnected. This app's generated ISO still needs hardware testing."
                 } else {
-                    ui.label(RichText::new("This model is unverified. You can build once its Apple Boot Camp drivers finish downloading.").size(13.0).color(colors.warning));
+                    "This model has not been hardware verified. You can build after its drivers finish downloading."
+                });
+                if checked {
+                    row.label(RichText::new("Selected").size(12.0).color(colors.accent));
                 }
+                ui.add_space(6.0);
             }
             ui.hyperlink_to(
                 "Identify your MacBook model",
@@ -220,8 +238,15 @@ impl PatcherApp {
                 } else {
                     ui.colored_label(
                         colors.warning,
-                        "Unverified model. Builds include this model's Apple Boot Camp drivers.",
+                        "Unverified model. Builds include the selected graphics and Boot Camp drivers.",
                     );
+                }
+                if model.id == "a1707-2016" {
+                    ui.label("Graphics package: Apple Boot Camp Radeon Pro drivers.");
+                } else if let Ok(graphics) =
+                    macbook_iso_patcher::driver_prefetch::intel_graphics(model.id)
+                {
+                    ui.label(format!("Graphics package: Intel {}.", graphics.version));
                 }
             }
             egui::CollapsingHeader::new("Compatibility details").show(ui, |ui| {
@@ -343,15 +368,21 @@ impl PatcherApp {
 
     pub(super) fn review_page(&mut self, ui: &mut egui::Ui) {
         let hardware_verified = self.model().is_some_and(|model| model.hardware_verified());
-        Self::heading(
-            ui,
-            "Review your build",
-            if hardware_verified {
-                "Iris graphics, the HDMI fix, and Boot Camp drivers will be included."
-            } else {
-                "This model's Apple Boot Camp drivers will be included."
-            },
-        );
+        let description = if hardware_verified {
+            "Iris graphics, the HDMI fix, and Boot Camp drivers will be included.".to_owned()
+        } else if self.model().is_some_and(|model| model.id == "a1707-2016") {
+            "Apple Radeon Pro and Boot Camp drivers will be included.".to_owned()
+        } else {
+            let version = self
+                .model()
+                .and_then(|model| {
+                    macbook_iso_patcher::driver_prefetch::intel_graphics(model.id).ok()
+                })
+                .map(|graphics| graphics.version)
+                .unwrap_or("");
+            format!("Intel graphics {version} and Apple Boot Camp drivers will be included.")
+        };
+        Self::heading(ui, "Review your build", &description);
         let colors = appearance::palette(ui.ctx());
         if let Some(model) = self.model() {
             ui.label(RichText::new(model.name).strong());

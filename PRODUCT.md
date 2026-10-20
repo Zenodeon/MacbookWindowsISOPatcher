@@ -18,6 +18,10 @@ Only Pro was validated by the source project; other compatible editions are unve
 All listed models can build once their driver downloads finish. Other models
 remain Unverified and use their own Apple Boot Camp packages. Invite users to
 report both success and problems through GitHub issues beside the Build button.
+Include compatible Intel graphics releases from early 2021 for the other models.
+Select graphics drivers automatically for the model's external output: Intel on
+13-inch models, Apple's Radeon Pro drivers on the 15-inch model. No GPU toggle.
+List graphics on every model card, including both GPUs on the dual-GPU model.
 No automatic disk partitioning and no USB-writing functionality.
 
 ## Evidence

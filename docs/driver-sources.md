@@ -16,7 +16,34 @@ This version is pinned for the v17 HDMI boot recipe; the app does not choose
 Intel's newest release automatically.
 
 The original `igdlh64.inf` and `igdlh.cat` are kept unchanged. DISM adds this
-signed package to Setup and every selected installed edition. No `/ForceUnsigned`.
+signed package to every selected installed edition for the 2016 13-inch models.
+Only the verified A1706 also receives it in Setup with the HDMI startup payload.
+No `/ForceUnsigned`.
+
+### 2017 Iris Plus 650
+
+The 2017 MacBookPro14,2 uses Intel DCH **27.20.100.9316**, dated February 18, 2021
+in its original `iigd_dch.inf`, close to the February 5, 2021 release of 15.45.5174.
+The old Intel CDN links no longer responded, so the pinned CAB is from Microsoft's
+Update Catalog, update `03a02012-f79c-44bf-8dc7-fa769a1e7ecf`:
+
+- Catalog: https://www.catalog.update.microsoft.com/ScopedViewInline.aspx?updateid=03a02012-f79c-44bf-8dc7-fa769a1e7ecf
+- URL: https://catalog.s.download.windowsupdate.com/c/msdownload/update/driver/drvs/2021/05/8c3b1650-0aef-4e61-b7f3-eaff91e3482a_504a1ab0935cace6f2359d8f857182fb6e23fb1f.cab
+- Size: 312,227,370 bytes.
+- SHA-256: `bac61afa36281c4bc68c78cdacf4192b7f04fba7d3a7c5a1fa08828ccb49f974`.
+- This developer pin was computed from the complete Microsoft HTTPS download.
+  The extracted `igdlh.cat` has a valid Windows Authenticode signature.
+- The unchanged INF has a generic `PCI\VEN_8086&DEV_5927` mapping, so it is not
+  limited to the OEM hardware IDs displayed in the catalog listing.
+
+Before servicing, validate the exact driver version, catalog signature, and the
+selected GPU's generic INF mapping: 1927 (Iris 550), 1926 (Iris 540),
+or 5927 (Iris Plus 650). Keep original INF and CAT files unchanged. These matches
+establish package compatibility, not Mac hardware verification.
+
+Hardware references: https://support.apple.com/en-us/111999,
+https://support.apple.com/en-us/111975, https://support.apple.com/en-us/111972.
+5174 release notes: https://downloadmirror.intel.com/30195/eng/releasenotes_gfx_15.45.34.5174.pdf
 
 ## Apple
 
@@ -42,17 +69,22 @@ archives without extracting or installing them. Selecting a model alone does not
 start any downloads.
 The mappings were checked against Apple's Software Update catalog and English
 Boot Camp distributions on 2026-10-20. Every listed model can build after its
-download completes. Unverified models use their own Apple bundle, including its
-graphics drivers; the separate Intel replacement and HDMI startup sequence remain
-specific to MacBookPro13,2. Their WinPE paths contain only available allowlisted
+download completes. Graphics follow the external output automatically, without a
+GPU toggle. The 13-inch models use the matching Intel replacement; the HDMI startup
+sequence remains specific to MacBookPro13,2. MacBookPro13,3 uses its Apple Radeon
+package without downloading or injecting a separate Intel package. Loose Radeon
+display/audio INF packages under `BootCamp/Drivers/AMD/AMDGraphics/Packages/Drivers`
+are copied into staged `Drivers/AMDGraphics` and imported into each selected Windows
+image through signed DISM driver servicing. The Boot Camp installer is preserved.
+Their WinPE paths contain only available allowlisted
 Apple driver folders, while the installed Windows image receives the full bundle.
 
 | Mac identifier | Boot Camp product | Additional package |
 | --- | --- | --- |
 | MacBookPro13,2 | 041-88734 | Intel 15.45.34.5174 |
-| MacBookPro13,1 | 041-88734 | Included Apple bundle only |
-| MacBookPro13,3 | 041-88737 | Included Apple bundle only |
-| MacBookPro14,2 | 041-89042 | Included Apple bundle only |
+| MacBookPro13,1 | 041-88734 | Intel 15.45.34.5174 |
+| MacBookPro13,3 | 041-88737 | Apple Radeon Pro drivers for the external output |
+| MacBookPro14,2 | 041-89042 | Intel 27.20.100.9316 |
 
 - 041-88737: 572,663,165 bytes; SHA-256
   `782b00a1dbaf5950605909620f6f70d0d12375da8ce914d73d33ab57a9d1072c`.

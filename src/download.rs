@@ -256,13 +256,17 @@ pub fn prepare_for_model(
         "Extracting drivers",
         "Preparing the selected model's signed Boot Camp drivers",
     );
-    let replace_intel = model == crate::domain::MODEL_ID;
-    let intel_dir = if replace_intel {
-        extract_intel(tool, &paths[0], &dir.join("intel"), emit, cancel)?;
-        let inf = find_file(&dir.join("intel"), "igdlh64.inf")
-            .context("Intel package has no igdlh64.inf")?;
+    let intel_dir = if model != "a1707-2016" {
+        let graphics = crate::driver_prefetch::intel_graphics(model)?;
+        if model == "a1706-2017" {
+            extract(tool, &paths[0], &dir.join("intel"), emit, cancel)?;
+        } else {
+            extract_intel(tool, &paths[0], &dir.join("intel"), emit, cancel)?;
+        }
+        let inf = find_file(&dir.join("intel"), graphics.inf)
+            .context("Intel package has no matching graphics INF")?;
         let folder = inf.parent().unwrap().to_owned();
-        crate::engine::validate_intel(&folder)?;
+        crate::engine::validate_intel_for_model(&folder, model)?;
         Some(folder)
     } else {
         None
@@ -315,14 +319,23 @@ pub fn prepare_for_model(
     let pe = find_dir(&support, "$WinPEDriver$").context("Apple WinPE driver folder is missing")?;
     let drivers = dir.join("drivers");
     fs::create_dir(&drivers)?;
-    if replace_intel {
-        copy_apple_driver_tree(&pe, &drivers, cancel)?;
-    } else {
-        crate::engine::copy_tree(&pe, &drivers, cancel)?;
+    copy_apple_driver_tree(&pe, &drivers, cancel)?;
+    // Radeon display/audio drivers are already loose INF packages in this bundle.
+    // Keep them for both choices: the 15-inch model's external outputs use Radeon.
+    if model == "a1707-2016" {
+        let amd = bootcamp.join("Drivers/AMD/AMDGraphics/Packages/Drivers");
+        ensure!(
+            find_any_inf(&amd),
+            "Apple Radeon driver packages are missing"
+        );
+        crate::engine::copy_tree(&amd, &drivers.join("AMDGraphics"), cancel)?;
     }
     // Apple packages several device INF folders inside driver installer EXEs.
     let installers: Vec<_> = walkdir::WalkDir::new(bootcamp.join("Drivers"))
         .into_iter()
+        .filter_entry(|entry| {
+            !(model == "a1707-2016" && entry.file_type().is_dir() && entry.file_name() == "AMD")
+        })
         .filter_map(Result::ok)
         .filter(|e| {
             e.file_type().is_file()
@@ -334,10 +347,9 @@ pub fn prepare_for_model(
         .collect();
     for (n, exe) in installers.iter().enumerate() {
         cancel.check()?;
-        if replace_intel
-            && exe
-                .file_stem()
-                .is_some_and(|name| apple_intel_graphics(&name.to_string_lossy()))
+        if exe
+            .file_stem()
+            .is_some_and(|name| apple_intel_graphics(&name.to_string_lossy()))
         {
             continue;
         }
@@ -359,7 +371,7 @@ pub fn prepare_for_model(
     }
     for name in crate::domain::BOOT_ALLOWLIST
         .iter()
-        .filter(|_| replace_intel)
+        .filter(|_| model == crate::domain::MODEL_ID)
     {
         ensure!(
             drivers.join(name).is_dir(),

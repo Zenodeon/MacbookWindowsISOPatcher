@@ -15,27 +15,27 @@ impl ModelProfile {
 pub const MODEL_PROFILES: &[ModelProfile] = &[
     ModelProfile {
         id: MODEL_ID,
-        name: "MacBook Pro 13-inch · 2016 · A1706",
+        name: "MacBook Pro 13-inch · 2016 · Four Thunderbolt 3 ports",
         identifier: "MacBookPro13,2",
-        details: "Iris 550 · Touch Bar · T1",
+        details: "A1706 · Intel Iris 550 · Touch Bar · T1",
     },
     ModelProfile {
         id: "a1708-2016",
         name: "MacBook Pro 13-inch · 2016 · Two Thunderbolt 3 ports",
         identifier: "MacBookPro13,1",
-        details: "A1708 · Without Touch Bar",
+        details: "A1708 · Intel Iris 540 · Without Touch Bar",
     },
     ModelProfile {
         id: "a1707-2016",
-        name: "MacBook Pro 15-inch · 2016",
+        name: "MacBook Pro 15-inch · 2016 · Four Thunderbolt 3 ports",
         identifier: "MacBookPro13,3",
-        details: "A1707 · Touch Bar",
+        details: "A1707 · Intel HD 530 + Radeon Pro 450/455/460 · Touch Bar · T1",
     },
     ModelProfile {
         id: "a1706-2017",
         name: "MacBook Pro 13-inch · 2017 · Four Thunderbolt 3 ports",
         identifier: "MacBookPro14,2",
-        details: "A1706 · Touch Bar",
+        details: "A1706 · Intel Iris Plus 650 · Touch Bar · T1",
     },
 ];
 

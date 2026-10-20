@@ -66,7 +66,7 @@ impl PatcherApp {
             let package = if name.ends_with(".pkg") {
                 "Boot Camp"
             } else {
-                "Intel Iris"
+                "Intel graphics"
             };
             format!(
                 "{package} download · {:.0}%",
@@ -193,7 +193,7 @@ impl PatcherApp {
                     let package = if name.ends_with(".pkg") {
                         "Apple Boot Camp drivers"
                     } else {
-                        "Intel Iris graphics"
+                        "Intel graphics"
                     };
                     if let Some(total) = total.filter(|total| *total > 0) {
                         ui.label(

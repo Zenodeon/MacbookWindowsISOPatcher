@@ -18,7 +18,7 @@
 
 ## Automated
 
-The current 29 tests, Clippy with warnings denied, and release build pass.
+The current 31 tests, Clippy with warnings denied, and release build pass.
 Coverage includes model/package mapping, stale download completion, cancelled
 model switches, explicit download authorization for each selected model, retry
 behavior, and excluding old Apple Intel graphics while
@@ -26,10 +26,17 @@ preserving the other device drivers. Cached package verification was exercised
 for A1706 and the two additional Boot Camp packages. A real cancelled network
 transfer left no incomplete archive in its test cache.
 All listed models are accepted by build validation without changing hardware
-verification labels. Unverified builds select their own Apple packages and retain
-Apple graphics; boot-driver validation accepts available allowlisted folders and
+verification labels. Unverified builds select their own Apple packages and compatible
+Intel drivers on 13-inch models, and Apple Radeon for the 15-inch external output.
+Tests cover automatic external-GPU package selection and rejecting OEM-only or
+incorrect Intel hardware IDs. Boot-driver validation accepts available allowlisted folders and
 rejects graphics or unknown folders. Their full ISO builds and hardware operation
 remain untested. The A1706-only Iris/HDMI path remains separate.
+The pinned A1708 and 2017 Intel packages completed real extraction, matching-INF
+and catalog-signature validation, and temporary extraction cleanup. The 15-inch
+Apple bundle was also extracted; its loose Radeon display/audio INF paths were
+inspected. The revised model cards were rendered in both themes with automatic
+graphics selection and consistent verification tags.
 The official ADK bootstrapper download and Microsoft signature verification were
 exercised without installing it. The default window was inspected at 1240 × 700
 content pixels; proportional fitting is covered by tests. Live ADK installation

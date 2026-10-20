@@ -14,7 +14,10 @@ rows. The 2016 A1706 has green Hardware Verified status; the others are orange
 Unverified. Every model can continue to ISO inspection. Keep the selected model's
 identity throughout the flow. All listed models can build once their selected
 driver downloads finish. Other models use their own Apple package without the
-A1706-only Iris/HDMI fix. Keep Unverified orange and place a download-readiness
+A1706-only HDMI fix. Cards share the same name, graphics/details line and status
+tag layout. List both GPUs where present, but provide no GPU toggle. Choose the
+external-display driver automatically: Intel for the 13-inch models, Apple Radeon
+for the 15-inch A1707. Keep Unverified orange and place a download-readiness
 note and GitHub issue link beside Build, inviting reports of success or problems.
 Model names/identifiers follow Apple's identification page:
 https://support.apple.com/en-us/108052.
