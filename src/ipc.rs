@@ -7,8 +7,10 @@ use crate::{
 };
 use anyhow::{Context, Result, bail, ensure};
 use std::{
+    fs::{File, OpenOptions},
     io::{BufRead, BufReader, Read, Write},
     net::{Ipv4Addr, TcpListener, TcpStream},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
@@ -46,10 +48,103 @@ fn send(stream: &mut TcpStream, message: &impl serde::Serialize) -> Result<()> {
 fn message_reader(stream: &TcpStream, timeout: Option<Duration>) -> Result<BufReader<TcpStream>> {
     // Windows accepts inherit the polling listener's non-blocking mode.
     // Framed messages must wait for the complete line, including delayed events.
+    configure_socket(stream, timeout)?;
+    let reader = BufReader::new(stream.try_clone()?);
+    configure_socket(reader.get_ref(), timeout)?;
+    Ok(reader)
+}
+
+fn configure_socket(stream: &TcpStream, timeout: Option<Duration>) -> Result<()> {
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(timeout)?;
     stream.set_write_timeout(Some(Duration::from_secs(30)))?;
-    Ok(BufReader::new(stream.try_clone()?))
+    Ok(())
+}
+
+fn finish_authentication(stream: &TcpStream, reader: &BufReader<TcpStream>) -> Result<()> {
+    // On Windows the duplicated reader retains its own receive timeout.
+    // Reset both handles directly; changing only the writer leaves a 3s/30s limit.
+    configure_socket(stream, None)?;
+    configure_socket(reader.get_ref(), None)?;
+    ensure!(
+        stream.read_timeout()?.is_none() && reader.get_ref().read_timeout()?.is_none(),
+        "Worker connection still has an authentication read timeout"
+    );
+    Ok(())
+}
+
+struct ConnectionTrace {
+    file: File,
+    path: PathBuf,
+    started: Instant,
+    phase: &'static str,
+    emit: Emit,
+}
+impl ConnectionTrace {
+    fn new(workspace: &Path, emit: Emit) -> Result<Self> {
+        let path = workspace.join(format!("worker-connection-{}.log", uuid::Uuid::new_v4()));
+        let file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+            .context("Could not create the worker connection log")?;
+        let mut trace = Self {
+            file,
+            path,
+            started: Instant::now(),
+            phase: "starting",
+            emit,
+        };
+        trace.record(&format!(
+            "Connection log: {}",
+            platform::display_path(&trace.path)
+        ));
+        Ok(trace)
+    }
+    fn retain(&mut self, message: &str) -> String {
+        let text = format!(
+            "[worker +{:.2}s] {}: {message}",
+            self.started.elapsed().as_secs_f64(),
+            self.phase
+        );
+        let _ = writeln!(self.file, "{text}");
+        let _ = self.file.flush();
+        text
+    }
+    fn record(&mut self, message: &str) {
+        let text = self.retain(message);
+        (self.emit)(Event::Log(text));
+    }
+    fn phase(&mut self, phase: &'static str) {
+        self.phase = phase;
+        self.record("entered phase");
+    }
+    fn sockets(&mut self, stream: &TcpStream, reader: &BufReader<TcpStream>) -> Result<()> {
+        self.record(&format!(
+            "read timeout: writer={:?}, reader={:?}; write timeout: writer={:?}, reader={:?}",
+            stream.read_timeout()?,
+            reader.get_ref().read_timeout()?,
+            stream.write_timeout()?,
+            reader.get_ref().write_timeout()?
+        ));
+        Ok(())
+    }
+}
+
+fn monitor_cancellation(
+    mut stream: TcpStream,
+    cancel: Cancellation,
+    done: Arc<std::sync::atomic::AtomicBool>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        while !done.load(std::sync::atomic::Ordering::SeqCst) {
+            if cancel.is_cancelled() {
+                let _ = stream.write_all(b"cancel\n");
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    })
 }
 
 pub fn start(request: BuildRequest, emit: Emit, cancel: Cancellation) -> Result<()> {
@@ -59,6 +154,24 @@ pub fn start(request: BuildRequest, emit: Emit, cancel: Cancellation) -> Result<
         root: prepared.assets_root.clone(),
         clean: true,
     };
+    let mut trace = ConnectionTrace::new(&prepared.request.workspace, emit.clone())?;
+    let result = run_connection(&prepared, &emit, &cancel, &mut lease, &mut trace);
+    if let Err(error) = &result {
+        trace.record(&format!("Connection failed: {error:#}"));
+    }
+    result.with_context(|| format!(
+        "Worker connection failed during {} after {:.2}s. Connection log: {}. Check the retained build workspace before retrying",
+        trace.phase, trace.started.elapsed().as_secs_f64(), platform::display_path(&trace.path)
+    ))
+}
+
+fn run_connection(
+    prepared: &PreparedBuild,
+    emit: &Emit,
+    cancel: &Cancellation,
+    lease: &mut PreparedLease,
+    trace: &mut ConnectionTrace,
+) -> Result<()> {
     cancel.check()?;
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     listener.set_nonblocking(true)?;
@@ -68,11 +181,13 @@ pub fn start(request: BuildRequest, emit: Emit, cancel: Cancellation) -> Result<
         uuid::Uuid::new_v4().simple()
     );
     stage(
-        &emit,
+        emit,
         "Administrator approval",
         "Approve Windows UAC to service the installation images",
     );
+    trace.phase("administrator approval");
     platform::elevate_worker(listener.local_addr()?.port(), &token)?;
+    trace.phase("waiting for worker connection");
     let deadline = Instant::now() + Duration::from_secs(180);
     let (mut stream, mut reader) = loop {
         cancel.check()?;
@@ -86,12 +201,16 @@ pub fn start(request: BuildRequest, emit: Emit, cancel: Cancellation) -> Result<
                     continue;
                 }
                 let mut reader = message_reader(&stream, Some(Duration::from_secs(3)))?;
+                trace.phase("authenticating worker");
+                trace.sockets(&stream, &reader)?;
                 if line(&mut reader)
                     .ok()
                     .is_some_and(|text| text.trim() == token)
                 {
                     break (stream, reader);
                 }
+                trace.record("Rejected connection: authentication failed or timed out");
+                trace.phase("waiting for worker connection");
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(100))
@@ -99,26 +218,21 @@ pub fn start(request: BuildRequest, emit: Emit, cancel: Cancellation) -> Result<
             Err(error) => return Err(error.into()),
         }
     };
-    stream.set_read_timeout(None)?;
+    finish_authentication(&stream, &reader)?;
+    trace.phase("sending build request");
+    trace.sockets(&stream, &reader)?;
     // Once handed to the elevated worker, preserve inputs on an uncertain disconnect.
     lease.clean = false;
-    send(&mut stream, &prepared)?;
-    let mut cancellation_stream = stream.try_clone()?;
+    send(&mut stream, prepared)?;
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let monitor_done = done.clone();
-    let monitor_cancel = cancel.clone();
-    let monitor = thread::spawn(move || {
-        while !monitor_done.load(std::sync::atomic::Ordering::SeqCst) {
-            if monitor_cancel.is_cancelled() {
-                let _ = cancellation_stream.write_all(b"cancel\n");
-                break;
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-    });
+    let monitor = monitor_cancellation(stream.try_clone()?, cancel.clone(), done.clone());
+    trace.phase("receiving worker events");
     let result = (|| -> Result<()> {
         loop {
             let event: Event = serde_json::from_str(&line(&mut reader)?)?;
+            // Retain the worker's events alongside transport diagnostics, even if
+            // the worker fails before creating its separate build.log.
+            trace.retain(&serde_json::to_string(&event)?);
             let terminal = matches!(
                 event,
                 Event::Finished(_) | Event::Failed(_) | Event::Cancelled
@@ -158,7 +272,7 @@ pub fn worker(port: u16, token: &str) -> Result<()> {
     let mut reader = message_reader(&stream, Some(Duration::from_secs(30)))?;
     stream.write_all(format!("{token}\n").as_bytes())?;
     let prepared: PreparedBuild = serde_json::from_str(&line(&mut reader)?)?;
-    stream.set_read_timeout(None)?;
+    finish_authentication(&stream, &reader)?;
     let cancel = Cancellation::default();
     let connection_cancel = cancel.clone();
     let output = Arc::new(Mutex::new(stream));
@@ -204,7 +318,7 @@ mod tests {
     use std::{io::ErrorKind, net::Shutdown};
 
     #[test]
-    fn accepted_worker_waits_for_fragmented_events_and_receives_cancellation() {
+    fn authenticated_worker_survives_auth_timeout_and_silent_cancellation() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
@@ -212,9 +326,11 @@ mod tests {
         let expected_token = token.clone();
         let client = thread::spawn(move || {
             let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2)).unwrap();
-            let mut reader = message_reader(&stream, Some(Duration::from_secs(2))).unwrap();
+            let mut reader = message_reader(&stream, Some(Duration::from_secs(10))).unwrap();
             stream.write_all(format!("{token}\n").as_bytes()).unwrap();
             assert_eq!(line(&mut reader).unwrap().trim(), "\"prepared\"");
+            finish_authentication(&stream, &reader).unwrap();
+            thread::sleep(Duration::from_millis(3500));
             let event = Event::Stage {
                 name: "Checking Windows media".into(),
                 detail: "Delayed worker event".into(),
@@ -238,18 +354,30 @@ mod tests {
                 Err(error) => panic!("accept failed: {error}"),
             }
         };
-        let mut reader = message_reader(&stream, Some(Duration::from_secs(2))).unwrap();
+        let mut reader = message_reader(&stream, Some(Duration::from_secs(3))).unwrap();
         assert_eq!(line(&mut reader).unwrap().trim(), expected_token);
-        stream.set_read_timeout(None).unwrap();
+        assert_eq!(
+            reader.get_ref().read_timeout().unwrap(),
+            Some(Duration::from_secs(3))
+        );
+        finish_authentication(&stream, &reader).unwrap();
+        assert!(reader.get_ref().read_timeout().unwrap().is_none());
+        assert!(stream.read_timeout().unwrap().is_none());
         send(&mut stream, &"prepared").unwrap();
+        let cancel = Cancellation::default();
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let monitor =
+            monitor_cancellation(stream.try_clone().unwrap(), cancel.clone(), done.clone());
         let event: Event = serde_json::from_str(&line(&mut reader).unwrap()).unwrap();
         assert!(matches!(event, Event::Stage { name, .. } if name == "Checking Windows media"));
-        stream.try_clone().unwrap().write_all(b"cancel\n").unwrap();
+        cancel.cancel();
         assert!(matches!(
             serde_json::from_str::<Event>(&line(&mut reader).unwrap()).unwrap(),
             Event::Cancelled
         ));
         client.join().unwrap();
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        monitor.join().unwrap();
     }
 
     #[test]
@@ -277,6 +405,7 @@ mod tests {
         let peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (stream, _) = listener.accept().unwrap();
         let mut reader = message_reader(&stream, Some(Duration::from_secs(2))).unwrap();
+        finish_authentication(&stream, &reader).unwrap();
         peer.shutdown(Shutdown::Both).unwrap();
         assert!(
             line(&mut reader)
@@ -284,5 +413,20 @@ mod tests {
                 .to_string()
                 .contains("Worker connection closed")
         );
+    }
+
+    #[test]
+    fn connection_diagnostics_retain_phase_elapsed_and_events() {
+        let mut trace = ConnectionTrace::new(&std::env::temp_dir(), Arc::new(|_| {})).unwrap();
+        trace.phase("receiving worker events");
+        trace.retain("test worker event");
+        trace.record("test connection error");
+        let path = trace.path.clone();
+        drop(trace);
+        let log = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert!(log.contains("[worker +"));
+        assert!(log.contains("receiving worker events: test worker event"));
+        assert!(log.contains("receiving worker events: test connection error"));
     }
 }

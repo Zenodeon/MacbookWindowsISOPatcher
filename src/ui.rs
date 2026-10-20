@@ -647,7 +647,11 @@ impl PatcherApp {
         ui.add_space(12.0);
         Self::section(ui, "Build details", colors.surface, |ui| {
             egui::CollapsingHeader::new("Show build log")
-                .default_open(false)
+                .default_open(
+                    cfg!(debug_assertions)
+                        && std::env::var("MACBOOK_PATCHER_PREVIEW").as_deref() == Ok("build-log")
+                        && std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some(),
+                )
                 .show(ui, |ui| {
                     if ui.button("Save visible log…").clicked()
                         && let Some(path) = rfd::FileDialog::new()
@@ -661,6 +665,7 @@ impl PatcherApp {
                         .max_height(280.0)
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = 2.0;
                             for line in &self.logs {
                                 ui.monospace(line);
                             }

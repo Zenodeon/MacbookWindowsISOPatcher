@@ -52,6 +52,9 @@ workspace space, offer **Retry** to check the requirements again and continue wh
 ready. **Close** dismisses the popup so you can change the build settings.
 **Copy error** copies the full message for troubleshooting or a GitHub issue.
 Download failures also have a **Copy** link beside **Retry** in the footer.
+Worker connection failures include the connection phase, elapsed time and the
+retained `worker-connection-<id>.log` path in the workspace. This log includes
+socket timeout settings and worker events, even before `build.log` is created.
 
 The GUI downloads and verifies Intel and Apple drivers before elevation; it does
 not install those drivers on the host. Building waits for the selected model's

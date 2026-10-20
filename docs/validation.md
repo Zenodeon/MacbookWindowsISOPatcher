@@ -18,12 +18,19 @@
 
 ## Automated
 
-The current 37 tests, Clippy with warnings denied, and release build pass.
+The current 38 tests, Clippy with warnings denied, and release build pass.
 Loopback transport tests reproduce Windows error 10035 with an inherited
 non-blocking accepted socket, then verify the explicit blocking-mode fix with
 fragmented delayed events and cancellation. Authentication still times out, and
-an actual worker disconnect remains an error. A complete elevated ISO build has
-not been repeated here.
+an actual worker disconnect remains an error. Windows error 10060 was reproduced:
+after authentication the writer reported no read timeout while its cloned reader
+still reported 3 seconds. Both handles are now explicitly reset and checked.
+The production handoff helper and cancellation monitor pass a test with more
+than 3 seconds of silence followed by a fragmented event and cancellation.
+Connection diagnostics retain elapsed time, phase, socket settings and events
+in a per-build workspace log without logging authentication tokens.
+The compact log viewer was rendered at 1240 × 700 in both themes with long and
+multiline entries and 2 px vertical spacing.
 Coverage includes model/package mapping, stale download completion, cancelled
 model switches, explicit download authorization for each selected model, retry
 behavior, and excluding old Apple Intel graphics while

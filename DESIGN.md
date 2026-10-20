@@ -80,6 +80,9 @@ Retry reruns validation and preserves whether the user was reviewing the build
 or had already continued through the donation screen. Do not start a worker while
 the requirements still fail. Keep retry actions attached to their own error so
 unrelated messages never inherit a build retry.
+Keep build-log entries compact with 2 px vertical gaps, preserving the monospace
+font, wrapping, auto-scroll and saved log text. Connection errors include their
+phase, elapsed time and a retained connection-log path for troubleshooting.
 Use its identifier on narrow windows, with the full model name in a tooltip.
 Selecting a model only selects it. Pressing Start download & continue to Windows ISO
 authorizes its driver downloads and opens ISO selection without blocking scanning.
