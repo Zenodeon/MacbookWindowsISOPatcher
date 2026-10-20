@@ -41,18 +41,18 @@ pub struct Palette {
 pub fn palette(ctx: &egui::Context) -> Palette {
     if ctx.style().visuals.dark_mode {
         Palette {
-            canvas: Color32::from_rgb(7, 9, 13),
-            rail: Color32::from_rgb(12, 15, 21),
-            footer: Color32::from_rgb(12, 15, 21),
+            canvas: Color32::from_rgb(25, 29, 37),
+            rail: Color32::from_rgb(32, 37, 46),
+            footer: Color32::from_rgb(32, 37, 46),
             muted: Color32::from_rgb(174, 185, 203),
             accent: Color32::from_rgb(148, 190, 255),
             primary: Color32::from_rgb(36, 85, 156),
             error: Color32::from_rgb(255, 154, 157),
-            source: Color32::from_rgb(15, 24, 36),
-            model: Color32::from_rgb(24, 19, 34),
-            surface: Color32::from_rgb(17, 20, 27),
-            drop: Color32::from_rgb(8, 15, 24),
-            missing: Color32::from_rgb(43, 19, 24),
+            source: Color32::from_rgb(35, 47, 63),
+            model: Color32::from_rgb(47, 40, 59),
+            surface: Color32::from_rgb(37, 42, 51),
+            drop: Color32::from_rgb(30, 40, 54),
+            missing: Color32::from_rgb(66, 38, 44),
         }
     } else {
         Palette {
@@ -129,13 +129,14 @@ pub fn install(ctx: &egui::Context) {
         };
         style.visuals.selection.bg_fill = Color32::from_rgb(36, 85, 156);
         if theme == Theme::Dark {
-            style.visuals.extreme_bg_color = Color32::from_rgb(6, 8, 12);
-            style.visuals.window_fill = Color32::from_rgb(19, 23, 31);
-            style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(30, 35, 44);
-            style.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(30, 35, 44);
-            style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(39, 47, 60);
-            style.visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(39, 47, 60);
-            style.visuals.widgets.active.bg_fill = Color32::from_rgb(46, 59, 77);
+            style.visuals.extreme_bg_color = Color32::from_rgb(22, 27, 35);
+            style.visuals.window_fill = Color32::from_rgb(42, 48, 59);
+            style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(52, 59, 71);
+            style.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(52, 59, 71);
+            style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(63, 73, 89);
+            style.visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(63, 73, 89);
+            style.visuals.widgets.active.bg_fill = Color32::from_rgb(71, 88, 113);
+            style.visuals.widgets.active.weak_bg_fill = Color32::from_rgb(71, 88, 113);
         }
         style.spacing.item_spacing = egui::vec2(10.0, 10.0);
         style.spacing.button_padding = egui::vec2(14.0, 9.0);

@@ -3,7 +3,7 @@
 Operate mode: a person preparing installation media at a Windows desktop.
 Light and dark palettes with a blue action color. Follow the OS by default;
 allow explicit Light or Dark and remember the choice in user settings.
-Dark mode uses a near-black canvas and subdued controls. Separate tasks with
+Dark mode uses a charcoal canvas and brighter, clearly separated controls. Separate tasks with
 blue-tinted source/edition sections, violet-tinted Mac/setup sections, and a
 neutral output/details section; use the corresponding pale tints in light mode.
 The permanent left rail explains the four sequential steps. The main work area
