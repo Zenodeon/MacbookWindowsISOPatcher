@@ -18,7 +18,7 @@
 
 ## Automated
 
-The current 31 tests, Clippy with warnings denied, and release build pass.
+The current 34 tests, Clippy with warnings denied, and release build pass.
 Coverage includes model/package mapping, stale download completion, cancelled
 model switches, explicit download authorization for each selected model, retry
 behavior, and excluding old Apple Intel graphics while
@@ -37,6 +37,10 @@ and catalog-signature validation, and temporary extraction cleanup. The 15-inch
 Apple bundle was also extracted; its loose Radeon display/audio INF paths were
 inspected. The revised model cards were rendered in both themes with automatic
 graphics selection and consistent verification tags.
+Path-display tests cover extended drive/UNC paths and preserving device namespaces;
+byte-progress tests cover unknown/zero totals and bounds. Renderer fixtures cover
+source-section ordering, footer download progress/errors/Retry, and the Build ISO
+button's measurable and indeterminate states. Main scrolling resets on page changes.
 The official ADK bootstrapper download and Microsoft signature verification were
 exercised without installing it. The default window was inspected at 1240 × 700
 content pixels; proportional fitting is covered by tests. Live ADK installation

@@ -15,8 +15,8 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    driver is selected automatically for that model's external display output.
    Selecting a model alone does not download anything. The button starts downloading
    that model's files in the background and opens the Windows ISO page.
-   Progress stays visible in the footer and the Files & drivers panel, which turns
-   green when complete. Switching models cancels the previous transfer cleanly;
+   Download bytes, progress, completion and Retry stay centered below the footer
+   buttons. Completion turns green. Switching models cancels the previous transfer cleanly;
    press the start button again to download the newly selected model's files.
    Verified shared packages are reused from the cache; failed downloads offer Retry.
    All listed models can build after their downloads finish. The **2016 A1706 /
@@ -37,7 +37,9 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    A manual Microsoft download link is also available. Once both tools are found,
    the panel stays visible as a green **Build tools ready** section. **Build setup**
    appears above **Output & workspace**.
-7. Start the build once the selected model's downloads finish. The note beside
+7. Press **Build ISO** once the selected model's downloads finish. Its progress
+   bar shows download progress, then an animated indicator for build stages that
+   do not report a measurable percentage. The note beside
    the button links to GitHub issues: report success or problems, including your
    Mac model and Windows edition. Multiple editions show an optional donation page linking to
    [Ko-fi](https://ko-fi.com/zenodeon); **Continue without donating** always works.
@@ -60,6 +62,9 @@ operation to reach a safe boundary. Retrying with the same working folder
 recovers identifiable app-owned mounts from interrupted builds.
 
 After a successful scan, the source ISO stays mounted for the current session.
+The source page puts **Selected Mac** above **Source file**, with compatibility
+details inside Source file. File fields display normal drive or UNC paths rather
+than Windows' internal extended-path prefix. Each page opens scrolled to the top.
 **Dismount ISO** replaces the return/back action and appears only once an ISO has
 been scanned. Confirm in the popup to eject it and return to **Windows ISO**;
 the ISO file stays unchanged. Use **Edit editions** on Review to change editions.

@@ -15,6 +15,22 @@ use std::{
 
 pub const ADK_URL: &str =
     "https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install";
+
+/// Friendly text for file fields; canonical paths remain in the build inventory.
+pub fn display_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if let Some(network) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{network}");
+    }
+    if let Some(drive) = text.strip_prefix(r"\\?\") {
+        let bytes = drive.as_bytes();
+        if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1..3] == *b":\\" {
+            return drive.to_owned();
+        }
+    }
+    text.into_owned()
+}
+
 pub const SEVEN_ZIP_URL: &str = "https://www.7-zip.org/download.html";
 
 pub fn hidden(command: &mut Command) -> &mut Command {
@@ -390,5 +406,32 @@ pub fn publish_iso(source: &Path, target: &Path) -> Result<()> {
         fs::hard_link(source, target)?;
         fs::remove_file(source)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod path_display_tests {
+    use super::*;
+    #[test]
+    fn displays_extended_drive_and_network_paths_in_familiar_form() {
+        assert_eq!(
+            display_path(Path::new(r"\\?\C:\ISO files\Windows.iso")),
+            r"C:\ISO files\Windows.iso"
+        );
+        assert_eq!(
+            display_path(Path::new(r"\\?\UNC\server\share\Windows.iso")),
+            r"\\server\share\Windows.iso"
+        );
+    }
+    #[test]
+    fn preserves_normal_paths_and_device_namespaces() {
+        for path in [
+            r"C:\ISO files\Windows.iso",
+            r"\\server\share\Windows.iso",
+            r"\\?\Volume{abc}\Windows.iso",
+            "/tmp/Windows.iso",
+        ] {
+            assert_eq!(display_path(Path::new(path)), path);
+        }
     }
 }

@@ -120,7 +120,6 @@ impl PatcherApp {
                 "https://support.apple.com/en-us/108052",
             );
         });
-        self.driver_download_panel(ui);
     }
     pub(super) fn section(
         ui: &mut egui::Ui,
@@ -148,6 +147,27 @@ impl PatcherApp {
             "Drop a file or browse. Your original ISO stays unchanged.",
         );
         let colors = appearance::palette(ctx);
+        Self::section(ui, "Selected Mac", colors.rail, |ui| {
+            if let Some(model) = self.model() {
+                ui.label(RichText::new(model.name).strong());
+                ui.label(format!("{} · {}", model.identifier, model.details));
+                if model.hardware_verified() {
+                    ui.label("External HDMI fix for a disconnected internal display.");
+                } else {
+                    ui.colored_label(
+                        colors.warning,
+                        "Unverified model. Builds include the selected graphics and Boot Camp drivers.",
+                    );
+                }
+                if model.id == "a1707-2016" {
+                    ui.label("Graphics package: Apple Boot Camp Radeon Pro drivers.");
+                } else if let Ok(graphics) =
+                    macbook_iso_patcher::driver_prefetch::intel_graphics(model.id)
+                {
+                    ui.label(format!("Graphics package: Intel {}.", graphics.version));
+                }
+            }
+        });
         Self::section(ui, "Source file", colors.source, |ui| {
             ui.add_enabled_ui(
                 !self.scanning && !self.dismounting && !self.installing_adk,
@@ -196,7 +216,7 @@ impl PatcherApp {
                             .add_filter("Windows ISO", &["iso"])
                             .pick_file()
                     {
-                        self.iso = path.display().to_string();
+                        self.iso = platform::display_path(&path);
                         self.scan(ctx);
                     }
                     ui.add_space(6.0);
@@ -227,27 +247,6 @@ impl PatcherApp {
                         .size(13.0)
                         .color(colors.muted),
                 );
-            }
-        });
-        Self::section(ui, "Selected Mac", colors.model, |ui| {
-            if let Some(model) = self.model() {
-                ui.label(RichText::new(model.name).strong());
-                ui.label(format!("{} · {}", model.identifier, model.details));
-                if model.hardware_verified() {
-                    ui.label("External HDMI fix for a disconnected internal display.");
-                } else {
-                    ui.colored_label(
-                        colors.warning,
-                        "Unverified model. Builds include the selected graphics and Boot Camp drivers.",
-                    );
-                }
-                if model.id == "a1707-2016" {
-                    ui.label("Graphics package: Apple Boot Camp Radeon Pro drivers.");
-                } else if let Ok(graphics) =
-                    macbook_iso_patcher::driver_prefetch::intel_graphics(model.id)
-                {
-                    ui.label(format!("Graphics package: Intel {}.", graphics.version));
-                }
             }
             egui::CollapsingHeader::new("Compatibility details").show(ui, |ui| {
                 ui.label("Requires Windows 10 x64, en-US, builds 19041–19045. Windows 11 and split SWM images are not supported.");

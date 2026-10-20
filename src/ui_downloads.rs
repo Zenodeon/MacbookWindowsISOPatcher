@@ -46,6 +46,17 @@ impl DriverDownloads {
 }
 
 impl PatcherApp {
+    fn current_driver_transfer(&self) -> Option<&(String, u64, Option<u64>)> {
+        let model = self.model()?;
+        let (id, cache) = self.drivers.key.as_ref()?;
+        if *id != model.id
+            || !self.drivers.requested_for(model.id)
+            || cache.as_path() != std::path::Path::new(self.settings.cache.trim())
+        {
+            return None;
+        }
+        self.drivers.progress.as_ref()
+    }
     pub(super) fn driver_footer_status(&self, ctx: &egui::Context) -> Option<(String, Color32)> {
         let model = self.model()?;
         if !self.drivers.requested_for(model.id) {
@@ -60,7 +71,7 @@ impl PatcherApp {
             return Some(("Files & drivers downloaded".into(), colors.success));
         }
         if self.drivers.error.is_some() {
-            return Some(("Driver download failed · Retry above".into(), colors.error));
+            return Some(("Driver download failed · Retry below".into(), colors.error));
         }
         let status = if let Some((name, received, Some(total))) = &self.drivers.progress {
             let package = if name.ends_with(".pkg") {
@@ -133,104 +144,158 @@ impl PatcherApp {
             ctx.request_repaint();
         });
     }
-    pub(super) fn driver_download_panel(&mut self, ui: &mut egui::Ui) {
-        let Some(model) = self.model() else {
-            return;
-        };
-        if !self.drivers.requested_for(model.id) {
-            return;
-        }
-        let Some((downloading_model, _)) = &self.drivers.key else {
-            return;
-        };
-        let switching = *downloading_model != model.id;
-        let ready = self.drivers_ready();
+    pub(super) fn build_iso_button(&self, ui: &mut egui::Ui, enabled: bool) -> bool {
         let colors = appearance::palette(ui.ctx());
-        egui::Frame::new()
-            .fill(if ready {
-                colors.ready
-            } else if self.drivers.error.is_some() && !switching {
-                colors.missing
+        let label = if self.busy {
+            "Building ISO"
+        } else {
+            "Build ISO"
+        };
+        let response = ui.add_enabled(
+            enabled,
+            egui::Button::new(RichText::new(label).color(Color32::WHITE))
+                .fill(colors.primary)
+                .min_size(egui::vec2(155.0, 42.0)),
+        );
+        let active = self.busy
+            || (self.drivers.running
+                && self
+                    .model()
+                    .is_some_and(|model| self.drivers.requested_for(model.id)));
+        let progress = if self.busy {
+            self.download
+                .as_ref()
+                .and_then(|(_, received, total)| download_fraction(*received, *total))
+        } else if self.page == Page::Build {
+            self.finished.as_ref().map(|_| 1.0)
+        } else if self.drivers_ready() {
+            Some(1.0)
+        } else {
+            self.current_driver_transfer()
+                .and_then(|(_, received, total)| download_fraction(*received, *total))
+        };
+        if active || progress.is_some() {
+            let track = egui::Rect::from_min_max(
+                response.rect.left_bottom() + egui::vec2(5.0, -6.0),
+                response.rect.right_bottom() - egui::vec2(5.0, 3.0),
+            );
+            ui.painter()
+                .rect_filled(track, 2, colors.muted.gamma_multiply(0.35));
+            let fill = if let Some(fraction) = progress {
+                egui::Rect::from_min_size(
+                    track.min,
+                    egui::vec2(track.width() * fraction, track.height()),
+                )
             } else {
-                colors.source
+                let phase = (ui.input(|i| i.time) * 0.65).fract() as f32;
+                let start = track.left() + (phase * 1.3 - 0.3) * track.width();
+                ui.ctx().request_repaint_after(Duration::from_millis(32));
+                egui::Rect::from_min_size(
+                    egui::pos2(start, track.top()),
+                    egui::vec2(track.width() * 0.3, track.height()),
+                )
+                .intersect(track)
+            };
+            ui.painter().rect_filled(fill, 2, colors.success);
+        }
+        response
+            .on_disabled_hover_text(if self.busy {
+                "The current build stage is shown below."
+            } else {
+                "Finish the selected model's downloads before building."
             })
-            .corner_radius(10)
-            .inner_margin(12.0)
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.horizontal_wrapped(|ui| {
-                    if self.drivers.running {
-                        ui.spinner();
-                    }
-                    ui.label(
-                        RichText::new(if switching {
-                            "Switching model downloads…"
-                        } else if ready {
-                            "Files & drivers downloaded"
-                        } else if self.drivers.error.is_some() {
-                            "Driver download needs attention"
-                        } else {
-                            "Downloading files & drivers"
-                        })
-                        .strong(),
-                    );
-                });
-                if switching {
-                    ui.label("Stopping the previous download before starting this model’s files.");
-                } else if let Some(error) = &self.drivers.error {
-                    ui.label(error);
-                    if ui.button("Retry driver download").clicked() {
-                        self.drivers.key = None;
-                        ui.ctx().request_repaint();
-                    }
-                } else if ready {
-                    ui.label(
-                        RichText::new("Verified files are cached and will be reused.")
-                            .size(13.0)
-                            .color(colors.success),
-                    );
-                } else if let Some((name, received, total)) = &self.drivers.progress {
-                    let package = if name.ends_with(".pkg") {
-                        "Apple Boot Camp drivers"
-                    } else {
-                        "Intel graphics"
-                    };
-                    if let Some(total) = total.filter(|total| *total > 0) {
-                        ui.label(
-                            RichText::new(format!(
-                                "{package} · {:.1} / {:.1} MB",
-                                *received as f64 / 1_000_000.0,
-                                total as f64 / 1_000_000.0
-                            ))
-                            .size(13.0),
-                        );
-                        ui.add(
-                            egui::ProgressBar::new(
-                                (*received as f64 / total as f64).clamp(0.0, 1.0) as f32,
-                            )
-                            .desired_height(8.0),
-                        );
-                    } else {
-                        ui.label(format!(
-                            "{package} · {:.1} MB received",
-                            *received as f64 / 1_000_000.0
-                        ));
-                    }
-                } else {
-                    ui.label(
-                        RichText::new(&self.drivers.stage)
-                            .size(13.0)
-                            .color(colors.muted),
-                    );
-                }
-            });
-        ui.add_space(14.0);
+            .clicked()
     }
+
+    pub(super) fn driver_download_footer(&mut self, ui: &mut egui::Ui) {
+        let colors = appearance::palette(ui.ctx());
+        let status = if self.busy {
+            Some((self.stage.clone(), colors.muted))
+        } else {
+            self.driver_footer_status(ui.ctx())
+        };
+        let Some((status, color)) = status else {
+            return;
+        };
+        ui.add_space(6.0);
+        ui.vertical_centered(|ui| {
+            ui.set_max_width(ui.available_width().min(620.0));
+            let progress = if self.busy {
+                self.download.as_ref()
+            } else {
+                self.current_driver_transfer()
+            };
+            if let Some((name, received, total)) = progress {
+                let package = if name.ends_with(".pkg") {
+                    "Apple Boot Camp drivers"
+                } else {
+                    "Intel graphics"
+                };
+                let detail = if let Some(total) = total.filter(|total| *total > 0) {
+                    format!(
+                        "{package} · {:.1} / {:.1} MB · {:.0}%",
+                        *received as f64 / 1_000_000.0,
+                        total as f64 / 1_000_000.0,
+                        download_fraction(*received, Some(total)).unwrap_or(0.0) * 100.0
+                    )
+                } else {
+                    format!(
+                        "{package} · {:.1} MB received",
+                        *received as f64 / 1_000_000.0
+                    )
+                };
+                ui.label(RichText::new(detail).size(12.0).color(color))
+                    .on_hover_text(name);
+                if let Some(fraction) = download_fraction(*received, *total) {
+                    ui.add(
+                        egui::ProgressBar::new(fraction)
+                            .desired_width(ui.available_width())
+                            .desired_height(5.0),
+                    );
+                } else {
+                    ui.spinner();
+                }
+            } else {
+                ui.add(egui::Label::new(RichText::new(&status).size(12.0).color(color)).truncate())
+                    .on_hover_text(if self.busy {
+                        self.detail.clone()
+                    } else {
+                        status
+                    });
+            }
+            if !self.busy
+                && let Some(error) = &self.drivers.error
+            {
+                ui.add(
+                    egui::Label::new(RichText::new(error).size(12.0).color(colors.error))
+                        .truncate(),
+                )
+                .on_hover_text(error);
+                if ui.small_button("Retry driver download").clicked() {
+                    self.drivers.key = None;
+                    ui.ctx().request_repaint();
+                }
+            }
+        });
+    }
+}
+
+fn download_fraction(received: u64, total: Option<u64>) -> Option<f32> {
+    total
+        .filter(|total| *total > 0)
+        .map(|total| (received as f64 / total as f64).clamp(0.0, 1.0) as f32)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn byte_progress_requires_a_total_and_clamps_completed_transfers() {
+        assert!(download_fraction(5, None).is_none());
+        assert!(download_fraction(5, Some(0)).is_none());
+        assert!((download_fraction(5, Some(10)).unwrap() - 0.5).abs() < f32::EPSILON);
+        assert!((download_fraction(15, Some(10)).unwrap() - 1.0).abs() < f32::EPSILON);
+    }
     #[test]
     fn selection_requires_explicit_start_for_each_model() {
         let mut state = DriverDownloads::default();

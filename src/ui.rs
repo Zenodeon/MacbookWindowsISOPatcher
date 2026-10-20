@@ -82,6 +82,7 @@ struct Settings {
 
 pub struct PatcherApp {
     page: Page,
+    scroll_page: (Page, bool),
     model_selected: Option<usize>,
     drivers: DriverDownloads,
     iso: String,
@@ -149,6 +150,7 @@ impl PatcherApp {
         settings.theme.apply(&cc.egui_ctx);
         let app = Self {
             page: Page::Model,
+            scroll_page: (Page::Model, false),
             model_selected: None,
             drivers: DriverDownloads::default(),
             iso: String::new(),
@@ -286,7 +288,9 @@ impl PatcherApp {
                                 ))
                                 .display()
                                 .to_string();
-                            self.iso = inv.iso.display().to_string();
+                            self.output =
+                                platform::display_path(std::path::Path::new(&self.output));
+                            self.iso = platform::display_path(&inv.iso);
                             self.inventory = Some(inv);
                             self.page = Page::Editions;
                             self.error = None;
@@ -517,7 +521,7 @@ impl PatcherApp {
                     dialog.pick_file()
                 };
                 if let Some(path) = path {
-                    *value = path.display().to_string();
+                    *value = platform::display_path(&path);
                     changed = true;
                 }
             }
@@ -534,7 +538,7 @@ impl PatcherApp {
             if ui.button("Browse…").clicked()
                 && let Some(path) = rfd::FileDialog::new().pick_folder()
             {
-                *value = path.display().to_string();
+                *value = platform::display_path(&path);
             }
         });
     }
@@ -586,22 +590,10 @@ impl PatcherApp {
             if self.busy {
                 ui.horizontal(|ui| { ui.spinner(); ui.label(if self.cancel.is_cancelled() { "Cancellation requested. Waiting for the current servicing operation to finish safely…" } else { "Keep the app open while the build is running." }); });
             }
-            if let Some((name, received, total)) = &self.download {
-                ui.label(name);
-                if let Some(total) = total.filter(|t| *t > 0) {
-                    ui.add(
-                        egui::ProgressBar::new(*received as f32 / total as f32).show_percentage(),
-                    );
-                }
-                ui.label(format!(
-                    "{:.1} MB downloaded",
-                    *received as f64 / 1_000_000.0
-                ));
-            }
         });
         if let Some(path) = &self.finished {
             Self::section(ui, "Your patched ISO", colors.model, |ui| {
-                ui.label(RichText::new(path.display().to_string()).strong());
+                ui.label(RichText::new(platform::display_path(path)).strong());
                 if ui.button("Open output folder").clicked()
                     && let Err(error) = platform::open_folder(path.parent().unwrap())
                 {
@@ -678,7 +670,7 @@ impl eframe::App for PatcherApp {
                         if self.model().is_none() {
                             self.error = Some("Select a MacBook model first.".into());
                         } else {
-                            self.iso = path.display().to_string();
+                            self.iso = platform::display_path(&path);
                             self.page = Page::Iso;
                             self.donation = false;
                             self.finished = None;
@@ -900,6 +892,7 @@ impl eframe::App for PatcherApp {
                     }
                     let model_left = ui.cursor().min.x;
                     let model_right = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.busy || self.page == Page::Build { self.build_iso_button(ui, false); }
                         if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation && !self.closing {
                             if self.page == Page::Model && Self::primary(ui,"Start download & continue to Windows ISO", self.model().is_some()) {
                                 self.drivers.requested_model = self.model().map(|model| model.id);
@@ -914,11 +907,7 @@ impl eframe::App for PatcherApp {
                                 self.error = None;
                             }
                             if self.page == Page::Review
-                                && Self::primary(
-                                    ui,
-                                    "Build patched ISO",
-                                    !self.output.trim().is_empty() && self.model().is_some() && self.drivers_ready(),
-                                )
+                                && self.build_iso_button(ui, !self.output.trim().is_empty() && self.model().is_some() && self.drivers_ready())
                             {
                                 match self.request().and_then(|req| engine::preflight(&req)) {
                                     Ok(()) => {
@@ -945,18 +934,14 @@ impl eframe::App for PatcherApp {
                         );
                         let label = if rect.width() < 320.0 { model.identifier } else { model.name };
                         let tooltip = format!("{}\n{}", model.name, model.identifier);
-                        if let Some((status, color)) = self.driver_footer_status(ctx) {
-                            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 32.0)))
-                                .layout(egui::Layout::top_down(egui::Align::Center)));
-                            child.spacing_mut().item_spacing.y = 0.0;
-                            child.add_sized([rect.width(), 17.0], egui::Label::new(RichText::new(label).size(13.0).color(muted(ui))).truncate()).on_hover_text(&tooltip);
-                            child.add_sized([rect.width(), 15.0], egui::Label::new(RichText::new(status).size(11.0).color(color)).truncate());
-                        } else {
-                            ui.put(rect, egui::Label::new(RichText::new(label).size(13.0).color(muted(ui))).truncate()).on_hover_text(tooltip);
-                        }
+                        ui.put(rect, egui::Label::new(RichText::new(label).size(13.0).color(muted(ui))).truncate()).on_hover_text(tooltip);
                     }
                 });
+                self.driver_download_footer(ui);
             });
+        let scroll_page = (self.page, self.donation);
+        let reset_scroll = self.scroll_page != scroll_page;
+        self.scroll_page = scroll_page;
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -964,7 +949,13 @@ impl eframe::App for PatcherApp {
                     .inner_margin(if compact { 14.0 } else { 30.0 }),
             )
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                let scroll = egui::ScrollArea::vertical().id_salt("page_content");
+                let scroll = if reset_scroll {
+                    scroll.vertical_scroll_offset(0.0)
+                } else {
+                    scroll
+                };
+                scroll.show(ui, |ui| {
                     if self.closing {
                         ui.horizontal(|ui| {
                             ui.spinner();
@@ -989,9 +980,6 @@ impl eframe::App for PatcherApp {
                     if self.donation {
                         self.donation_page(ui, ctx);
                     } else {
-                        if self.page != Page::Model {
-                            self.driver_download_panel(ui);
-                        }
                         match self.page {
                             Page::Model => self.model_page(ui),
                             Page::Iso => self.input_page(ui, ctx),

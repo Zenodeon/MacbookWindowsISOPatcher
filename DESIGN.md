@@ -56,12 +56,20 @@ donating visible. Payment never changes the available functionality.
 The sidebar always provides the theme selector, by zenodeon website attribution,
 Ko-fi button, and GitHub repository button. It scrolls on short windows.
 Center the selected Mac model in the footer gap between the action buttons.
+Keep driver bytes, progress, ready/error state and Retry centered below that row;
+do not repeat a driver download section inside the scrolling page. Label the
+primary build action Build ISO and place a thin progress bar inside it. Use actual
+download bytes when known and an animated indicator for unmeasured build stages.
+On the source page, put Selected Mac in a neutral section above the blue Source
+file section. Compatibility details belong to Source file. Present ordinary drive
+and UNC paths while keeping canonical paths for file operations. Reset the main
+scroll offset on every page/donation-screen transition, including return visits.
 Use its identifier on narrow windows, with the full model name in a tooltip.
 Selecting a model only selects it. Pressing Start download & continue to Windows ISO
 authorizes its driver downloads and opens ISO selection without blocking scanning.
 Changing models revokes that authorization until the button is pressed again.
 Show real byte progress, a green cached/ready state, and
-an inline retry action on failure. A compact second footer line keeps progress
+a footer retry action on failure. The footer keeps progress
 visible while browsing pages. Cancel and finish the previous job before switching
 models or cache locations; ignore late results from an older job. Wait for download
 cleanup before normal close. Hardware verification status does not block building.
