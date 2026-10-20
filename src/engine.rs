@@ -626,6 +626,7 @@ fn run_job(
     // hard_link fails if destination exists; unlike rename on Unix it never replaces a file.
     platform::publish_iso(&partial, &req.output)
         .context("Could not publish ISO. The validated temporary ISO is retained")?;
+    crate::cleanup::published(job).context("ISO was created, but its ownership record could not be saved. The ISO and workspace have been retained")?;
     emit(Event::Log(format!(
         "Completed. Build log: {}",
         job.join("build.log").display()

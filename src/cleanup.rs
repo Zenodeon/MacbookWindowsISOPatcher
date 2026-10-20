@@ -262,12 +262,17 @@ pub fn track_partial(job: &Path, path: &Path) -> Result<()> {
 pub fn finish(job: &Path, state: BuildState) -> Result<()> {
     update_record(job, |r| {
         if state == BuildState::Complete {
-            r.published = Some(fingerprint(&r.output)?);
+            if r.published.is_none() {
+                r.published = Some(fingerprint(&r.output)?);
+            }
             r.partial = None;
         }
         r.state = state;
         Ok(())
     })
+}
+pub fn published(job: &Path) -> Result<()> {
+    finish(job, BuildState::Complete)
 }
 
 pub fn safe_path(path: &Path) -> Result<()> {
@@ -652,6 +657,8 @@ pub enum CleanupRequest {
     },
     Builds {
         ids: Vec<String>,
+        #[serde(default)]
+        protected: Vec<PathBuf>,
     },
 }
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -909,14 +916,15 @@ fn delete_one(
     }
     Ok(bytes)
 }
-pub fn delete_builds(ids: &[String]) -> Result<CleanupReport> {
+pub fn delete_builds(ids: &[String], protected: &[PathBuf]) -> Result<CleanupReport> {
     ensure!(
         platform::is_admin(),
         "Build cleanup requires administrator access"
     );
-    delete_builds_at(
+    delete_builds_at_protected(
         &history_dir(),
         ids,
+        protected,
         &mounted_paths()?,
         &discard_mount,
         &ensure_iso_not_mounted,
@@ -929,9 +937,20 @@ fn ensure_iso_not_mounted(path: &Path) -> Result<()> {
     )?;
     Ok(())
 }
+#[cfg(test)]
 fn delete_builds_at(
     root: &Path,
     ids: &[String],
+    mounts: &[MountedImage],
+    discard: &impl Fn(&Path) -> Result<()>,
+    check_iso: &impl Fn(&Path) -> Result<()>,
+) -> Result<CleanupReport> {
+    delete_builds_at_protected(root, ids, &[], mounts, discard, check_iso)
+}
+fn delete_builds_at_protected(
+    root: &Path,
+    ids: &[String],
+    protected: &[PathBuf],
     mounts: &[MountedImage],
     discard: &impl Fn(&Path) -> Result<()>,
     check_iso: &impl Fn(&Path) -> Result<()>,
@@ -940,7 +959,12 @@ fn delete_builds_at(
         let _lock = history_lock(root)?;
         read_history(root)?
     };
-    let originals: Vec<_> = history.records.iter().map(|r| r.source.clone()).collect();
+    let originals: Vec<_> = history
+        .records
+        .iter()
+        .map(|r| r.source.clone())
+        .chain(protected.iter().cloned())
+        .collect();
     let mut report = CleanupReport::default();
     for id in ids {
         let Some(record) = history.records.iter().find(|r| &r.id == id) else {
@@ -968,7 +992,7 @@ fn delete_builds_at(
 pub fn execute(request: CleanupRequest) -> Result<CleanupReport> {
     match request {
         CleanupRequest::Cache { root, protected } => clear_cache(&root, &protected),
-        CleanupRequest::Builds { ids } => delete_builds(&ids),
+        CleanupRequest::Builds { ids, protected } => delete_builds(&ids, &protected),
     }
 }
 pub fn format_bytes(bytes: u64) -> String {
@@ -1191,6 +1215,27 @@ mod tests {
         assert_eq!(fs::read(&r.output).unwrap(), b"replacement");
         assert!(r.job.exists());
         assert_eq!(read_history(&config).unwrap().records.len(), 1);
+    }
+    #[test]
+    fn current_source_inside_a_workspace_is_preserved_before_any_deletion() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        let current_source = r.job.join("new-original.iso");
+        fs::write(&current_source, b"new source").unwrap();
+        let report = delete_builds_at_protected(
+            &config,
+            std::slice::from_ref(&r.id),
+            std::slice::from_ref(&current_source),
+            &[],
+            &|_| Ok(()),
+            &|_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert!(r.output.exists());
+        assert!(r.job.exists());
+        assert_eq!(fs::read(current_source).unwrap(), b"new source");
     }
     #[test]
     fn active_build_lock_keeps_all_artifacts() {

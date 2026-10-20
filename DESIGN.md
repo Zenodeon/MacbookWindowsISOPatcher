@@ -83,6 +83,16 @@ unrelated messages never inherit a build retry.
 Keep build-log entries compact with 2 px vertical gaps, preserving the monospace
 font, wrapping, auto-scroll and saved log text. Connection errors include their
 phase, elapsed time and a retained connection-log path for troubleshooting.
+Place Settings above Appearance in the sidebar. Its themed modal separates a
+blue cache summary (reclaimable files and size, Clear cache) from selectable
+rounded build rows (ISO, model, editions, UTC date, state and combined size).
+Keep Close visible while the content scrolls; put cleanup results and copyable
+errors above the list. Confirm permanent deletion with paths and estimated size.
+Cleanup affects recorded generated ISOs and associated workspaces, never original
+source ISOs. Show incomplete/unverified outputs as workspace-only. Disable
+destructive controls during active operations; use storage locks across app
+instances. Clearing cache revokes download readiness and authorization; show an
+explicit Download drivers action without immediately refilling the cache.
 Use its identifier on narrow windows, with the full model name in a tooltip.
 Selecting a model only selects it. Pressing Start download & continue to Windows ISO
 authorizes its driver downloads and opens ISO selection without blocking scanning.

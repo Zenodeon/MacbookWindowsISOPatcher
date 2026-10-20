@@ -71,6 +71,7 @@ impl PatcherApp {
             if view == "settings-confirm" {
                 self.storage.confirmation = Some(CleanupRequest::Builds {
                     ids: self.storage.selected.iter().cloned().collect(),
+                    protected: vec![],
                 });
             }
             if view == "settings-cache-confirm" {

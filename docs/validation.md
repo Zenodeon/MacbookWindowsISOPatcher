@@ -18,7 +18,7 @@
 
 ## Automated
 
-The current 38 tests, Clippy with warnings denied, and release build pass.
+The current 54 tests, Clippy with warnings denied, and release build pass.
 Loopback transport tests reproduce Windows error 10035 with an inherited
 non-blocking accepted socket, then verify the explicit blocking-mode fix with
 fragmented delayed events and cancellation. Authentication still times out, and
@@ -68,6 +68,30 @@ cleanup, and normal GUI closure with both owned and pre-existing mounts:
 The edition rows, green tools-ready
 panel, and dismount confirmation were rendered and visually checked in both themes
 using debug-only screenshot fixtures, which are excluded from release builds.
+
+## Storage settings verified on 2026-10-20
+
+- Cache inventory/deletion tests cover allowlisted packages, UUID partial files,
+  extraction and ADK setup folders, counts/sizes, unrelated files, original ISO
+  containment, active locks and junction refusal.
+- Build tests cover importing older jobs, missing files, changed/replaced ISO
+  identities, original ISO and path traversal protection, active build locks,
+  mounted ISO refusal, unknown WIM ownership and partial deletion failures.
+- Driver state tests confirm cache cleanup revokes readiness and download
+  authorization, rejects stale completion, and requires an explicit download.
+- Settings was rendered at 1240 × 700 and 800 × 520 in light/dark themes, including
+  empty, populated, scanning, deleting, confirmation and partial-error states.
+  Errors and Copy error/Retry remain above the list; Close remains visible.
+- A separate elevated integration test generated a disposable data ISO and WIM,
+  mounted the WIM inside its recorded job, then removed its ISO, workspace and
+  history while preserving the source file. It also verified no mount remained.
+  A Windows partial-directory-unmount error required one bounded discard retry;
+  failures still retain the build instead of deleting live mounted files.
+
+Run the opt-in mount cleanup test from an administrator terminal:
+`cargo test --lib cleanup::tests::windows_generated_iso_and_owned_wim_cleanup -- --exact --ignored`.
+It needs ADK oscdimg but never services or installs the host OS. On failure its
+own test fixture is retained for mount recovery; other mounted images are ignored.
 
 ## A1706 full-build test on 2026-10-20 — blocked by host servicing
 

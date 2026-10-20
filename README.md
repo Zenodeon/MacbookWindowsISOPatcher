@@ -52,6 +52,26 @@ workspace space, offer **Retry** to check the requirements again and continue wh
 ready. **Close** dismisses the popup so you can change the build settings.
 **Copy error** copies the full message for troubleshooting or a GitHub issue.
 Download failures also have a **Copy** link beside **Retry** in the footer.
+
+Open **Settings** above Appearance to manage storage:
+
+- **Cache** shows reclaimable file count and size. **Clear cache** removes the
+  patcher's downloaded driver packages, partial downloads, extraction folders
+  and cached ADK setup downloads. Installed tools and unrelated files are kept.
+  Drivers must be downloaded again explicitly before building.
+- **Builds** lists generated ISOs and their workspaces. Click the rounded rows
+  to select them, then **Delete selected** to remove their recorded ISO files,
+  temporary media, workspaces and logs after confirmation. Failed or interrupted
+  jobs can be cleaned even without a generated ISO. Older jobs with an unverified
+  output are labeled workspace-only, and that output is kept.
+- Original source ISOs, changed/replaced outputs, linked folders and files in use
+  are protected. Build cleanup requests Windows administrator permission when
+  needed to discard app-owned WIM mounts. A failed unmount retains the build.
+
+Cleanup runs in the background, reports partial failures with **Copy error** and
+**Retry**, and never starts a new build. Build history is stored separately from
+settings and remains available when the workspace setting changes.
+
 Worker connection failures include the connection phase, elapsed time and the
 retained `worker-connection-<id>.log` path in the workspace. This log includes
 socket timeout settings and worker events, even before `build.log` is created.

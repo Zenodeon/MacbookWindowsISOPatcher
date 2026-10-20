@@ -113,10 +113,22 @@ impl PatcherApp {
         match &mut request {
             CleanupRequest::Cache { protected, .. } => {
                 if !self.iso.trim().is_empty() {
-                    protected.push(PathBuf::from(self.iso.trim()));
+                    protected.push(
+                        std::path::absolute(self.iso.trim())
+                            .unwrap_or_else(|_| PathBuf::from(self.iso.trim())),
+                    );
                 }
             }
-            CleanupRequest::Builds { ids } => {
+            CleanupRequest::Builds { ids, protected } => {
+                if let Some(inventory) = &self.inventory {
+                    protected.push(inventory.iso.clone());
+                }
+                if !self.iso.trim().is_empty() {
+                    protected.push(
+                        std::path::absolute(self.iso.trim())
+                            .unwrap_or_else(|_| PathBuf::from(self.iso.trim())),
+                    );
+                }
                 if let Some(inventory) = &self.storage.inventory {
                     ids.retain(|id| inventory.builds.iter().any(|v| &v.record.id == id));
                 }
@@ -145,7 +157,7 @@ impl PatcherApp {
                                     second.bytes += first.bytes;
                                     Ok(second)
                                 }
-                                Err(e) => Err(e),
+                                Err(e) => {let count=first.deleted.len();Ok(CleanupReport {deleted:first.deleted,bytes:first.bytes,errors:vec![format!("Administrator cleanup failed after removing {count} cache items: {e:#}")],requires_admin:false})},
                             }
                         }
                         Err(e)
@@ -199,7 +211,7 @@ impl PatcherApp {
                     if let Some(inventory)=&self.storage.inventory {
                         match &request {
                             CleanupRequest::Cache{..}=>{bytes=inventory.cache.size.bytes;for path in &inventory.cache.paths {ui.label(platform::display_path(path));}},
-                            CleanupRequest::Builds{ids}=>{for view in &inventory.builds {if ids.contains(&view.record.id){bytes+=view.size.bytes;ui.label(RichText::new(view.record.output.file_name().unwrap_or_default().to_string_lossy()).strong());if view.record.published.is_some(){ui.label(platform::display_path(&view.record.output));}ui.label(platform::display_path(&view.record.job));if let Some(path)=&view.record.partial{ui.label(platform::display_path(path));}
+                            CleanupRequest::Builds{ids,..}=>{for view in &inventory.builds {if ids.contains(&view.record.id){bytes+=view.size.bytes;ui.label(RichText::new(view.record.output.file_name().unwrap_or_default().to_string_lossy()).strong());if view.record.published.is_some(){ui.label(platform::display_path(&view.record.output));}ui.label(platform::display_path(&view.record.job));if let Some(path)=&view.record.partial{ui.label(platform::display_path(path));}
 if let Some(path)=&view.record.connection_log{ui.label(platform::display_path(path));}ui.add_space(6.0);}}}
                         }
                     }
@@ -235,7 +247,7 @@ if let Some(path)=&view.record.connection_log{ui.label(platform::display_path(pa
                         let eligible: BTreeSet<_>=inventory.builds.iter().filter(|v|v.problem.is_none()).map(|v|v.record.id.clone()).collect();
                         let all=!eligible.is_empty() && self.storage.selected==eligible;
                         if ui.add_enabled(!blocked && !eligible.is_empty(),egui::Button::new(if all{"Clear selection"}else{"Select all"})).clicked(){if all {self.storage.selected.clear();}else{self.storage.selected=eligible;}}
-                        if ui.add_enabled(!blocked && !self.storage.selected.is_empty(),egui::Button::new(format!("Delete selected ({})",self.storage.selected.len()))).clicked(){confirm=Some(CleanupRequest::Builds{ids:self.storage.selected.iter().cloned().collect()});}
+                        if ui.add_enabled(!blocked && !self.storage.selected.is_empty(),egui::Button::new(format!("Delete selected ({})",self.storage.selected.len()))).clicked(){confirm=Some(CleanupRequest::Builds{ids:self.storage.selected.iter().cloned().collect(),protected:vec![]});}
                     }
                 });
                 ui.label(RichText::new("Generated ISOs and their associated workspaces.").size(13.0).color(colors.muted));
