@@ -37,7 +37,9 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    A manual Microsoft download link is also available. Once both tools are found,
    the panel stays visible as a green **Build tools ready** section. **Build setup**
    appears above **Output & workspace**.
-7. Press **Build ISO** once the selected model's downloads finish. Its progress
+7. The button says **Downloading**, **Getting ready**, or **Waiting for drivers**
+   while prerequisites are pending. It becomes **Build ISO** once ready, and
+   **Building ISO** during image building. Press **Build ISO** to start. Its progress
    bar shows download progress, then an animated indicator for build stages that
    do not report a measurable percentage. The note beside
    the button links to GitHub issues: report success or problems, including your

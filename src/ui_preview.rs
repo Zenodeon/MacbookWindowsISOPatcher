@@ -17,7 +17,7 @@ impl PatcherApp {
             "iso-unverified" => ("iso", 1),
             "editions-unverified" => ("editions", 1),
             "review-unverified" => ("review-ready", 1),
-            "build-active" => ("review-ready", 0),
+            "build-active" | "build-preparing" => ("review-ready", 0),
             "review-unverified-download" => ("review-ready", 1),
             other => (other, 0),
         };
@@ -124,11 +124,16 @@ impl PatcherApp {
             self.settings.oscdimg.clear();
             self.settings.seven_zip.clear();
         }
-        if driver_preview == "build-active" {
+        if matches!(driver_preview.as_str(), "build-active" | "build-preparing") {
             self.page = Page::Build;
             self.busy = true;
             self.close_ready = true; // Fixture has no worker to wait for.
-            self.stage = "Servicing Windows".into();
+            self.stage = if driver_preview == "build-preparing" {
+                "Preparing your build"
+            } else {
+                "Servicing Windows"
+            }
+            .into();
             self.detail = "Adding the selected graphics and Boot Camp drivers.".into();
         }
         self.confirm_dismount = view == "dismount";

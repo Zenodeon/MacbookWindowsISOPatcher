@@ -63,6 +63,11 @@ link beside the selected-model information on Review.
 Do not repeat a driver download section inside the scrolling page. Label the
 primary build action Build ISO and place a thin progress bar inside it. Use actual
 download bytes when known and an animated indicator for unmeasured build stages.
+While disabled, name the current state: Downloading, Getting ready, Waiting for
+drivers/setup, or Download failed. Build ISO is the ready action, Building ISO is
+an active image build, and ISO ready confirms completion. Use blue progress for
+preparation and green for building/completion; show no completed bar on the ready
+Build ISO action before it has been pressed.
 On the source page, put Selected Mac in a neutral section above the blue Source
 file section. Compatibility details belong to Source file. Present ordinary drive
 and UNC paths while keeping canonical paths for file operations. Reset the main

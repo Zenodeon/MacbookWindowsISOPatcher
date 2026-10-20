@@ -147,7 +147,43 @@ impl PatcherApp {
     pub(super) fn build_iso_button(&self, ui: &mut egui::Ui, enabled: bool) -> bool {
         let colors = appearance::palette(ui.ctx());
         let label = if self.busy {
-            "Building ISO"
+            if self.cancel.is_cancelled() {
+                "Cancelling…"
+            } else if self.download.is_some() || self.stage == "Downloading drivers" {
+                "Downloading"
+            } else if self.stage == "Administrator approval" {
+                "Waiting for Windows"
+            } else if matches!(
+                self.stage.as_str(),
+                "Preparing your build"
+                    | "Checking cached drivers"
+                    | "Verifying drivers"
+                    | "Extracting drivers"
+            ) {
+                "Getting ready"
+            } else {
+                "Building ISO"
+            }
+        } else if self.page == Page::Build {
+            if self.finished.is_some() {
+                "ISO ready"
+            } else {
+                "Build stopped"
+            }
+        } else if !self.drivers_ready() {
+            if self.drivers.error.is_some() {
+                "Download failed"
+            } else if self.current_driver_transfer().is_some()
+                || self.drivers.stage == "Downloading drivers"
+            {
+                "Downloading"
+            } else if self.drivers.running {
+                "Getting ready"
+            } else {
+                "Waiting for drivers"
+            }
+        } else if !enabled {
+            "Waiting for setup"
         } else {
             "Build ISO"
         };
@@ -168,8 +204,6 @@ impl PatcherApp {
                 .and_then(|(_, received, total)| download_fraction(*received, *total))
         } else if self.page == Page::Build {
             self.finished.as_ref().map(|_| 1.0)
-        } else if self.drivers_ready() {
-            Some(1.0)
         } else {
             self.current_driver_transfer()
                 .and_then(|(_, received, total)| download_fraction(*received, *total))
@@ -196,11 +230,26 @@ impl PatcherApp {
                 )
                 .intersect(track)
             };
-            ui.painter().rect_filled(fill, 2, colors.success);
+            ui.painter().rect_filled(
+                fill,
+                2,
+                if label == "Building ISO" || (self.page == Page::Build && self.finished.is_some())
+                {
+                    colors.success
+                } else {
+                    colors.accent
+                },
+            );
         }
         response
             .on_disabled_hover_text(if self.busy {
                 "The current build stage is shown in the footer."
+            } else if self.page == Page::Build && self.finished.is_some() {
+                "Your ISO has been created. Open the output folder from the build page."
+            } else if self.drivers.error.is_some() {
+                "Use Retry in the center of the footer to finish downloading drivers."
+            } else if self.drivers_ready() {
+                "Complete the output and build setup before starting."
             } else {
                 "Finish the selected model's downloads before building."
             })
