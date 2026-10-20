@@ -9,9 +9,12 @@ neutral output/details section; use the corresponding pale tints in light mode.
 The permanent left rail explains five steps: model, ISO, editions, review, build. The main work area
 uses wide aligned controls and a scrollable edition table, with contextual
 validation and a persistent bottom action row. No decorative imagery or animation.
-The first screen selects the verified 2016 A1706 profile and lists several other
-models with orange Unverified / Not supported yet status. Only the available
-profile can continue. Model names/identifiers follow Apple's identification page:
+The first screen presents every model together in one list of rounded selectable
+rows. The 2016 A1706 has green Hardware Verified status; the others are orange
+Unverified. Every model can continue to ISO inspection. Keep the selected model's
+identity throughout the flow; do not substitute the A1706 recipe for unimplemented
+profiles. Explain their build limitation and disable Build for those selections.
+Model names/identifiers follow Apple's identification page:
 https://support.apple.com/en-us/108052.
 The second screen offers a clickable ISO drop zone. Once a model is selected,
 dropping a local ISO while idle starts its scan. Reject replacement drops while

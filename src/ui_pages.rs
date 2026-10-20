@@ -8,85 +8,90 @@ impl PatcherApp {
             "Select a model before choosing your Windows ISO.",
         );
         let colors = appearance::palette(ui.ctx());
-        Self::section(ui, "Available profile", colors.model, |ui| {
-            let mut text = egui::text::LayoutJob::default();
-            text.append(
-                "MacBook Pro 13-inch · 2016 · A1706\n",
-                0.0,
-                egui::TextFormat {
-                    font_id: egui::FontId::proportional(17.0),
-                    color: ui.visuals().text_color(),
-                    ..Default::default()
-                },
-            );
-            text.append(
-                "Hardware Verified",
-                0.0,
-                egui::TextFormat {
-                    font_id: egui::FontId::proportional(13.0),
-                    color: colors.success,
-                    ..Default::default()
-                },
-            );
-            if self.model_selected {
+        Self::section(ui, "MacBook models", colors.model, |ui| {
+            for (index, model) in MODEL_PROFILES.iter().enumerate() {
+                let checked = self.model_selected == Some(index);
+                let mut text = egui::text::LayoutJob::default();
                 text.append(
-                    "  ·  Selected",
+                    &format!("{}\n", model.name),
                     0.0,
                     egui::TextFormat {
-                        font_id: egui::FontId::proportional(13.0),
-                        color: colors.accent,
+                        font_id: egui::FontId::proportional(16.0),
+                        color: ui.visuals().text_color(),
                         ..Default::default()
                     },
                 );
-            }
-            if ui
-                .add(
-                    egui::Button::new(text)
-                        .selected(self.model_selected)
-                        .fill(colors.surface)
-                        .stroke(egui::Stroke::new(
-                            1.0_f32,
-                            if self.model_selected {
-                                colors.accent
+                text.append(
+                    if model.hardware_verified() {
+                        "Hardware Verified"
+                    } else {
+                        "Unverified"
+                    },
+                    0.0,
+                    egui::TextFormat {
+                        font_id: egui::FontId::proportional(13.0),
+                        color: if model.hardware_verified() {
+                            colors.success
+                        } else {
+                            colors.warning
+                        },
+                        ..Default::default()
+                    },
+                );
+                if checked {
+                    text.append(
+                        "  ·  Selected",
+                        0.0,
+                        egui::TextFormat {
+                            font_id: egui::FontId::proportional(13.0),
+                            color: colors.accent,
+                            ..Default::default()
+                        },
+                    );
+                }
+                text.append(
+                    &format!("\n{} · {}", model.identifier, model.details),
+                    0.0,
+                    egui::TextFormat {
+                        font_id: egui::FontId::proportional(12.0),
+                        color: colors.muted,
+                        ..Default::default()
+                    },
+                );
+                if ui
+                    .add(
+                        egui::Button::new(text)
+                            .selected(checked)
+                            .fill(if checked {
+                                colors.source
                             } else {
-                                ui.visuals().widgets.noninteractive.bg_stroke.color
-                            },
-                        ))
-                        .corner_radius(10)
-                        .min_size(egui::vec2(ui.available_width(), 76.0))
-                        .wrap(),
-                )
-                .clicked()
-            {
-                self.model_selected = true;
+                                colors.surface
+                            })
+                            .stroke(egui::Stroke::new(
+                                1.0_f32,
+                                if checked {
+                                    colors.accent
+                                } else {
+                                    ui.visuals().widgets.noninteractive.bg_stroke.color
+                                },
+                            ))
+                            .corner_radius(10)
+                            .min_size(egui::vec2(ui.available_width(), 82.0))
+                            .wrap(),
+                    )
+                    .clicked()
+                {
+                    self.model_selected = Some(index);
+                    self.error = None;
+                }
             }
-            ui.label(
-                RichText::new("MacBookPro13,2 · Iris 550 · Touch Bar · T1")
-                    .size(13.0)
-                    .color(colors.muted),
-            );
-            ui.label(RichText::new("Windows 10 Pro was verified in the original project with the internal display disconnected and external HDMI in use.").size(13.0).color(colors.muted));
-        });
-        Self::section(ui, "Other models", colors.surface, |ui| {
-            ui.spacing_mut().item_spacing.y = 4.0;
-            ui.spacing_mut().interact_size.y = 20.0;
-            for (name, identifier) in [
-                (
-                    "MacBook Pro 13-inch · 2016 · Two Thunderbolt 3 ports",
-                    "MacBookPro13,1",
-                ),
-                ("MacBook Pro 15-inch · 2016", "MacBookPro13,3"),
-                (
-                    "MacBook Pro 13-inch · 2017 · Four Thunderbolt 3 ports",
-                    "MacBookPro14,2",
-                ),
-            ] {
-                ui.label(RichText::new(name).strong());
-                ui.horizontal_wrapped(|ui| {
-                    ui.colored_label(colors.warning, "Unverified · Not supported yet");
-                    ui.label(RichText::new(identifier).size(13.0).color(colors.muted));
-                });
-                ui.add_space(6.0);
+            if let Some(model) = self.model() {
+                ui.add_space(4.0);
+                if model.hardware_verified() {
+                    ui.label(RichText::new("Windows 10 Pro was verified in the original project using external HDMI with the internal display disconnected.").size(13.0).color(colors.muted));
+                } else {
+                    ui.label(RichText::new("This model is unverified. You can inspect your ISO; model-specific patching is not available yet.").size(13.0).color(colors.warning));
+                }
             }
             ui.hyperlink_to(
                 "Identify your MacBook model",
@@ -202,10 +207,16 @@ impl PatcherApp {
             }
         });
         Self::section(ui, "Selected Mac", colors.model, |ui| {
-            ui.label(RichText::new("MacBook Pro 13-inch · 2016 · A1706").strong());
-            ui.label("External HDMI fix for a disconnected internal display.");
+            if let Some(model) = self.model() {
+                ui.label(RichText::new(model.name).strong());
+                ui.label(format!("{} · {}", model.identifier, model.details));
+                if model.build_available() {
+                    ui.label("External HDMI fix for a disconnected internal display.");
+                } else {
+                    ui.colored_label(colors.warning, "Unverified model. ISO inspection is available; its patching profile is not implemented yet.");
+                }
+            }
             egui::CollapsingHeader::new("Compatibility details").show(ui, |ui| {
-                ui.label("MacBookPro13,2 · Iris 550 · Touch Bar · T1");
                 ui.label("Requires Windows 10 x64, en-US, builds 19041–19045. Windows 11 and split SWM images are not supported.");
             });
         });
@@ -224,8 +235,11 @@ impl PatcherApp {
             "Include one edition or keep several choices in Windows Setup.",
         );
         let colors = appearance::palette(ui.ctx());
-        ui.label(RichText::new("A1706 · MacBook Pro 13-inch · 2016").color(colors.muted));
+        if let Some(model) = self.model() {
+            ui.label(RichText::new(model.name).color(colors.muted));
+        }
         ui.add_space(12.0);
+        let model_verified = self.model().is_some_and(|model| model.hardware_verified());
         Self::section(ui, "Windows editions", colors.source, |ui| {
             if let Some(inv) = &self.inventory {
                 for image in &inv.images {
@@ -241,7 +255,7 @@ impl PatcherApp {
                             ..Default::default()
                         },
                     );
-                    let verified = image.source_tested();
+                    let verified = model_verified && image.source_tested() && reason.is_none();
                     text.append(
                         if verified {
                             "Hardware Verified"
@@ -320,12 +334,24 @@ impl PatcherApp {
     }
 
     pub(super) fn review_page(&mut self, ui: &mut egui::Ui) {
+        let build_available = self.model().is_some_and(|model| model.build_available());
         Self::heading(
             ui,
             "Review your build",
-            "Iris graphics, the HDMI fix, and Boot Camp drivers will be included.",
+            if build_available {
+                "Iris graphics, the HDMI fix, and Boot Camp drivers will be included."
+            } else {
+                "Review the selected model and Windows editions."
+            },
         );
         let colors = appearance::palette(ui.ctx());
+        if let Some(model) = self.model() {
+            ui.label(RichText::new(model.name).strong());
+            if !build_available {
+                ui.colored_label(colors.warning, "This model is unverified. Its patching profile is not implemented yet, so building is unavailable.");
+            }
+            ui.add_space(12.0);
+        }
         Self::section(ui, "Included editions", colors.source, |ui| {
             if let Some(inv) = &self.inventory {
                 for image in &inv.images {
@@ -363,10 +389,7 @@ impl PatcherApp {
                 if missing_tools {
                     ui.label("Install the missing tools or select their files below.");
                 } else {
-                    ui.colored_label(
-                        colors.success,
-                        "All required tools are installed. You're ready to build.",
-                    );
+                    ui.colored_label(colors.success, "All required build tools are installed.");
                 }
                 if PathBuf::from(&self.settings.seven_zip).is_file() {
                     ui.colored_label(colors.success, "7-Zip · Installed");

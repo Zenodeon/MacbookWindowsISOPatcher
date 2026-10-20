@@ -5,6 +5,7 @@ mod pages;
 #[path = "ui_preview.rs"]
 mod preview;
 use eframe::egui::{self, Color32, RichText};
+use macbook_iso_patcher::models::{MODEL_PROFILES, ModelProfile};
 use macbook_iso_patcher::{domain::*, engine, ipc, platform, prerequisites};
 use std::{
     collections::BTreeSet,
@@ -76,7 +77,7 @@ struct Settings {
 
 pub struct PatcherApp {
     page: Page,
-    model_selected: bool,
+    model_selected: Option<usize>,
     iso: String,
     output: String,
     inventory: Option<Inventory>,
@@ -142,7 +143,7 @@ impl PatcherApp {
         settings.theme.apply(&cc.egui_ctx);
         let app = Self {
             page: Page::Model,
-            model_selected: false,
+            model_selected: None,
             iso: String::new(),
             output: String::new(),
             inventory: None,
@@ -251,8 +252,14 @@ impl PatcherApp {
                                 self.selected.insert(pro.index);
                             }
                             let source = inv.iso.parent().unwrap();
-                            self.output =
-                                source.join("Win10_A1706_Patched.iso").display().to_string();
+                            let profile_id = self.model().map(|m| m.id).unwrap_or(MODEL_ID);
+                            self.output = source
+                                .join(format!(
+                                    "Win10_{}_Patched.iso",
+                                    profile_id.replace('-', "_")
+                                ))
+                                .display()
+                                .to_string();
                             self.iso = inv.iso.display().to_string();
                             self.inventory = Some(inv);
                             self.page = Page::Editions;
@@ -304,7 +311,7 @@ impl PatcherApp {
         if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
             return;
         }
-        if !self.model_selected || self.iso_mount.is_some() {
+        if self.model().is_none() || self.iso_mount.is_some() {
             self.error = Some(
                 "Choose your model first, and dismount the current ISO before selecting another."
                     .into(),
@@ -370,6 +377,10 @@ impl PatcherApp {
             ctx.request_repaint();
         });
     }
+    fn model(&self) -> Option<&'static ModelProfile> {
+        self.model_selected
+            .and_then(|index| MODEL_PROFILES.get(index))
+    }
     fn request(&self) -> anyhow::Result<BuildRequest> {
         Ok(BuildRequest {
             inventory: self
@@ -377,7 +388,11 @@ impl PatcherApp {
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("Scan an ISO first"))?,
             selected: self.selected.iter().copied().collect(),
-            model: MODEL_ID.into(),
+            model: self
+                .model()
+                .ok_or_else(|| anyhow::anyhow!("Select a MacBook model first"))?
+                .id
+                .into(),
             output: PathBuf::from(self.output.trim()),
             workspace: PathBuf::from(self.settings.work.trim()),
             cache: PathBuf::from(self.settings.cache.trim()),
@@ -463,7 +478,11 @@ impl PatcherApp {
             if ui.button("Browse…").clicked() {
                 let dialog = rfd::FileDialog::new().add_filter(extension, &[extension]);
                 let path = if save {
-                    dialog.set_file_name("Win10_A1706_Patched.iso").save_file()
+                    let filename = PathBuf::from(&*value)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "Windows_Patched.iso".into());
+                    dialog.set_file_name(filename).save_file()
                 } else {
                     dialog.pick_file()
                 };
@@ -623,8 +642,8 @@ impl eframe::App for PatcherApp {
             } else {
                 match dropped_iso(&dropped) {
                     Ok(Some(path)) => {
-                        if !self.model_selected {
-                            self.error = Some("Select a supported MacBook model first.".into());
+                        if self.model().is_none() {
+                            self.error = Some("Select a MacBook model first.".into());
                         } else {
                             self.iso = path.display().to_string();
                             self.page = Page::Iso;
@@ -712,9 +731,23 @@ impl eframe::App for PatcherApp {
                         ui.separator();
                         ui.add_space(10.0);
                         ui.label(
-                            RichText::new("A1706 profile\nv17 HDMI fix")
-                                .size(13.0)
-                                .color(muted(ui)),
+                            RichText::new(
+                                self.model()
+                                    .map(|model| {
+                                        format!(
+                                            "{}\n{}",
+                                            model.identifier,
+                                            if model.build_available() {
+                                                "v17 HDMI fix"
+                                            } else {
+                                                "Unverified"
+                                            }
+                                        )
+                                    })
+                                    .unwrap_or_else(|| "Select a MacBook model".into()),
+                            )
+                            .size(13.0)
+                            .color(muted(ui)),
                         );
                         ui.label(
                             RichText::new("v0.1.0 · Rust desktop")
@@ -805,7 +838,7 @@ impl eframe::App for PatcherApp {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation && !self.closing {
-                            if self.page == Page::Model && Self::primary(ui,"Continue to Windows ISO", self.model_selected) {
+                            if self.page == Page::Model && Self::primary(ui,"Continue to Windows ISO", self.model().is_some()) {
                                 self.page = Page::Iso;
                                 self.error = None;
                             }
@@ -819,7 +852,7 @@ impl eframe::App for PatcherApp {
                                 && Self::primary(
                                     ui,
                                     "Build patched ISO",
-                                    !self.output.trim().is_empty(),
+                                    !self.output.trim().is_empty() && self.model().is_some_and(|model| model.build_available()),
                                 )
                             {
                                 match self.request().and_then(|req| engine::preflight(&req)) {
@@ -899,8 +932,8 @@ impl eframe::App for PatcherApp {
                 egui::Align2::CENTER_CENTER,
                 if self.iso_mount.is_some() {
                     "Dismount the current ISO before choosing another"
-                } else if !self.model_selected {
-                    "Select a supported MacBook model first"
+                } else if self.model().is_none() {
+                    "Select a MacBook model first"
                 } else if self.busy || self.scanning || self.dismounting || self.installing_adk {
                     "Finish the current operation first"
                 } else {

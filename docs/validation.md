@@ -18,7 +18,7 @@
 
 ## Automated
 
-The current 19 tests, Clippy with warnings denied, and release build pass.
+The current 20 tests, Clippy with warnings denied, and release build pass.
 The official ADK bootstrapper download and Microsoft signature verification were
 exercised without installing it. The default window was inspected at 1240 × 700
 content pixels; proportional fitting is covered by tests. Live ADK installation

@@ -9,6 +9,13 @@ impl PatcherApp {
         let Ok(view) = std::env::var("MACBOOK_PATCHER_PREVIEW") else {
             return;
         };
+        let (view, model_index) = match view.as_str() {
+            "models-unverified" => ("models", 1),
+            "iso-unverified" => ("iso", 1),
+            "editions-unverified" => ("editions", 1),
+            "review-unverified" => ("review-ready", 1),
+            other => (other, 0),
+        };
         if view == "mounted-close" {
             // Used only by the opt-in Windows lifecycle test with its own data ISO.
             let iso = PathBuf::from(
@@ -17,24 +24,30 @@ impl PatcherApp {
             self.iso_mount =
                 Some(platform::MountedIso::open(&iso).expect("Mount lifecycle test ISO"));
             self.iso = iso.display().to_string();
-            self.model_selected = true;
+            self.model_selected = Some(0);
             self.page = Page::Iso;
             return;
         }
         if view == "models" {
+            if model_index != 0 {
+                self.model_selected = Some(model_index);
+            }
             return;
         }
-        self.model_selected = true;
+        self.model_selected = Some(model_index);
         if view == "iso" {
             self.page = Page::Iso;
             self.iso = "C:\\Preview\\Windows10_English_x64.iso".into();
             return;
         }
-        if !["editions", "review-ready", "review-missing", "dismount"].contains(&view.as_str()) {
+        if !["editions", "review-ready", "review-missing", "dismount"].contains(&view) {
             return;
         }
         self.iso = "C:\\Preview\\Windows10_English_x64.iso".into();
-        self.output = "C:\\Preview\\Win10_A1706_Patched.iso".into();
+        self.output = format!(
+            "C:\\Preview\\Win10_{}_Patched.iso",
+            MODEL_PROFILES[model_index].id.replace('-', "_")
+        );
         self.settings_file = std::env::temp_dir().join("macbook-patcher-preview-settings.json");
         self.inventory = Some(Inventory {
             iso: self.iso.clone().into(),
