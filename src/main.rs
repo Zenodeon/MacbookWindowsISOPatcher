@@ -20,7 +20,16 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_drag_and_drop(true)
-            .with_inner_size([1240.0, 700.0])
+            .with_inner_size(
+                if cfg!(debug_assertions)
+                    && std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some()
+                    && std::env::var_os("MACBOOK_PATCHER_PREVIEW_SMALL").is_some()
+                {
+                    [800.0, 520.0]
+                } else {
+                    [1240.0, 700.0]
+                },
+            )
             .with_min_inner_size([640.0, 400.0])
             .with_resizable(true)
             .with_clamp_size_to_monitor_size(true),

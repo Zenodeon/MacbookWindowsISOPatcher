@@ -15,6 +15,14 @@ pub(super) struct DriverDownloads {
 }
 
 impl DriverDownloads {
+    pub fn reset_after_cleanup(&mut self) {
+        self.requested_model = None;
+        self.key = None;
+        self.ready = false;
+        self.error = None;
+        self.progress = None;
+        self.id += 1;
+    }
     pub fn selection_changed(&mut self) {
         self.requested_model = None;
         if self.running {
@@ -100,7 +108,11 @@ impl PatcherApp {
     }
     pub(super) fn ensure_driver_downloads(&mut self, ctx: &egui::Context) {
         // Renderer fixtures never trigger real network transfers.
-        if self.closing || self.busy || std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some() {
+        if self.closing
+            || self.busy
+            || self.storage.busy()
+            || std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some()
+        {
             return;
         }
         let Some(model) = self.model() else {
@@ -270,6 +282,22 @@ impl PatcherApp {
             self.driver_footer_status(ui.ctx())
         };
         let Some((status, color)) = status else {
+            if self.model().is_some() && !self.drivers_ready() && !self.busy && !self.storage.busy()
+            {
+                if ui
+                    .put(
+                        rect,
+                        egui::Link::new(RichText::new("Download drivers").size(13.0)),
+                    )
+                    .on_hover_text(model)
+                    .clicked()
+                {
+                    self.drivers.requested_model = self.model().map(|m| m.id);
+                    self.drivers.key = None;
+                    self.ensure_driver_downloads(ui.ctx());
+                }
+                return;
+            }
             ui.put(
                 rect,
                 egui::Label::new(RichText::new(model).size(13.0).color(colors.muted)).truncate(),
@@ -491,5 +519,23 @@ mod tests {
         assert!(!state.running && !state.ready);
         assert!(state.key.is_some());
         assert_eq!(state.error.as_deref(), Some("Network unavailable"));
+    }
+    #[test]
+    fn cache_cleanup_revokes_readiness_and_requires_explicit_download_authorization() {
+        let mut state = DriverDownloads {
+            requested_model: Some(MODEL_ID),
+            key: Some((MODEL_ID, "cache".into())),
+            ready: true,
+            id: 7,
+            ..Default::default()
+        };
+        state.reset_after_cleanup();
+        assert!(!state.ready);
+        assert!(!state.requested_for(MODEL_ID));
+        assert!(state.key.is_none());
+        state.finish(7, Ok(()));
+        assert!(!state.ready);
+        state.requested_model = Some(MODEL_ID);
+        assert!(state.requested_for(MODEL_ID));
     }
 }

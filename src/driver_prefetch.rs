@@ -83,6 +83,7 @@ pub fn download_for_model(
     emit: &Emit,
     cancel: &Cancellation,
 ) -> Result<Vec<PathBuf>> {
+    let _activity = crate::cleanup::cache_activity(cache)?;
     let mut paths = Vec::new();
     for package in packages_for_model(model)? {
         cancel.check()?;

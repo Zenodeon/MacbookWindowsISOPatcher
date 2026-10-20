@@ -17,6 +17,11 @@ use std::{
 };
 
 const MAX_MESSAGE: u64 = 1024 * 1024;
+#[derive(serde::Serialize, serde::Deserialize)]
+enum WorkerRequest {
+    Build(Box<PreparedBuild>),
+    Cleanup(crate::cleanup::CleanupRequest),
+}
 struct PreparedLease {
     cache: std::path::PathBuf,
     root: std::path::PathBuf,
@@ -148,13 +153,15 @@ fn monitor_cancellation(
 }
 
 pub fn start(request: BuildRequest, emit: Emit, cancel: Cancellation) -> Result<()> {
-    let prepared = engine::prepare(request, &emit, &cancel)?;
+    let _cache_activity = crate::cleanup::cache_activity(&request.cache)?;
+    let mut prepared = engine::prepare(request, &emit, &cancel)?;
     let mut lease = PreparedLease {
         cache: prepared.request.cache.clone(),
         root: prepared.assets_root.clone(),
         clean: true,
     };
     let mut trace = ConnectionTrace::new(&prepared.request.workspace, emit.clone())?;
+    prepared.connection_log = Some(trace.path.clone());
     let result = run_connection(&prepared, &emit, &cancel, &mut lease, &mut trace);
     if let Err(error) = &result {
         trace.record(&format!("Connection failed: {error:#}"));
@@ -223,7 +230,10 @@ fn run_connection(
     trace.sockets(&stream, &reader)?;
     // Once handed to the elevated worker, preserve inputs on an uncertain disconnect.
     lease.clean = false;
-    send(&mut stream, prepared)?;
+    send(
+        &mut stream,
+        &WorkerRequest::Build(Box::new(prepared.clone())),
+    )?;
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let monitor = monitor_cancellation(stream.try_clone()?, cancel.clone(), done.clone());
     trace.phase("receiving worker events");
@@ -271,8 +281,16 @@ pub fn worker(port: u16, token: &str) -> Result<()> {
     )?;
     let mut reader = message_reader(&stream, Some(Duration::from_secs(30)))?;
     stream.write_all(format!("{token}\n").as_bytes())?;
-    let prepared: PreparedBuild = serde_json::from_str(&line(&mut reader)?)?;
+    let request: WorkerRequest = serde_json::from_str(&line(&mut reader)?)?;
     finish_authentication(&stream, &reader)?;
+    let prepared = match request {
+        WorkerRequest::Build(prepared) => *prepared,
+        WorkerRequest::Cleanup(request) => {
+            let result = crate::cleanup::execute(request).map_err(|e| format!("{e:#}"));
+            send(&mut stream, &result)?;
+            return Ok(());
+        }
+    };
     let cancel = Cancellation::default();
     let connection_cancel = cancel.clone();
     let output = Arc::new(Mutex::new(stream));
@@ -299,6 +317,47 @@ pub fn worker(port: u16, token: &str) -> Result<()> {
         Err(error) => emit(Event::Failed(format!("{error:#}"))),
     }
     Ok(())
+}
+
+/// Run one bounded cleanup operation through the existing authenticated UAC worker.
+pub fn cleanup_elevated(
+    request: crate::cleanup::CleanupRequest,
+) -> Result<crate::cleanup::CleanupReport> {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+    listener.set_nonblocking(true)?;
+    let token = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    platform::elevate_worker(listener.local_addr()?.port(), &token)?;
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let (mut stream, mut reader) = loop {
+        ensure!(
+            Instant::now() < deadline,
+            "Cleanup worker did not connect. Retry and approve the Windows administrator prompt"
+        );
+        match listener.accept() {
+            Ok((stream, peer)) => {
+                if !peer.ip().is_loopback() {
+                    continue;
+                }
+                let mut reader = message_reader(&stream, Some(Duration::from_secs(3)))?;
+                if line(&mut reader).ok().is_some_and(|v| v.trim() == token) {
+                    break (stream, reader);
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(100))
+            }
+            Err(e) => return Err(e.into()),
+        }
+    };
+    finish_authentication(&stream, &reader)?;
+    send(&mut stream, &WorkerRequest::Cleanup(request))?;
+    let result: std::result::Result<crate::cleanup::CleanupReport, String> =
+        serde_json::from_str(&line(&mut reader)?)?;
+    result.map_err(anyhow::Error::msg)
 }
 
 pub fn parse_worker_args(args: &[String]) -> Result<Option<(u16, String)>> {

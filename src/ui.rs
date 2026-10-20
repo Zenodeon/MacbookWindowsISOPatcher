@@ -3,6 +3,8 @@ use crate::appearance::{self, ThemeMode};
 mod downloads;
 #[path = "ui_pages.rs"]
 mod pages;
+#[path = "ui_settings.rs"]
+mod storage_settings;
 use downloads::DriverDownloads;
 #[cfg(debug_assertions)]
 #[path = "ui_preview.rs"]
@@ -69,6 +71,11 @@ enum Message {
     DriverEvent(u64, Event),
     DriversDone(u64, Result<(), String>),
     Build(Event),
+    StorageScanned(Result<macbook_iso_patcher::cleanup::Inventory, String>),
+    StorageCleaned(
+        macbook_iso_patcher::cleanup::CleanupRequest,
+        Result<macbook_iso_patcher::cleanup::CleanupReport, String>,
+    ),
 }
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Settings {
@@ -97,6 +104,7 @@ pub struct PatcherApp {
     scroll_page: (Page, bool),
     model_selected: Option<usize>,
     drivers: DriverDownloads,
+    storage: storage_settings::StorageSettings,
     iso: String,
     output: String,
     inventory: Option<Inventory>,
@@ -165,6 +173,7 @@ impl PatcherApp {
             scroll_page: (Page::Model, false),
             model_selected: None,
             drivers: DriverDownloads::default(),
+            storage: storage_settings::StorageSettings::default(),
             iso: String::new(),
             output: String::new(),
             inventory: None,
@@ -215,6 +224,36 @@ impl PatcherApp {
     fn consume(&mut self) {
         while let Ok(message) = self.receiver.try_recv() {
             match message {
+                Message::StorageScanned(result) => {
+                    self.storage.scanning = false;
+                    match result {
+                        Ok(inventory) => {
+                            self.storage
+                                .selected
+                                .retain(|id| inventory.builds.iter().any(|v| &v.record.id == id));
+                            self.storage.inventory = Some(inventory);
+                        }
+                        Err(error) => self.storage.error = Some(error),
+                    }
+                }
+                Message::StorageCleaned(request, result) => {
+                    self.storage.deleting = false;
+                    if matches!(
+                        request,
+                        macbook_iso_patcher::cleanup::CleanupRequest::Cache { .. }
+                    ) {
+                        self.drivers.reset_after_cleanup();
+                    }
+                    match result {
+                        Ok(report) => {
+                            self.storage.report = Some(report);
+                            self.storage.selected.clear();
+                        }
+                        Err(error) => self.storage.error = Some(error),
+                    }
+                    // Re-scan on the next frame, where the UI context is available.
+                    self.storage.needs_scan = true;
+                }
                 Message::DriverEvent(id, event) if id == self.drivers.id => match event {
                     Event::Stage { name, .. } => {
                         self.drivers.stage = name;
@@ -470,6 +509,9 @@ impl PatcherApp {
         }
     }
     fn begin(&mut self, ctx: &egui::Context) {
+        if self.storage.busy() {
+            return;
+        }
         if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
             return;
         }
@@ -678,6 +720,10 @@ impl PatcherApp {
 impl eframe::App for PatcherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.consume();
+        if self.storage.needs_scan && !self.storage.busy() {
+            self.storage.needs_scan = false;
+            self.scan_storage(ctx);
+        }
         if !ctx.input(|i| i.viewport().close_requested()) {
             self.ensure_driver_downloads(ctx);
         }
@@ -694,7 +740,7 @@ impl eframe::App for PatcherApp {
         }
         let compact = ctx.content_rect().width() < 900.0;
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
-        if !dropped.is_empty() && self.error.is_none() {
+        if !dropped.is_empty() && self.error.is_none() && !self.storage.open {
             if self.busy
                 || self.scanning
                 || self.dismounting
@@ -727,6 +773,7 @@ impl eframe::App for PatcherApp {
             || self.dismounting
             || self.installing_adk
             || self.drivers.running
+            || self.storage.busy()
         {
             ctx.request_repaint_after(Duration::from_millis(150));
         }
@@ -736,7 +783,8 @@ impl eframe::App for PatcherApp {
                 || self.scanning
                 || self.dismounting
                 || self.iso_mount.is_some()
-                || self.drivers.running)
+                || self.drivers.running
+                || self.storage.busy())
         {
             self.closing = true;
             self.confirm_dismount = false;
@@ -751,6 +799,7 @@ impl eframe::App for PatcherApp {
             && !self.scanning
             && !self.dismounting
             && !self.drivers.running
+            && !self.storage.busy()
         {
             if self.iso_mount.is_some() {
                 self.dismount(ctx, true);
@@ -834,6 +883,11 @@ impl eframe::App for PatcherApp {
                                 .size(12.0)
                                 .color(muted(ui)),
                         );
+                        ui.add_space(12.0);
+                        if ui.button("Settings").clicked() {
+                            self.storage.open = true;
+                            self.scan_storage(ctx);
+                        }
                         ui.add_space(12.0);
                         ui.label(RichText::new("Appearance").size(13.0).color(muted(ui)));
                         let previous = self.settings.theme;
@@ -1088,6 +1142,7 @@ impl eframe::App for PatcherApp {
                 self.confirm_dismount = false;
             }
         }
+        self.storage_popup(ctx);
         if let Some(error) = &self.error {
             let message = error.message.clone();
             let retry = error.retry;

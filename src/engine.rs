@@ -17,6 +17,8 @@ use walkdir::WalkDir;
 pub struct PreparedBuild {
     pub request: BuildRequest,
     pub assets_root: PathBuf,
+    #[serde(default)]
+    pub connection_log: Option<PathBuf>,
 }
 
 fn copy_file(source: &Path, target: &Path, cancel: &Cancellation) -> Result<()> {
@@ -148,6 +150,7 @@ pub fn prepare(req: BuildRequest, emit: &Emit, cancel: &Cancellation) -> Result<
     Ok(PreparedBuild {
         request: req,
         assets_root,
+        connection_log: None,
     })
 }
 
@@ -238,6 +241,7 @@ pub fn run(prepared: PreparedBuild, emit: Emit, cancel: Cancellation) -> Result<
         "The build worker must run as administrator"
     );
     let req = &prepared.request;
+    let _cache_activity = crate::cleanup::cache_activity(&req.cache)?;
     validate_paths(req)?;
     let lock = OpenOptions::new()
         .create(true)
@@ -264,6 +268,7 @@ pub fn run(prepared: PreparedBuild, emit: Emit, cancel: Cancellation) -> Result<
         .join(format!("build-{}", uuid::Uuid::new_v4()));
     fs::create_dir(&job)?;
     fs::write(job.join("job.json"), serde_json::to_vec_pretty(req)?)?;
+    crate::cleanup::register(&job, req, prepared.connection_log.clone())?;
     let file = Arc::new(Mutex::new(
         OpenOptions::new()
             .create_new(true)
@@ -286,6 +291,18 @@ pub fn run(prepared: PreparedBuild, emit: Emit, cancel: Cancellation) -> Result<
         job.display()
     )));
     let result = run_job(&prepared, &job, &emit, &cancel);
+    let state = if result.is_ok() {
+        crate::cleanup::BuildState::Complete
+    } else if cancel.is_cancelled() {
+        crate::cleanup::BuildState::Cancelled
+    } else {
+        crate::cleanup::BuildState::Failed
+    };
+    if let Err(error) = crate::cleanup::finish(&job, state) {
+        emit(Event::Log(format!(
+            "Build history update failed; workspace retained: {error:#}"
+        )));
+    }
     if result.is_err() {
         emit(Event::Log(format!(
             "Build files retained for diagnosis: {}",
@@ -570,6 +587,7 @@ fn run_job(
         .parent()
         .unwrap()
         .join(format!(".a1706-{}.partial.iso", uuid::Uuid::new_v4()));
+    crate::cleanup::track_partial(job, &partial)?;
     stage(
         emit,
         "Building patched ISO",
@@ -859,7 +877,7 @@ fn write_boot_payload(mount: &Path) -> Result<()> {
 
 fn recover_mounts(workspace: &Path, emit: &Emit, cancel: &Cancellation) -> Result<()> {
     let json = platform::powershell(
-        "@((Get-WindowsImage -Mounted) | ForEach-Object { $_.Path }) | ConvertTo-Json -Compress",
+        "ConvertTo-Json -Compress -InputObject @((Get-WindowsImage -Mounted) | ForEach-Object { $_.Path })",
         &[],
     )?;
     let mounts: Vec<PathBuf> = if json.trim().is_empty() {

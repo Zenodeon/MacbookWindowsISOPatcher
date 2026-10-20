@@ -9,6 +9,94 @@ impl PatcherApp {
         let Ok(view) = std::env::var("MACBOOK_PATCHER_PREVIEW") else {
             return;
         };
+        if view.starts_with("settings") {
+            use macbook_iso_patcher::cleanup::*;
+            self.storage.open = true;
+            self.settings_file = std::env::temp_dir().join("macbook-patcher-preview-settings.json");
+            let mut inventory = macbook_iso_patcher::cleanup::Inventory::default();
+            if view != "settings-empty" && view != "settings-scanning" {
+                inventory.cache = CacheInventory {
+                    paths: vec![
+                        PathBuf::from(r"C:\Downloads\Patcher cache\win64_15.45.5174.exe"),
+                        PathBuf::from(r"C:\Downloads\Patcher cache\BootCampESD-041-88734.pkg"),
+                    ],
+                    size: StorageSize {
+                        files: 12,
+                        bytes: 1320 * 1024 * 1024,
+                    },
+                };
+                for (index, name, state) in [
+                    (0, "Windows10_A1706_Pro.iso", BuildState::Complete),
+                    (2, "Windows10_A1707_Pro.iso", BuildState::Failed),
+                ] {
+                    let id = uuid::Uuid::new_v4().to_string();
+                    let record = BuildRecord {
+                        id: id.clone(),
+                        job: PathBuf::from(format!(r"C:\Patcher workspace\build-{id}")),
+                        workspace: PathBuf::from(r"C:\Patcher workspace"),
+                        source: PathBuf::from(r"C:\Windows ISO\Win10_22H2_English_x64v1.iso"),
+                        output: PathBuf::from(format!(r"C:\Patched ISOs\{name}")),
+                        partial: None,
+                        connection_log: None,
+                        model: MODEL_PROFILES[index].id.into(),
+                        editions: vec!["Windows 10 Pro".into()],
+                        created: 1792440000,
+                        state: state.clone(),
+                        published: if state == BuildState::Complete {
+                            Some(Fingerprint {
+                                size: 6 * GIB,
+                                modified: 0,
+                                identity: "preview".into(),
+                            })
+                        } else {
+                            None
+                        },
+                    };
+                    self.storage.selected.insert(id);
+                    inventory.builds.push(BuildView {
+                        output_present: state == BuildState::Complete,
+                        record,
+                        size: StorageSize {
+                            files: 14,
+                            bytes: if state == BuildState::Complete {
+                                6 * GIB
+                            } else {
+                                540 * 1024 * 1024
+                            },
+                        },
+                        problem: None,
+                    });
+                }
+            }
+            if view == "settings-confirm" {
+                self.storage.confirmation = Some(CleanupRequest::Builds {
+                    ids: self.storage.selected.iter().cloned().collect(),
+                });
+            }
+            if view == "settings-cache-confirm" {
+                self.storage.confirmation = Some(CleanupRequest::Cache {
+                    root: self.settings.cache.clone().into(),
+                    protected: vec![],
+                });
+            }
+            if view == "settings-error" {
+                self.storage.report=Some(CleanupReport{deleted:vec!["preview build".into()],bytes:512*1024*1024,errors:vec!["The generated ISO changed or was replaced; it has been preserved. C:\\Patched ISOs\\Windows10_A1706_Pro.iso".into()],requires_admin:false});
+            }
+            if view == "settings-busy" {
+                self.storage.deleting = true;
+                self.close_ready = true;
+            }
+            if view == "settings-scanning" {
+                self.storage.scanning = true;
+                self.close_ready = true;
+            } else {
+                self.storage.inventory = Some(inventory);
+            }
+            if std::env::var_os("MACBOOK_PATCHER_PREVIEW_SMALL").is_some() {
+                self.window_fitted = true;
+            }
+            return;
+        }
         let (view, model_index) = match view.as_str() {
             "models-download" => ("models", 0),
             "iso-download" | "iso-driver-ready" | "iso-driver-error" => ("iso", 0),

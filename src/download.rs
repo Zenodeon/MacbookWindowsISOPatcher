@@ -233,6 +233,7 @@ pub fn prepare_for_model(
     emit: &Emit,
     cancel: &Cancellation,
 ) -> Result<Assets> {
+    let _activity = crate::cleanup::cache_activity(cache)?;
     ensure!(
         tool.is_file(),
         "Install 7-Zip or select 7z.exe under Build tools"

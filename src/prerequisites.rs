@@ -29,6 +29,7 @@ pub fn verify_microsoft(path: &Path) -> Result<()> {
 }
 
 pub fn download_adk(cache: &Path, status: &dyn Fn(String)) -> Result<PathBuf> {
+    let _activity = crate::cleanup::cache_activity(cache)?;
     ensure!(cfg!(windows), "ADK installation requires Windows");
     let folder = std::path::absolute(cache)?
         .join("adk-setup")
@@ -97,6 +98,7 @@ pub fn download_adk(cache: &Path, status: &dyn Fn(String)) -> Result<PathBuf> {
 }
 
 pub fn install_adk(cache: &Path, status: &dyn Fn(String)) -> Result<(PathBuf, bool)> {
+    let _activity = crate::cleanup::cache_activity(cache)?;
     let installer = download_adk(cache, status)?;
     status("Installing ADK tools… Approve the Windows administrator prompt if shown. This may take several minutes.".into());
     // Arguments are fixed. No user-supplied command text is elevated.
