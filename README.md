@@ -11,6 +11,10 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 
 1. Run `macbook-iso-patcher.exe` on x64 Windows 10 or 11.
 2. Choose a model from the single selectable list, then continue to **Windows ISO**.
+   Selection immediately starts downloading that model's files in the background.
+   Progress stays visible in the footer and the Files & drivers panel, which turns
+   green when complete. Switching models cancels the previous transfer cleanly.
+   Verified shared packages are reused from the cache; failed downloads offer Retry.
    The **2016 A1706 / MacBookPro13,2** has the existing build recipe. Other models
    can be selected for ISO inspection, but their model-specific patching recipes
    are not implemented yet and Build remains unavailable for them.
@@ -33,7 +37,12 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    [Ko-fi](https://ko-fi.com/zenodeon); **Continue without donating** always works.
 8. Approve UAC when the separate image-servicing worker starts.
 
-The GUI downloads and verifies Intel and Apple drivers before elevation. Build
+The GUI downloads and verifies Intel and Apple drivers before elevation; it does
+not install those drivers on the host. Building waits for the selected model's
+downloads to finish. A1706 uses its tested Intel graphics package separately from
+Apple's remaining hardware drivers. Old `IntelHDGraphics64` and `IntelIrisSetup`
+folders are excluded from staged Apple drivers, including the post-install pass.
+The original signed driver files and Boot Camp software installer stay unmodified. Build
 logs and `job.json` stay in the chosen working folder. Existing output files and
 the original ISO are never overwritten. Cancellation waits for an active DISM
 operation to reach a safe boundary. Retrying with the same working folder
@@ -45,7 +54,8 @@ been scanned. Confirm in the popup to eject it and return to **Windows ISO**;
 the ISO file stays unchanged. Use **Edit editions** on Review to change editions.
 Dismount is unavailable during scans, builds, ADK installation, and another dismount.
 Normal app closure releases a source mount created by the app. Closing during a
-scan waits for its result; closing during a build first requests safe cancellation
+driver download cancels it and removes its incomplete archive before exit. Closing
+during a scan waits for its result; closing during a build first requests safe cancellation
 and waits for worker cleanup. Pre-existing user mounts are preserved on closure.
 An explicit Dismount action ejects the selected ISO even if it was mounted before
 the app opened. Forced process termination cannot guarantee cleanup.

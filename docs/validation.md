@@ -18,7 +18,12 @@
 
 ## Automated
 
-The current 20 tests, Clippy with warnings denied, and release build pass.
+The current 25 tests, Clippy with warnings denied, and release build pass.
+Coverage includes model/package mapping, stale download completion, cancelled
+model switches, retry behavior, and excluding old Apple Intel graphics while
+preserving the other device drivers. Cached package verification was exercised
+for A1706 and the two additional Boot Camp packages. A real cancelled network
+transfer left no incomplete archive in its test cache.
 The official ADK bootstrapper download and Microsoft signature verification were
 exercised without installing it. The default window was inspected at 1240 × 700
 content pixels; proportional fitting is covered by tests. Live ADK installation

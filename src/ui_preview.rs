@@ -10,12 +10,35 @@ impl PatcherApp {
             return;
         };
         let (view, model_index) = match view.as_str() {
+            "models-download" => ("models", 0),
+            "iso-download" | "iso-driver-ready" | "iso-driver-error" => ("iso", 0),
             "models-unverified" => ("models", 1),
             "iso-unverified" => ("iso", 1),
             "editions-unverified" => ("editions", 1),
             "review-unverified" => ("review-ready", 1),
             other => (other, 0),
         };
+        let driver_preview = std::env::var("MACBOOK_PATCHER_PREVIEW").unwrap_or_default();
+        if driver_preview.ends_with("-download") || driver_preview.contains("-driver-") {
+            self.model_selected = Some(model_index);
+            self.drivers.key = Some((
+                MODEL_PROFILES[model_index].id,
+                self.settings.cache.trim().into(),
+            ));
+            self.drivers.stage = "Downloading drivers".into();
+            self.drivers.ready = driver_preview.ends_with("-ready");
+            if driver_preview.ends_with("-error") {
+                self.drivers.error = Some(
+                    "The connection was interrupted. Retry to download the remaining files.".into(),
+                );
+            } else if !self.drivers.ready {
+                self.drivers.progress = Some((
+                    "BootCampESD-041-88734.pkg".into(),
+                    106_000_000,
+                    Some(353_187_226),
+                ));
+            }
+        }
         if view == "mounted-close" {
             // Used only by the opt-in Windows lifecycle test with its own data ISO.
             let iso = PathBuf::from(

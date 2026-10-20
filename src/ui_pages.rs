@@ -83,6 +83,7 @@ impl PatcherApp {
                 {
                     self.model_selected = Some(index);
                     self.error = None;
+                    ui.ctx().request_repaint();
                 }
             }
             if let Some(model) = self.model() {
@@ -90,7 +91,7 @@ impl PatcherApp {
                 if model.hardware_verified() {
                     ui.label(RichText::new("Windows 10 Pro was verified in the original project using external HDMI with the internal display disconnected.").size(13.0).color(colors.muted));
                 } else {
-                    ui.label(RichText::new("This model is unverified. You can inspect your ISO; model-specific patching is not available yet.").size(13.0).color(colors.warning));
+                    ui.label(RichText::new("This model is unverified. Its Apple Boot Camp drivers will download; ISO patching is not available yet.").size(13.0).color(colors.warning));
                 }
             }
             ui.hyperlink_to(
@@ -98,6 +99,7 @@ impl PatcherApp {
                 "https://support.apple.com/en-us/108052",
             );
         });
+        self.driver_download_panel(ui);
     }
     pub(super) fn section(
         ui: &mut egui::Ui,

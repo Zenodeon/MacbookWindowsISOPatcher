@@ -60,6 +60,21 @@ pub fn fetch(
     emit: &Emit,
     cancel: &Cancellation,
 ) -> Result<PathBuf> {
+    fetch_checked(cache, name, url, hash, emit, cancel)
+}
+
+fn fetch_checked(
+    cache: &Path,
+    name: &str,
+    url: &str,
+    hash: &str,
+    emit: &Emit,
+    cancel: &Cancellation,
+) -> Result<PathBuf> {
+    ensure!(
+        hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()),
+        "Package SHA-256 pin is missing or invalid"
+    );
     fs::create_dir_all(cache)?;
     let path = cache.join(name);
     if path.is_file() {
@@ -292,7 +307,7 @@ pub fn prepare(cache: &Path, tool: &Path, emit: &Emit, cancel: &Cancellation) ->
     let pe = find_dir(&support, "$WinPEDriver$").context("Apple WinPE driver folder is missing")?;
     let drivers = dir.join("drivers");
     fs::create_dir(&drivers)?;
-    crate::engine::copy_tree(&pe, &drivers, cancel)?;
+    copy_apple_driver_tree(&pe, &drivers, cancel)?;
     // Apple packages several device INF folders inside driver installer EXEs.
     let installers: Vec<_> = walkdir::WalkDir::new(bootcamp.join("Drivers"))
         .into_iter()
@@ -307,6 +322,12 @@ pub fn prepare(cache: &Path, tool: &Path, emit: &Emit, cancel: &Cancellation) ->
         .collect();
     for (n, exe) in installers.iter().enumerate() {
         cancel.check()?;
+        if exe
+            .file_stem()
+            .is_some_and(|name| apple_intel_graphics(&name.to_string_lossy()))
+        {
+            continue;
+        }
         let unpacked = dir.join("installers").join(n.to_string());
         // Not every Apple EXE is a 7-Zip-readable archive. Only extract recognized ones.
         let mut probe = std::process::Command::new(tool);
@@ -336,6 +357,28 @@ pub fn prepare(cache: &Path, tool: &Path, emit: &Emit, cancel: &Cancellation) ->
         drivers,
     })
 }
+fn apple_intel_graphics(name: &str) -> bool {
+    name.eq_ignore_ascii_case("IntelHDGraphics64") || name.eq_ignore_ascii_case("IntelIrisSetup")
+}
+
+fn copy_apple_driver_tree(source: &Path, destination: &Path, cancel: &Cancellation) -> Result<()> {
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        cancel.check()?;
+        let entry = entry?;
+        if apple_intel_graphics(&entry.file_name().to_string_lossy()) {
+            continue;
+        }
+        let target = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            crate::engine::copy_tree(&entry.path(), &target, cancel)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
 fn find_any_inf(root: &Path) -> bool {
     walkdir::WalkDir::new(root)
         .into_iter()
@@ -468,6 +511,38 @@ fn extract_intel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn apple_driver_copy_excludes_old_intel_graphics_and_preserves_other_devices() {
+        let temp = std::env::temp_dir().canonicalize().unwrap();
+        let root = temp.join(format!("apple-driver-filter-{}", uuid::Uuid::new_v4()));
+        let source = root.join("source");
+        let destination = root.join("result");
+        for name in [
+            "IntelHDGraphics64",
+            "IntelIrisSetup",
+            "AppleSPIKeyboard",
+            "IntelEthernetInstaller64",
+        ] {
+            fs::create_dir_all(source.join(name)).unwrap();
+            fs::write(source.join(name).join("driver.inf"), b"fixture").unwrap();
+        }
+        copy_apple_driver_tree(&source, &destination, &Cancellation::default()).unwrap();
+        assert!(!destination.join("IntelHDGraphics64").exists());
+        assert!(!destination.join("IntelIrisSetup").exists());
+        assert!(destination.join("AppleSPIKeyboard/driver.inf").is_file());
+        assert!(
+            destination
+                .join("IntelEthernetInstaller64/driver.inf")
+                .is_file()
+        );
+        assert!(
+            crate::domain::BOOT_ALLOWLIST
+                .iter()
+                .all(|name| !apple_intel_graphics(name))
+        );
+        assert_eq!(root.parent(), Some(temp.as_path()));
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn rejects_corrupt_cache_and_honors_cancellation() {
         let path = std::env::temp_dir().join(format!("driver-test-{}", uuid::Uuid::new_v4()));

@@ -1,5 +1,6 @@
 pub mod domain;
 pub mod download;
+pub mod driver_prefetch;
 pub mod engine;
 pub mod ipc;
 pub mod models;

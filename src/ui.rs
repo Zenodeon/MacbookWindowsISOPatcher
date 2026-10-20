@@ -1,6 +1,9 @@
 use crate::appearance::{self, ThemeMode};
+#[path = "ui_downloads.rs"]
+mod downloads;
 #[path = "ui_pages.rs"]
 mod pages;
+use downloads::DriverDownloads;
 #[cfg(debug_assertions)]
 #[path = "ui_preview.rs"]
 mod preview;
@@ -63,6 +66,8 @@ enum Message {
     Dismounted(Result<bool, String>, Option<platform::MountedIso>),
     AdkStatus(String),
     AdkInstalled(Result<(PathBuf, bool), String>),
+    DriverEvent(u64, Event),
+    DriversDone(u64, Result<(), String>),
     Build(Event),
 }
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -78,6 +83,7 @@ struct Settings {
 pub struct PatcherApp {
     page: Page,
     model_selected: Option<usize>,
+    drivers: DriverDownloads,
     iso: String,
     output: String,
     inventory: Option<Inventory>,
@@ -144,6 +150,7 @@ impl PatcherApp {
         let app = Self {
             page: Page::Model,
             model_selected: None,
+            drivers: DriverDownloads::default(),
             iso: String::new(),
             output: String::new(),
             inventory: None,
@@ -194,6 +201,20 @@ impl PatcherApp {
     fn consume(&mut self) {
         while let Ok(message) = self.receiver.try_recv() {
             match message {
+                Message::DriverEvent(id, event) if id == self.drivers.id => match event {
+                    Event::Stage { name, .. } => {
+                        self.drivers.stage = name;
+                        self.drivers.progress = None;
+                    }
+                    Event::Download {
+                        name,
+                        received,
+                        total,
+                    } => self.drivers.progress = Some((name, received, total)),
+                    _ => (),
+                },
+                Message::DriversDone(id, result) => self.drivers.finish(id, result),
+                Message::DriverEvent(..) => (),
                 Message::AdkStatus(status) => self.adk_status = status,
                 Message::AdkInstalled(result) => {
                     self.installing_adk = false;
@@ -402,6 +423,10 @@ impl PatcherApp {
     }
     fn begin(&mut self, ctx: &egui::Context) {
         if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
+            return;
+        }
+        if !self.drivers_ready() {
+            self.error = Some("Finish downloading this model's drivers before building.".into());
             return;
         }
         let req = match self.request().and_then(|r| {
@@ -614,6 +639,9 @@ impl PatcherApp {
 impl eframe::App for PatcherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.consume();
+        if !ctx.input(|i| i.viewport().close_requested()) {
+            self.ensure_driver_downloads(ctx);
+        }
         if !self.window_fitted
             && let Some(monitor) = ctx.input(|i| i.viewport().monitor_size)
         {
@@ -657,21 +685,36 @@ impl eframe::App for PatcherApp {
                 }
             }
         }
-        if self.busy || self.scanning || self.dismounting || self.installing_adk {
+        if self.busy
+            || self.scanning
+            || self.dismounting
+            || self.installing_adk
+            || self.drivers.running
+        {
             ctx.request_repaint_after(Duration::from_millis(150));
         }
         if !self.close_ready
             && ctx.input(|i| i.viewport().close_requested())
-            && (self.busy || self.scanning || self.dismounting || self.iso_mount.is_some())
+            && (self.busy
+                || self.scanning
+                || self.dismounting
+                || self.iso_mount.is_some()
+                || self.drivers.running)
         {
             self.closing = true;
             self.confirm_dismount = false;
+            self.drivers.cancel.cancel();
             if self.busy {
                 self.cancel.cancel();
             }
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
-        if self.closing && !self.busy && !self.scanning && !self.dismounting {
+        if self.closing
+            && !self.busy
+            && !self.scanning
+            && !self.dismounting
+            && !self.drivers.running
+        {
             if self.iso_mount.is_some() {
                 self.dismount(ctx, true);
             } else {
@@ -853,7 +896,7 @@ impl eframe::App for PatcherApp {
                                 && Self::primary(
                                     ui,
                                     "Build patched ISO",
-                                    !self.output.trim().is_empty() && self.model().is_some_and(|model| model.build_available()),
+                                    !self.output.trim().is_empty() && self.model().is_some_and(|model| model.build_available()) && self.drivers_ready(),
                                 )
                             {
                                 match self.request().and_then(|req| engine::preflight(&req)) {
@@ -880,8 +923,16 @@ impl eframe::App for PatcherApp {
                             egui::pos2(model_right - 8.0, ui.min_rect().bottom()),
                         );
                         let label = if rect.width() < 320.0 { model.identifier } else { model.name };
-                        ui.put(rect, egui::Label::new(RichText::new(label).size(13.0).color(muted(ui))).truncate())
-                            .on_hover_text(format!("{}\n{}", model.name, model.identifier));
+                        let tooltip = format!("{}\n{}", model.name, model.identifier);
+                        if let Some((status, color)) = self.driver_footer_status(ctx) {
+                            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 32.0)))
+                                .layout(egui::Layout::top_down(egui::Align::Center)));
+                            child.spacing_mut().item_spacing.y = 0.0;
+                            child.add_sized([rect.width(), 17.0], egui::Label::new(RichText::new(label).size(13.0).color(muted(ui))).truncate()).on_hover_text(&tooltip);
+                            child.add_sized([rect.width(), 15.0], egui::Label::new(RichText::new(status).size(11.0).color(color)).truncate());
+                        } else {
+                            ui.put(rect, egui::Label::new(RichText::new(label).size(13.0).color(muted(ui))).truncate()).on_hover_text(tooltip);
+                        }
                     }
                 });
             });
@@ -917,6 +968,9 @@ impl eframe::App for PatcherApp {
                     if self.donation {
                         self.donation_page(ui, ctx);
                     } else {
+                        if self.page != Page::Model {
+                            self.driver_download_panel(ui);
+                        }
                         match self.page {
                             Page::Model => self.model_page(ui),
                             Page::Iso => self.input_page(ui, ctx),
