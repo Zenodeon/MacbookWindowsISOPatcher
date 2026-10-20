@@ -18,7 +18,12 @@
 
 ## Automated
 
-The current 34 tests, Clippy with warnings denied, and release build pass.
+The current 37 tests, Clippy with warnings denied, and release build pass.
+Loopback transport tests reproduce Windows error 10035 with an inherited
+non-blocking accepted socket, then verify the explicit blocking-mode fix with
+fragmented delayed events and cancellation. Authentication still times out, and
+an actual worker disconnect remains an error. A complete elevated ISO build has
+not been repeated here.
 Coverage includes model/package mapping, stale download completion, cancelled
 model switches, explicit download authorization for each selected model, retry
 behavior, and excluding old Apple Intel graphics while
@@ -42,7 +47,9 @@ byte-progress tests cover unknown/zero totals and bounds. Renderer fixtures cove
 source-section ordering, footer download progress/errors/Retry, and the Build ISO
 button's measurable and indeterminate states. Main scrolling resets on page changes.
 The Action needed popup was rendered in both themes using the 51.6 GiB workspace
-message, with Close and Retry, plus a generic error with Close only. Retry routes
+message, with Copy error, Close and Retry, plus the reported worker error with
+Copy error and Close. The compact download-error footer includes Copy and Retry.
+Copy actions send the complete error text to the clipboard. Retry routes
 through the original build validation entry point and retains the donation flow.
 The official ADK bootstrapper download and Microsoft signature verification were
 exercised without installing it. The default window was inspected at 1240 × 700

@@ -17,7 +17,7 @@ impl PatcherApp {
             "iso-unverified" => ("iso", 1),
             "editions-unverified" => ("editions", 1),
             "review-unverified" => ("review-ready", 1),
-            "workspace-error" | "generic-error" => ("review-ready", 0),
+            "workspace-error" | "generic-error" | "worker-error" => ("review-ready", 0),
             "build-active" | "build-preparing" => ("review-ready", 0),
             "review-unverified-download" => ("review-ready", 1),
             other => (other, 0),
@@ -143,6 +143,8 @@ impl PatcherApp {
                 "Not enough workspace disk space; allow at least 51.6 GiB".into(),
                 BuildRetry::Review,
             );
+        } else if driver_preview == "worker-error" {
+            self.show_error("Lost connection to the build worker. Check the retained build workspace before retrying: A non-blocking socket operation could not be completed immediately. (os error 10035)");
         } else if driver_preview == "generic-error" {
             self.show_error(
                 "The selected ISO could not be read. Choose an existing Windows ISO and try again.",

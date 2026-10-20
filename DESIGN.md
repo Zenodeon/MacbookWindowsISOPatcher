@@ -73,6 +73,8 @@ file section. Compatibility details belong to Source file. Present ordinary driv
 and UNC paths while keeping canonical paths for file operations. Reset the main
 scroll offset on every page/donation-screen transition, including return visits.
 Show Action needed errors in a centered modal, not an inline page banner. Keep
+the full message available through Copy error, with Copied feedback. Download
+errors have a compact Copy link next to Retry in the footer. Keep
 the original message readable with Close; build-check failures also offer Retry.
 Retry reruns validation and preserves whether the user was reviewing the build
 or had already continued through the donation screen. Do not start a worker while

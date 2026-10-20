@@ -89,6 +89,7 @@ enum BuildRetry {
 struct ActionError {
     message: String,
     retry: Option<BuildRetry>,
+    copied: bool,
 }
 
 pub struct PatcherApp {
@@ -444,12 +445,14 @@ impl PatcherApp {
         self.error = Some(ActionError {
             message: message.into(),
             retry: None,
+            copied: false,
         });
     }
     fn show_build_error(&mut self, message: String, retry: BuildRetry) {
         self.error = Some(ActionError {
             message,
             retry: Some(retry),
+            copied: false,
         });
     }
     fn review_build(&mut self, ctx: &egui::Context) {
@@ -1083,9 +1086,11 @@ impl eframe::App for PatcherApp {
         if let Some(error) = &self.error {
             let message = error.message.clone();
             let retry = error.retry;
+            let copied = error.copied;
             let colors = appearance::palette(ctx);
             let mut retry_clicked = false;
             let mut close_clicked = false;
+            let mut copy_clicked = false;
             let modal = egui::Modal::new(egui::Id::new("action-needed"))
                 .frame(egui::Frame::new().fill(colors.surface).corner_radius(16)
                     .stroke(egui::Stroke::new(1.0_f32, ctx.style().visuals.widgets.noninteractive.bg_stroke.color))
@@ -1109,8 +1114,15 @@ impl eframe::App for PatcherApp {
                         } else {
                             close_clicked = Self::primary(ui, "Close", true);
                         }
+                        copy_clicked = ui.button(if copied { "Copied" } else { "Copy error" }).clicked();
                     });
                 });
+            if copy_clicked {
+                ctx.copy_text(message);
+                if let Some(error) = &mut self.error {
+                    error.copied = true;
+                }
+            }
             if retry_clicked || close_clicked || modal.should_close() {
                 self.error = None;
             }

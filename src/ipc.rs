@@ -43,6 +43,15 @@ fn send(stream: &mut TcpStream, message: &impl serde::Serialize) -> Result<()> {
     Ok(())
 }
 
+fn message_reader(stream: &TcpStream, timeout: Option<Duration>) -> Result<BufReader<TcpStream>> {
+    // Windows accepts inherit the polling listener's non-blocking mode.
+    // Framed messages must wait for the complete line, including delayed events.
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(timeout)?;
+    stream.set_write_timeout(Some(Duration::from_secs(30)))?;
+    Ok(BufReader::new(stream.try_clone()?))
+}
+
 pub fn start(request: BuildRequest, emit: Emit, cancel: Cancellation) -> Result<()> {
     let prepared = engine::prepare(request, &emit, &cancel)?;
     let mut lease = PreparedLease {
@@ -76,8 +85,7 @@ pub fn start(request: BuildRequest, emit: Emit, cancel: Cancellation) -> Result<
                 if !peer.ip().is_loopback() {
                     continue;
                 }
-                stream.set_read_timeout(Some(Duration::from_secs(3)))?;
-                let mut reader = BufReader::new(stream.try_clone()?);
+                let mut reader = message_reader(&stream, Some(Duration::from_secs(3)))?;
                 if line(&mut reader)
                     .ok()
                     .is_some_and(|text| text.trim() == token)
@@ -147,10 +155,8 @@ pub fn worker(port: u16, token: &str) -> Result<()> {
         &std::net::SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
         Duration::from_secs(10),
     )?;
-    stream.set_write_timeout(Some(Duration::from_secs(30)))?;
-    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    let mut reader = message_reader(&stream, Some(Duration::from_secs(30)))?;
     stream.write_all(format!("{token}\n").as_bytes())?;
-    let mut reader = BufReader::new(stream.try_clone()?);
     let prepared: PreparedBuild = serde_json::from_str(&line(&mut reader)?)?;
     stream.set_read_timeout(None)?;
     let cancel = Cancellation::default();
@@ -190,4 +196,93 @@ pub fn parse_worker_args(args: &[String]) -> Result<Option<(u16, String)>> {
     }
     let port = args[1].parse()?;
     Ok(Some((port, args[2].clone())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{io::ErrorKind, net::Shutdown};
+
+    #[test]
+    fn accepted_worker_waits_for_fragmented_events_and_receives_cancellation() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let token = "a".repeat(64);
+        let expected_token = token.clone();
+        let client = thread::spawn(move || {
+            let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2)).unwrap();
+            let mut reader = message_reader(&stream, Some(Duration::from_secs(2))).unwrap();
+            stream.write_all(format!("{token}\n").as_bytes()).unwrap();
+            assert_eq!(line(&mut reader).unwrap().trim(), "\"prepared\"");
+            let event = Event::Stage {
+                name: "Checking Windows media".into(),
+                detail: "Delayed worker event".into(),
+            };
+            let serialized = serde_json::to_string(&event).unwrap() + "\n";
+            stream.write_all(&serialized.as_bytes()[..1]).unwrap();
+            thread::sleep(Duration::from_millis(75));
+            stream.write_all(&serialized.as_bytes()[1..]).unwrap();
+            assert_eq!(line(&mut reader).unwrap().trim(), "cancel");
+            send(&mut stream, &Event::Cancelled).unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(pair) => break pair,
+                Err(error)
+                    if error.kind() == ErrorKind::WouldBlock && Instant::now() < deadline =>
+                {
+                    thread::sleep(Duration::from_millis(5))
+                }
+                Err(error) => panic!("accept failed: {error}"),
+            }
+        };
+        let mut reader = message_reader(&stream, Some(Duration::from_secs(2))).unwrap();
+        assert_eq!(line(&mut reader).unwrap().trim(), expected_token);
+        stream.set_read_timeout(None).unwrap();
+        send(&mut stream, &"prepared").unwrap();
+        let event: Event = serde_json::from_str(&line(&mut reader).unwrap()).unwrap();
+        assert!(matches!(event, Event::Stage { name, .. } if name == "Checking Windows media"));
+        stream.try_clone().unwrap().write_all(b"cancel\n").unwrap();
+        assert!(matches!(
+            serde_json::from_str::<Event>(&line(&mut reader).unwrap()).unwrap(),
+            Event::Cancelled
+        ));
+        client.join().unwrap();
+    }
+
+    #[test]
+    fn authentication_reads_still_time_out() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let mut peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = message_reader(&stream, Some(Duration::from_millis(40))).unwrap();
+        let delayed = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(250));
+            let _ = peer.write_all(b"late\n");
+        });
+        let error = line(&mut reader).unwrap_err();
+        let error = error.downcast_ref::<std::io::Error>().unwrap();
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::WouldBlock | ErrorKind::TimedOut
+        ));
+        delayed.join().unwrap();
+    }
+
+    #[test]
+    fn actual_worker_disconnect_is_still_an_error() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = message_reader(&stream, Some(Duration::from_secs(2))).unwrap();
+        peer.shutdown(Shutdown::Both).unwrap();
+        assert!(
+            line(&mut reader)
+                .unwrap_err()
+                .to_string()
+                .contains("Worker connection closed")
+        );
+    }
 }

@@ -293,7 +293,7 @@ impl PatcherApp {
         {
             let status_rect = egui::Rect::from_center_size(
                 status_rect.center(),
-                egui::vec2(status_rect.width().min(240.0), status_rect.height()),
+                egui::vec2(status_rect.width().min(290.0), status_rect.height()),
             );
             let retry = egui::Rect::from_min_max(
                 egui::pos2(status_rect.right() - 46.0, status_rect.top()),
@@ -301,8 +301,19 @@ impl PatcherApp {
             );
             let text = egui::Rect::from_min_max(
                 status_rect.min,
+                egui::pos2(retry.left() - 52.0, status_rect.bottom()),
+            );
+            let copy = egui::Rect::from_min_max(
+                egui::pos2(retry.left() - 46.0, status_rect.top()),
                 egui::pos2(retry.left() - 6.0, status_rect.bottom()),
             );
+            if ui
+                .put(copy, egui::Link::new(RichText::new("Copy").size(11.0)))
+                .on_hover_text("Copy full error")
+                .clicked()
+            {
+                ui.ctx().copy_text(error.clone());
+            }
             ui.put(
                 text,
                 egui::Label::new(

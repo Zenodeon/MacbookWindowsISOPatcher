@@ -50,6 +50,8 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 Errors open an **Action needed** popup. Build-check failures, including insufficient
 workspace space, offer **Retry** to check the requirements again and continue when
 ready. **Close** dismisses the popup so you can change the build settings.
+**Copy error** copies the full message for troubleshooting or a GitHub issue.
+Download failures also have a **Copy** link beside **Retry** in the footer.
 
 The GUI downloads and verifies Intel and Apple drivers before elevation; it does
 not install those drivers on the host. Building waits for the selected model's
