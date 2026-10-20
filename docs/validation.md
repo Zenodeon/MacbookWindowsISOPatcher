@@ -69,6 +69,36 @@ The edition rows, green tools-ready
 panel, and dismount confirmation were rendered and visually checked in both themes
 using debug-only screenshot fixtures, which are excluded from release builds.
 
+## A1706 full-build test on 2026-10-20 — blocked by host servicing
+
+The real Windows 10 22H2 English x64 ISO was tested with A1706 and Pro (source
+index 6). Its SHA-256 matches Microsoft's published English x64 checksum:
+`a6f470ca6d331eb353b815c043e327a347f594f37ff525f17764738fe812852e`.
+The original ISO had the same hash after the test.
+
+- Driver preparation, UAC handoff, media copy, Pro export and image mounting
+  completed. The authenticated reader remained connected beyond the previous
+  three-second failure point, with both read timeouts confirmed as `None`.
+- Adding the signed Intel driver failed during DISM initialization with error 87,
+  before driver installation. DISM recorded failure to determine the offline OS
+  version (`0x80070057`). The app reported the failure and discarded its mount.
+- Read-only checks with system DISM 10.0.26100.9549, ADK DISM 10.0.26100.9457
+  and the original image's DISM 10.0.19041.844 all failed at initialization.
+  All probe mounts were subsequently discarded.
+- The exported SOFTWARE hive is byte-identical to the source Pro hive. A separate
+  control saved an 8 KiB hive from the host's timezone key successfully, but Windows
+  `reg load` rejected both that control and the source hive with “The filename or
+  extension is too long.” The control also failed at `C:\zp.hiv` with a short
+  registry key name. Temporary files and successful probe mappings were cleaned up.
+
+No finished ISO was produced. Host offline-registry loading needs to work before
+the full build can be accepted; changing DISM versions alone did not resolve it.
+Retained local evidence is in `.cache/a1706-full-build.log`,
+`.cache/dism-probe.log`, `.cache/registry-control.log`, and the per-build connection
+log under `.work/a1706-test`. A Windows restart followed by another control test
+is the next diagnostic step, not a verified repair. Hardware acceptance remains
+pending even after ISO publication succeeds.
+
 Run `cargo test --all-targets` and `cargo clippy --all-targets -- -D warnings`.
 Tests cover metadata compatibility, real image indices, edition validation,
 boot command composition, startup ordering, and absence of disk automation.
