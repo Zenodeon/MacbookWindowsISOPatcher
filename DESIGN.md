@@ -50,3 +50,5 @@ The donation step is a page in the workflow, with both Donate and Continue witho
 donating visible. Payment never changes the available functionality.
 The sidebar always provides the theme selector, by zenodeon website attribution,
 Ko-fi button, and GitHub repository button. It scrolls on short windows.
+Center the selected Mac model in the footer gap between the action buttons.
+Use its identifier on narrow windows, with the full model name in a tooltip.

@@ -836,7 +836,8 @@ impl eframe::App for PatcherApp {
                     {
                         self.confirm_dismount = true;
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let model_left = ui.cursor().min.x;
+                    let model_right = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation && !self.closing {
                             if self.page == Page::Model && Self::primary(ui,"Continue to Windows ISO", self.model().is_some()) {
                                 self.page = Page::Iso;
@@ -869,7 +870,19 @@ impl eframe::App for PatcherApp {
                                 }
                             }
                         }
-                    });
+                        ui.cursor().max.x
+                    }).inner;
+                    if let Some(model) = self.model()
+                        && model_right - model_left >= 96.0
+                    {
+                        let rect = egui::Rect::from_min_max(
+                            egui::pos2(model_left + 8.0, ui.min_rect().top()),
+                            egui::pos2(model_right - 8.0, ui.min_rect().bottom()),
+                        );
+                        let label = if rect.width() < 320.0 { model.identifier } else { model.name };
+                        ui.put(rect, egui::Label::new(RichText::new(label).size(13.0).color(muted(ui))).truncate())
+                            .on_hover_text(format!("{}\n{}", model.name, model.identifier));
+                    }
                 });
             });
         egui::CentralPanel::default()
