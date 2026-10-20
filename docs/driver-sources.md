@@ -41,8 +41,11 @@ Pressing Start download & continue to Windows ISO downloads the selected model's
 archives without extracting or installing them. Selecting a model alone does not
 start any downloads.
 The mappings were checked against Apple's Software Update catalog and English
-Boot Camp distributions on 2026-10-20. Downloads do not enable an unimplemented
-ISO build profile.
+Boot Camp distributions on 2026-10-20. Every listed model can build after its
+download completes. Unverified models use their own Apple bundle, including its
+graphics drivers; the separate Intel replacement and HDMI startup sequence remain
+specific to MacBookPro13,2. Their WinPE paths contain only available allowlisted
+Apple driver folders, while the installed Windows image receives the full bundle.
 
 | Mac identifier | Boot Camp product | Additional package |
 | --- | --- | --- |

@@ -94,7 +94,7 @@ impl PatcherApp {
                 if model.hardware_verified() {
                     ui.label(RichText::new("Windows 10 Pro was verified in the original project using external HDMI with the internal display disconnected.").size(13.0).color(colors.muted));
                 } else {
-                    ui.label(RichText::new("This model is unverified. Press Start download to get its Apple Boot Camp drivers. ISO patching is not available yet.").size(13.0).color(colors.warning));
+                    ui.label(RichText::new("This model is unverified. You can build once its Apple Boot Camp drivers finish downloading.").size(13.0).color(colors.warning));
                 }
             }
             ui.hyperlink_to(
@@ -215,10 +215,13 @@ impl PatcherApp {
             if let Some(model) = self.model() {
                 ui.label(RichText::new(model.name).strong());
                 ui.label(format!("{} · {}", model.identifier, model.details));
-                if model.build_available() {
+                if model.hardware_verified() {
                     ui.label("External HDMI fix for a disconnected internal display.");
                 } else {
-                    ui.colored_label(colors.warning, "Unverified model. ISO inspection is available; its patching profile is not implemented yet.");
+                    ui.colored_label(
+                        colors.warning,
+                        "Unverified model. Builds include this model's Apple Boot Camp drivers.",
+                    );
                 }
             }
             egui::CollapsingHeader::new("Compatibility details").show(ui, |ui| {
@@ -339,21 +342,24 @@ impl PatcherApp {
     }
 
     pub(super) fn review_page(&mut self, ui: &mut egui::Ui) {
-        let build_available = self.model().is_some_and(|model| model.build_available());
+        let hardware_verified = self.model().is_some_and(|model| model.hardware_verified());
         Self::heading(
             ui,
             "Review your build",
-            if build_available {
+            if hardware_verified {
                 "Iris graphics, the HDMI fix, and Boot Camp drivers will be included."
             } else {
-                "Review the selected model and Windows editions."
+                "This model's Apple Boot Camp drivers will be included."
             },
         );
         let colors = appearance::palette(ui.ctx());
         if let Some(model) = self.model() {
             ui.label(RichText::new(model.name).strong());
-            if !build_available {
-                ui.colored_label(colors.warning, "This model is unverified. Its patching profile is not implemented yet, so building is unavailable.");
+            if !hardware_verified {
+                ui.colored_label(
+                    colors.warning,
+                    "Unverified hardware. You can build after the driver download finishes.",
+                );
             }
             ui.add_space(12.0);
         }

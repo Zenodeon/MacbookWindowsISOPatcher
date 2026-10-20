@@ -1,4 +1,4 @@
-//! Model identity is separate from availability of a servicing recipe.
+//! Buildable model identities and their hardware verification status.
 use crate::domain::MODEL_ID;
 
 pub struct ModelProfile {
@@ -8,9 +8,6 @@ pub struct ModelProfile {
     pub details: &'static str,
 }
 impl ModelProfile {
-    pub fn build_available(&self) -> bool {
-        self.id == MODEL_ID
-    }
     pub fn hardware_verified(&self) -> bool {
         self.id == MODEL_ID
     }
@@ -46,10 +43,10 @@ pub const MODEL_PROFILES: &[ModelProfile] = &[
 mod tests {
     use super::*;
     #[test]
-    fn distinguishes_a1706_generations_and_does_not_reuse_its_recipe() {
+    fn distinguishes_a1706_generations_and_their_verification_status() {
         let available: Vec<_> = MODEL_PROFILES
             .iter()
-            .filter(|model| model.build_available())
+            .filter(|model| model.hardware_verified())
             .collect();
         assert_eq!(available.len(), 1);
         assert_eq!(available[0].identifier, "MacBookPro13,2");
@@ -57,7 +54,6 @@ mod tests {
             .iter()
             .find(|model| model.identifier == "MacBookPro14,2")
             .unwrap();
-        assert!(!later_a1706.build_available());
         assert!(!later_a1706.hardware_verified());
         let ids: std::collections::BTreeSet<_> =
             MODEL_PROFILES.iter().map(|model| model.id).collect();

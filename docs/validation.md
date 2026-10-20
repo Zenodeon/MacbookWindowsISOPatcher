@@ -18,13 +18,18 @@
 
 ## Automated
 
-The current 27 tests, Clippy with warnings denied, and release build pass.
+The current 29 tests, Clippy with warnings denied, and release build pass.
 Coverage includes model/package mapping, stale download completion, cancelled
 model switches, explicit download authorization for each selected model, retry
 behavior, and excluding old Apple Intel graphics while
 preserving the other device drivers. Cached package verification was exercised
 for A1706 and the two additional Boot Camp packages. A real cancelled network
 transfer left no incomplete archive in its test cache.
+All listed models are accepted by build validation without changing hardware
+verification labels. Unverified builds select their own Apple packages and retain
+Apple graphics; boot-driver validation accepts available allowlisted folders and
+rejects graphics or unknown folders. Their full ISO builds and hardware operation
+remain untested. The A1706-only Iris/HDMI path remains separate.
 The official ADK bootstrapper download and Microsoft signature verification were
 exercised without installing it. The default window was inspected at 1240 × 700
 content pixels; proportional fitting is covered by tests. Live ADK installation

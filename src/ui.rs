@@ -780,7 +780,7 @@ impl eframe::App for PatcherApp {
                                         format!(
                                             "{}\n{}",
                                             model.identifier,
-                                            if model.build_available() {
+                                            if model.hardware_verified() {
                                                 "v17 HDMI fix"
                                             } else {
                                                 "Unverified"
@@ -852,6 +852,20 @@ impl eframe::App for PatcherApp {
                     .inner_margin(16.0),
             )
             .show(ctx, |ui| {
+                if self.page == Page::Review && !self.donation && !self.busy {
+                    let colors = appearance::palette(ctx);
+                    if !self.drivers_ready() {
+                        ui.label(RichText::new("Build unlocks when this model's driver download finishes.").size(13.0).color(colors.muted));
+                    }
+                    ui.horizontal_wrapped(|ui| {
+                        if self.model().is_some_and(|model| !model.hardware_verified()) {
+                            ui.colored_label(colors.warning, "Unverified hardware · You can still build.");
+                        }
+                        ui.hyperlink_to("Report success or a problem on GitHub", format!("{REPO_URL}/issues/new"))
+                            .on_hover_text("Include your Mac model, Windows edition, and what worked or failed.");
+                    });
+                    ui.add_space(8.0);
+                }
                 ui.horizontal(|ui| {
                     if self.busy {
                         if ui
@@ -898,7 +912,7 @@ impl eframe::App for PatcherApp {
                                 && Self::primary(
                                     ui,
                                     "Build patched ISO",
-                                    !self.output.trim().is_empty() && self.model().is_some_and(|model| model.build_available()) && self.drivers_ready(),
+                                    !self.output.trim().is_empty() && self.model().is_some() && self.drivers_ready(),
                                 )
                             {
                                 match self.request().and_then(|req| engine::preflight(&req)) {

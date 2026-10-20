@@ -16,6 +16,7 @@ impl PatcherApp {
             "iso-unverified" => ("iso", 1),
             "editions-unverified" => ("editions", 1),
             "review-unverified" => ("review-ready", 1),
+            "review-unverified-download" => ("review-ready", 1),
             other => (other, 0),
         };
         let driver_preview = std::env::var("MACBOOK_PATCHER_PREVIEW").unwrap_or_default();
@@ -106,6 +107,12 @@ impl PatcherApp {
             Page::Editions
         };
         if view == "review-ready" {
+            self.drivers.requested_model = Some(MODEL_PROFILES[model_index].id);
+            self.drivers.key = Some((
+                MODEL_PROFILES[model_index].id,
+                self.settings.cache.trim().into(),
+            ));
+            self.drivers.ready = !driver_preview.ends_with("-download");
             // Existing fixture paths drive the UI's file-presence state only.
             // The fake ISO cannot pass build preflight; release has no fixtures.
             let existing = std::env::current_exe().unwrap().display().to_string();

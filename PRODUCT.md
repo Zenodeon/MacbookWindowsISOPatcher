@@ -15,6 +15,9 @@ Multi-edition builds show an optional donation step linking to https://ko-fi.com
 Continuing without donating always works. There is no license or payment verification.
 Download and cache official, pinned driver packages. Windows servicing requires elevation.
 Only Pro was validated by the source project; other compatible editions are unverified.
+All listed models can build once their driver downloads finish. Other models
+remain Unverified and use their own Apple Boot Camp packages. Invite users to
+report both success and problems through GitHub issues beside the Build button.
 No automatic disk partitioning and no USB-writing functionality.
 
 ## Evidence

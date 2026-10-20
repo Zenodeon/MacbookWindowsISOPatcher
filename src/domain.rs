@@ -101,7 +101,12 @@ pub struct BuildRequest {
 }
 impl BuildRequest {
     pub fn selected_images(&self) -> Result<Vec<&Image>> {
-        ensure!(self.model == MODEL_ID, "Unsupported model profile");
+        ensure!(
+            crate::models::MODEL_PROFILES
+                .iter()
+                .any(|model| model.id == self.model),
+            "Unsupported model profile"
+        );
         ensure!(!self.selected.is_empty(), "Select at least one edition");
         let mut result = Vec::new();
         for index in &self.selected {
@@ -242,5 +247,16 @@ mod tests {
     #[test]
     fn estimates_space_from_uncompressed_selected_images() {
         assert_eq!(request().required_space().unwrap(), 50 * GIB);
+    }
+    #[test]
+    fn all_listed_models_can_build_without_becoming_hardware_verified() {
+        let mut req = request();
+        for model in crate::models::MODEL_PROFILES {
+            req.model = model.id.into();
+            assert_eq!(req.selected_images().unwrap()[0].index, 6);
+            assert_eq!(model.hardware_verified(), model.id == MODEL_ID);
+        }
+        req.model = "unknown".into();
+        assert!(req.selected_images().is_err());
     }
 }

@@ -16,15 +16,16 @@ fn main() -> anyhow::Result<()> {
         &emit,
         &Cancellation::default(),
     )?;
-    engine::validate_intel(&assets.intel)?;
+    let intel = assets.intel.as_ref().expect("A1706 graphics package");
+    engine::validate_intel(intel)?;
     println!(
         "Intel: {}\nBoot Camp: {}\nDrivers: {}",
-        assets.intel.display(),
+        intel.display(),
         assets.bootcamp.display(),
         assets.drivers.display()
     );
     let extraction = assets
-        .intel
+        .drivers
         .ancestors()
         .find(|p| {
             p.file_name()

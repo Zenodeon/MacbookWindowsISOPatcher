@@ -130,9 +130,9 @@ pub fn preflight(req: &BuildRequest) -> Result<()> {
 /// Copy a complete, job-specific input tree; the worker validates it again.
 pub fn prepare(req: BuildRequest, emit: &Emit, cancel: &Cancellation) -> Result<PreparedBuild> {
     validate_paths(&req)?;
-    let assets = download::prepare(&req.cache, &req.seven_zip, emit, cancel)?;
+    let assets = download::prepare_for_model(&req.model, &req.cache, &req.seven_zip, emit, cancel)?;
     let assets_root = assets
-        .intel
+        .drivers
         .ancestors()
         .find(|p| {
             p.file_name()
@@ -298,7 +298,7 @@ pub fn run(prepared: PreparedBuild, emit: Emit, cancel: Cancellation) -> Result<
 fn load_assets(prepared: &PreparedBuild, cancel: &Cancellation) -> Result<download::Assets> {
     #[derive(serde::Deserialize)]
     struct Manifest {
-        intel: PathBuf,
+        intel: Option<PathBuf>,
         bootcamp: PathBuf,
         drivers: PathBuf,
     }
@@ -308,23 +308,29 @@ fn load_assets(prepared: &PreparedBuild, cancel: &Cancellation) -> Result<downlo
         "Assets must be inside the app cache"
     );
     let manifest: Manifest = serde_json::from_slice(&fs::read(root.join("assets.json"))?)?;
-    for p in [&manifest.intel, &manifest.bootcamp, &manifest.drivers] {
+    for p in [&manifest.bootcamp, &manifest.drivers]
+        .into_iter()
+        .chain(manifest.intel.iter())
+    {
         ensure!(
             p.canonicalize()?.starts_with(&root),
             "Asset path escaped extraction root"
         );
     }
-    download::verify(
-        &prepared.request.cache.join("win64_15.45.5174.exe"),
-        download::INTEL_SHA256,
-        cancel,
-    )?;
-    download::verify(
-        &prepared.request.cache.join("BootCampESD-041-88734.pkg"),
-        download::APPLE_SHA256,
-        cancel,
-    )?;
-    validate_intel(&manifest.intel)?;
+    for package in crate::driver_prefetch::packages_for_model(&prepared.request.model)? {
+        download::verify(
+            &prepared.request.cache.join(package.filename),
+            package.hash,
+            cancel,
+        )?;
+    }
+    ensure!(
+        manifest.intel.is_some() == (prepared.request.model == MODEL_ID),
+        "Graphics assets do not match the selected model"
+    );
+    if let Some(intel) = &manifest.intel {
+        validate_intel(intel)?;
+    }
     Ok(download::Assets {
         intel: manifest.intel,
         bootcamp: manifest.bootcamp,
@@ -420,13 +426,16 @@ fn run_job(
     let pe_drivers = root.join("$WinPEDriver$");
     fs::create_dir(&pe_drivers)?;
     for folder in BOOT_ALLOWLIST {
+        if req.model != MODEL_ID && !assets.drivers.join(folder).is_dir() {
+            continue;
+        }
         copy_tree(
             &assets.drivers.join(folder),
             &pe_drivers.join(folder),
             cancel,
         )?;
     }
-    validate_boot_drivers(&pe_drivers)?;
+    validate_model_boot_drivers(&pe_drivers, &req.model)?;
     copy_tree(&assets.bootcamp, &root.join("BootCamp"), cancel)?;
     fs::write(root.join("autounattend.xml"), ANSWER_FILE)?;
     let edition_cfg = if selected.len() == 1 {
@@ -451,7 +460,9 @@ fn run_job(
             emit,
             cancel,
         )?;
-        inject_signed_driver(&mount.mount, &assets.intel, emit, cancel)?;
+        if let Some(intel) = &assets.intel {
+            inject_signed_driver(&mount.mount, intel, emit, cancel)?;
+        }
         copy_tree(&assets.drivers, &mount.mount.join("Drivers"), cancel)?;
         copy_tree(&assets.bootcamp, &mount.mount.join("BootCamp"), cancel)?;
         fs::create_dir_all(mount.mount.join("Windows/Setup/Scripts"))?;
@@ -459,8 +470,10 @@ fn run_job(
             mount.mount.join("Windows/Setup/Scripts/SetupComplete.cmd"),
             include_bytes!("../payloads/a1706/SetupComplete.cmd"),
         )?;
-        validate_signed_store(&mount.mount, &assets.intel)?;
-        if n == 0 {
+        if let Some(intel) = &assets.intel {
+            validate_signed_store(&mount.mount, intel)?;
+        }
+        if n == 0 && assets.intel.is_some() {
             let support = job.join("boot-support");
             fs::create_dir_all(support.join("en-US"))?;
             for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
@@ -472,31 +485,33 @@ fn run_job(
         }
         mount.commit(cancel)?;
     }
-    stage(
-        emit,
-        "Patching Windows Setup",
-        "Signed Iris driver and v17 HDMI startup sequence",
-    );
-    let boot = root.join("sources/boot.wim");
-    let mount = ImageMount::open(&boot, 2, &job.join("mount-boot"), emit, cancel)?;
-    inject_signed_driver(&mount.mount, &assets.intel, emit, cancel)?;
-    write_boot_payload(&mount.mount)?;
-    for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
-        let source = job.join("boot-support").join(rel);
-        if source.is_file() {
-            fs::copy(&source, mount.mount.join("Windows/System32").join(rel))?;
+    if let Some(intel) = &assets.intel {
+        stage(
+            emit,
+            "Patching Windows Setup",
+            "Signed Iris driver and v17 HDMI startup sequence",
+        );
+        let boot = root.join("sources/boot.wim");
+        let mount = ImageMount::open(&boot, 2, &job.join("mount-boot"), emit, cancel)?;
+        inject_signed_driver(&mount.mount, intel, emit, cancel)?;
+        write_boot_payload(&mount.mount)?;
+        for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
+            let source = job.join("boot-support").join(rel);
+            if source.is_file() {
+                fs::copy(&source, mount.mount.join("Windows/System32").join(rel))?;
+            }
         }
+        ensure!(
+            mount
+                .mount
+                .join("Windows/System32/DisplaySwitch.exe")
+                .is_file(),
+            "DisplaySwitch.exe missing from Windows image"
+        );
+        validate_signed_store(&mount.mount, intel)?;
+        check_registry(&mount.mount)?;
+        mount.commit(cancel)?;
     }
-    ensure!(
-        mount
-            .mount
-            .join("Windows/System32/DisplaySwitch.exe")
-            .is_file(),
-        "DisplaySwitch.exe missing from Windows image"
-    );
-    validate_signed_store(&mount.mount, &assets.intel)?;
-    check_registry(&mount.mount)?;
-    mount.commit(cancel)?;
     stage(
         emit,
         "Verifying output images",
@@ -517,7 +532,17 @@ fn run_job(
         !ANSWER_FILE.contains("DiskConfiguration") && !ANSWER_FILE.contains("ImageInstall"),
         "Answer file contains disk automation"
     );
-    fs::write(root.join("README-A1706.txt"), INSTALL_GUIDE)?;
+    if req.model == MODEL_ID {
+        fs::write(root.join("README-A1706.txt"), INSTALL_GUIDE)?;
+    } else {
+        fs::write(
+            root.join("README-MacBook.txt"),
+            format!(
+                "Model: {}\r\nUnverified build using this model's Apple Boot Camp drivers.\r\nRun C:\\BootCamp\\Setup.exe after Windows installation.\r\nReport success or problems at https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues\r\n",
+                req.model
+            ),
+        )?;
+    }
     // Keep the temporary ISO on the output filesystem for an atomic, no-clobber publication.
     let partial = req
         .output
@@ -551,7 +576,7 @@ fn run_job(
             mounted.root.join("BootCamp/Setup.exe").is_file(),
             "Boot Camp installer is missing from final ISO"
         );
-        validate_boot_drivers(&mounted.root.join("$WinPEDriver$"))?;
+        validate_model_boot_drivers(&mounted.root.join("$WinPEDriver$"), &req.model)?;
         cancel.check()?;
         Ok(())
     })();
@@ -711,15 +736,26 @@ fn validate_signed_store(mount: &Path, intel: &Path) -> Result<()> {
     Ok(())
 }
 pub fn validate_boot_drivers(root: &Path) -> Result<()> {
+    validate_model_boot_drivers(root, MODEL_ID)
+}
+
+fn validate_model_boot_drivers(root: &Path, model: &str) -> Result<()> {
+    let mut count = 0;
     for child in fs::read_dir(root)? {
         let child = child?;
+        ensure!(
+            child.file_type()?.is_dir(),
+            "Boot driver entry must be a directory"
+        );
+        count += 1;
         let name = child.file_name().to_string_lossy().to_string();
         ensure!(
             BOOT_ALLOWLIST.contains(&name.as_str()),
             "Forbidden boot-path driver folder: {name}"
         );
     }
-    for name in BOOT_ALLOWLIST {
+    ensure!(count > 0, "No compatible Apple boot driver folders found");
+    for name in BOOT_ALLOWLIST.iter().filter(|_| model == MODEL_ID) {
         ensure!(root.join(name).is_dir(), "Boot driver {name} missing");
     }
     Ok(())
@@ -819,7 +855,9 @@ fn recover_mounts(workspace: &Path, emit: &Emit, cancel: &Cancellation) -> Resul
         else {
             continue;
         };
-        if recorded.model != MODEL_ID
+        if !crate::models::MODEL_PROFILES
+            .iter()
+            .any(|model| model.id == recorded.model)
             || recorded.workspace.canonicalize().ok().as_ref() != Some(&workspace)
         {
             continue;
@@ -876,6 +914,20 @@ pub const INSTALL_GUIDE: &str = "MacBook Pro A1706 — installation\r\n\r\n1. In
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unverified_models_accept_available_boot_drivers_but_reject_graphics() {
+        let temp = std::env::temp_dir().canonicalize().unwrap();
+        let root = temp.join(format!("model-boot-drivers-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        assert!(validate_model_boot_drivers(&root, "a1707-2016").is_err());
+        fs::create_dir(root.join("AppleSSD64")).unwrap();
+        assert!(validate_model_boot_drivers(&root, "a1707-2016").is_ok());
+        assert!(validate_model_boot_drivers(&root, MODEL_ID).is_err());
+        fs::create_dir(root.join("IntelHDGraphics64")).unwrap();
+        assert!(validate_model_boot_drivers(&root, "a1707-2016").is_err());
+        assert_eq!(root.parent(), Some(temp.as_path()));
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn iso_has_both_boot_entries_without_optimization() {
         let args = oscdimg_args(Path::new("C:/a b/media"), Path::new("C:/out.iso"));

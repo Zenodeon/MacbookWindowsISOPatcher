@@ -12,8 +12,10 @@ validation and a persistent bottom action row. No decorative imagery or animatio
 The first screen presents every model together in one list of rounded selectable
 rows. The 2016 A1706 has green Hardware Verified status; the others are orange
 Unverified. Every model can continue to ISO inspection. Keep the selected model's
-identity throughout the flow; do not substitute the A1706 recipe for unimplemented
-profiles. Explain their build limitation and disable Build for those selections.
+identity throughout the flow. All listed models can build once their selected
+driver downloads finish. Other models use their own Apple package without the
+A1706-only Iris/HDMI fix. Keep Unverified orange and place a download-readiness
+note and GitHub issue link beside Build, inviting reports of success or problems.
 Model names/identifiers follow Apple's identification page:
 https://support.apple.com/en-us/108052.
 The second screen offers a clickable ISO drop zone. Once a model is selected,
@@ -59,4 +61,4 @@ Show real byte progress, a green cached/ready state, and
 an inline retry action on failure. A compact second footer line keeps progress
 visible while browsing pages. Cancel and finish the previous job before switching
 models or cache locations; ignore late results from an older job. Wait for download
-cleanup before normal close. Download availability does not imply build support.
+cleanup before normal close. Hardware verification status does not block building.

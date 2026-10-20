@@ -184,7 +184,7 @@ pub fn find_dir(root: &Path, name: &str) -> Option<PathBuf> {
 }
 
 pub struct Assets {
-    pub intel: PathBuf,
+    pub intel: Option<PathBuf>,
     pub bootcamp: PathBuf,
     pub drivers: PathBuf,
 }
@@ -223,26 +223,28 @@ pub fn remove_extraction(cache: &Path, root: &Path) -> Result<()> {
     Ok(())
 }
 pub fn prepare(cache: &Path, tool: &Path, emit: &Emit, cancel: &Cancellation) -> Result<Assets> {
+    prepare_for_model(crate::domain::MODEL_ID, cache, tool, emit, cancel)
+}
+
+pub fn prepare_for_model(
+    model: &str,
+    cache: &Path,
+    tool: &Path,
+    emit: &Emit,
+    cancel: &Cancellation,
+) -> Result<Assets> {
     ensure!(
         tool.is_file(),
         "Install 7-Zip or select 7z.exe under Build tools"
     );
-    let intel = fetch(
-        cache,
-        "win64_15.45.5174.exe",
-        INTEL_URL,
-        INTEL_SHA256,
-        emit,
-        cancel,
-    )?;
-    let apple = fetch(
-        cache,
-        "BootCampESD-041-88734.pkg",
-        APPLE_URL,
-        APPLE_SHA256,
-        emit,
-        cancel,
-    )?;
+    let packages = crate::driver_prefetch::packages_for_model(model)?;
+    let paths = crate::driver_prefetch::download_for_model(model, cache, emit, cancel)?;
+    let apple = packages
+        .iter()
+        .zip(&paths)
+        .find(|(package, _)| package.filename.ends_with(".pkg"))
+        .context("Apple package missing from model manifest")?
+        .1;
     let dir = cache.join(format!("extract-{}", uuid::Uuid::new_v4()));
     let mut guard = ExtractionGuard {
         cache: cache.to_owned(),
@@ -252,14 +254,20 @@ pub fn prepare(cache: &Path, tool: &Path, emit: &Emit, cancel: &Cancellation) ->
     stage(
         emit,
         "Extracting drivers",
-        "Intel graphics and Apple Boot Camp 6.1",
+        "Preparing the selected model's signed Boot Camp drivers",
     );
-    extract_intel(tool, &intel, &dir.join("intel"), emit, cancel)?;
-    let inf =
-        find_file(&dir.join("intel"), "igdlh64.inf").context("Intel package has no igdlh64.inf")?;
-    let intel_dir = inf.parent().unwrap().to_owned();
-    crate::engine::validate_intel(&intel_dir)?;
-    extract(tool, &apple, &dir.join("apple-pkg"), emit, cancel)?;
+    let replace_intel = model == crate::domain::MODEL_ID;
+    let intel_dir = if replace_intel {
+        extract_intel(tool, &paths[0], &dir.join("intel"), emit, cancel)?;
+        let inf = find_file(&dir.join("intel"), "igdlh64.inf")
+            .context("Intel package has no igdlh64.inf")?;
+        let folder = inf.parent().unwrap().to_owned();
+        crate::engine::validate_intel(&folder)?;
+        Some(folder)
+    } else {
+        None
+    };
+    extract(tool, apple, &dir.join("apple-pkg"), emit, cancel)?;
     // xar -> bzip2 Payload -> cpio -> WindowsSupport.dmg.
     let mut tree = dir.join("apple-pkg");
     for depth in 0..4 {
@@ -307,7 +315,11 @@ pub fn prepare(cache: &Path, tool: &Path, emit: &Emit, cancel: &Cancellation) ->
     let pe = find_dir(&support, "$WinPEDriver$").context("Apple WinPE driver folder is missing")?;
     let drivers = dir.join("drivers");
     fs::create_dir(&drivers)?;
-    copy_apple_driver_tree(&pe, &drivers, cancel)?;
+    if replace_intel {
+        copy_apple_driver_tree(&pe, &drivers, cancel)?;
+    } else {
+        crate::engine::copy_tree(&pe, &drivers, cancel)?;
+    }
     // Apple packages several device INF folders inside driver installer EXEs.
     let installers: Vec<_> = walkdir::WalkDir::new(bootcamp.join("Drivers"))
         .into_iter()
@@ -322,9 +334,10 @@ pub fn prepare(cache: &Path, tool: &Path, emit: &Emit, cancel: &Cancellation) ->
         .collect();
     for (n, exe) in installers.iter().enumerate() {
         cancel.check()?;
-        if exe
-            .file_stem()
-            .is_some_and(|name| apple_intel_graphics(&name.to_string_lossy()))
+        if replace_intel
+            && exe
+                .file_stem()
+                .is_some_and(|name| apple_intel_graphics(&name.to_string_lossy()))
         {
             continue;
         }
@@ -344,7 +357,10 @@ pub fn prepare(cache: &Path, tool: &Path, emit: &Emit, cancel: &Cancellation) ->
             }
         }
     }
-    for name in crate::domain::BOOT_ALLOWLIST {
+    for name in crate::domain::BOOT_ALLOWLIST
+        .iter()
+        .filter(|_| replace_intel)
+    {
         ensure!(
             drivers.join(name).is_dir(),
             "Required Apple driver folder {name} is missing after extraction"

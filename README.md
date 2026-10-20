@@ -17,9 +17,9 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    green when complete. Switching models cancels the previous transfer cleanly;
    press the start button again to download the newly selected model's files.
    Verified shared packages are reused from the cache; failed downloads offer Retry.
-   The **2016 A1706 / MacBookPro13,2** has the existing build recipe. Other models
-   can be selected for ISO inspection, but their model-specific patching recipes
-   are not implemented yet and Build remains unavailable for them.
+   All listed models can build after their downloads finish. The **2016 A1706 /
+   MacBookPro13,2** uses the hardware-verified recipe; the other models remain
+   **Unverified** and use their own Apple Boot Camp packages.
 3. Drop an original Microsoft Windows 10 ISO onto the app, or click the drop zone
    to browse. Dropped and browsed files are scanned automatically; pasted paths
    can be scanned with **Scan ISO**.
@@ -35,7 +35,9 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    A manual Microsoft download link is also available. Once both tools are found,
    the panel stays visible as a green **Build tools ready** section. **Build setup**
    appears above **Output & workspace**.
-7. Start the build. Multiple editions show an optional donation page linking to
+7. Start the build once the selected model's downloads finish. The note beside
+   the button links to GitHub issues: report success or problems, including your
+   Mac model and Windows edition. Multiple editions show an optional donation page linking to
    [Ko-fi](https://ko-fi.com/zenodeon); **Continue without donating** always works.
 8. Approve UAC when the separate image-servicing worker starts.
 
@@ -43,7 +45,9 @@ The GUI downloads and verifies Intel and Apple drivers before elevation; it does
 not install those drivers on the host. Building waits for the selected model's
 downloads to finish. A1706 uses its tested Intel graphics package separately from
 Apple's remaining hardware drivers. Old `IntelHDGraphics64` and `IntelIrisSetup`
-folders are excluded from staged Apple drivers, including the post-install pass.
+folders are excluded from its staged Apple drivers, including the post-install pass.
+Other models retain their Apple-supplied graphics drivers and use the available
+allowlisted Apple boot drivers, without the A1706-only Iris/HDMI startup changes.
 The original signed driver files and Boot Camp software installer stay unmodified. Build
 logs and `job.json` stay in the chosen working folder. Existing output files and
 the original ISO are never overwritten. Cancellation waits for an active DISM
