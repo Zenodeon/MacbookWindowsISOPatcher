@@ -1,6 +1,9 @@
 use crate::appearance::{self, ThemeMode};
 #[path = "ui_pages.rs"]
 mod pages;
+#[cfg(debug_assertions)]
+#[path = "ui_preview.rs"]
+mod preview;
 use eframe::egui::{self, Color32, RichText};
 use macbook_iso_patcher::{domain::*, engine, ipc, platform, prerequisites};
 use std::{
@@ -124,7 +127,7 @@ impl PatcherApp {
             }
         }
         settings.theme.apply(&cc.egui_ctx);
-        Self {
+        let app = Self {
             page: 0,
             iso: String::new(),
             output: String::new(),
@@ -153,7 +156,14 @@ impl PatcherApp {
             donation_clicked: false,
             screenshot_frames: 0,
             screenshot_sent: false,
-        }
+        };
+        #[cfg(debug_assertions)]
+        let app = {
+            let mut app = app;
+            app.configure_preview();
+            app
+        };
+        app
     }
     fn persist_settings(&self) {
         if let Some(parent) = self.settings_file.parent() {
@@ -833,22 +843,63 @@ impl eframe::App for PatcherApp {
             );
         }
         if self.confirm_dismount {
-            let modal = egui::Modal::new(egui::Id::new("confirm-dismount")).show(ctx, |ui| {
-                ui.set_max_width(380.0);
-                ui.heading("Dismount this ISO?");
-                ui.label(PathBuf::from(self.iso.trim()).file_name().unwrap_or_default().to_string_lossy());
-                ui.label("This ejects the selected ISO from Windows and returns you to the first page. The ISO file stays unchanged.");
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
-                        self.confirm_dismount = false;
-                    }
-                    if Self::primary(ui, "Dismount ISO", true) {
-                        self.confirm_dismount = false;
-                        self.dismount(ctx);
-                    }
+            let colors = appearance::palette(ctx);
+            let modal = egui::Modal::new(egui::Id::new("confirm-dismount"))
+                .frame(
+                    egui::Frame::new()
+                        .fill(colors.surface)
+                        .corner_radius(16)
+                        .stroke(egui::Stroke::new(
+                            1.0_f32,
+                            ctx.style().visuals.widgets.noninteractive.bg_stroke.color,
+                        ))
+                        .inner_margin(24.0),
+                )
+                .show(ctx, |ui| {
+                    ui.set_width((ctx.content_rect().width() - 96.0).clamp(240.0, 420.0));
+                    ui.label(RichText::new("Dismount ISO?").size(23.0).strong());
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new("Eject the ISO from Windows and return to the first page.")
+                            .color(colors.muted),
+                    );
+                    ui.add_space(12.0);
+                    egui::Frame::new()
+                        .fill(colors.drop)
+                        .corner_radius(8)
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(
+                                        PathBuf::from(self.iso.trim())
+                                            .file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy(),
+                                    )
+                                    .strong(),
+                                )
+                                .wrap(),
+                            );
+                        });
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new("Your ISO file stays unchanged.")
+                            .size(13.0)
+                            .color(colors.muted),
+                    );
+                    ui.add_space(20.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if Self::primary(ui, "Dismount ISO", true) {
+                            self.confirm_dismount = false;
+                            self.dismount(ctx);
+                        }
+                        if ui.button("Keep mounted").clicked() {
+                            self.confirm_dismount = false;
+                        }
+                    });
                 });
-            });
             if modal.should_close() {
                 self.confirm_dismount = false;
             }

@@ -37,6 +37,9 @@ pub struct Palette {
     pub surface: Color32,
     pub drop: Color32,
     pub missing: Color32,
+    pub ready: Color32,
+    pub success: Color32,
+    pub warning: Color32,
 }
 pub fn palette(ctx: &egui::Context) -> Palette {
     if ctx.style().visuals.dark_mode {
@@ -53,6 +56,9 @@ pub fn palette(ctx: &egui::Context) -> Palette {
             surface: Color32::from_rgb(37, 42, 51),
             drop: Color32::from_rgb(30, 40, 54),
             missing: Color32::from_rgb(66, 38, 44),
+            ready: Color32::from_rgb(30, 57, 45),
+            success: Color32::from_rgb(130, 220, 166),
+            warning: Color32::from_rgb(255, 188, 112),
         }
     } else {
         Palette {
@@ -68,6 +74,9 @@ pub fn palette(ctx: &egui::Context) -> Palette {
             surface: Color32::WHITE,
             drop: Color32::from_rgb(244, 248, 255),
             missing: Color32::from_rgb(255, 233, 234),
+            ready: Color32::from_rgb(227, 244, 233),
+            success: Color32::from_rgb(30, 111, 59),
+            warning: Color32::from_rgb(154, 76, 0),
         }
     }
 }

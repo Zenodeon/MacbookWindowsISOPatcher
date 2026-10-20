@@ -13,14 +13,18 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 2. Drop an original Microsoft Windows 10 ISO onto the app, or click the drop zone
    to browse. Dropped and browsed files are scanned automatically; pasted paths
    can be scanned with **Scan ISO**.
-3. Select A1706 and one or more compatible Windows editions.
+3. Select A1706 and click the rounded edition rows to select or deselect them.
+   Pro has a green **Hardware Verified** label based on the original project's
+   A1706 result; other editions have an orange **Unverified** label. This app's
+   generated ISOs still need hardware validation.
 4. Choose a new output filename and a working folder with enough free disk space.
 5. Install missing prerequisites using **Missing downloads**, highlighted above
    **Build setup**. **Download & install ADK tools** downloads Microsoft's installer,
    verifies its signature, requests UAC, and installs Deployment Tools only. Its
    progress appears in the panel; the ISO tool is detected automatically afterward.
-   A manual Microsoft download link is also available. The panel disappears once
-   both tools are found.
+   A manual Microsoft download link is also available. Once both tools are found,
+   the panel stays visible as a green **Build tools ready** section. **Build setup**
+   appears above **Output & workspace**.
 6. Start the build. Multiple editions show an optional donation page linking to
    [Ko-fi](https://ko-fi.com/zenodeon); **Continue without donating** always works.
 7. Approve UAC when the separate image-servicing worker starts.

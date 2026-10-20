@@ -23,7 +23,14 @@ Start at 1240 × 700 logical pixels, fitting that ratio to smaller monitors.
 Allow free resizing; below 900px use a narrower rail and tighter content margins.
 Keep missing downloads in a red section above Build setup. ADK setup reports its
 download/install state there and automatically detects the installed tool.
-Dismount requires a confirmation modal and returns to the source page on success.
+Keep the tools section visible in green once all required tools are installed.
+Place Build setup above Output & workspace. Edition choices are full-width,
+rounded toggle rows with an accent border and Selected text for active choices.
+Use green Hardware Verified and orange Unverified labels; explain the original
+project's hardware evidence in the verified row's tooltip.
+Dismount uses a padded, rounded confirmation modal with a separate filename
+surface and right-aligned Keep mounted / Dismount ISO actions. Return to the
+source page on success.
 Status uses explicit text as well as color. Unknown progress uses a spinner;
 download progress is derived from received bytes. No simulated build percentages.
 
