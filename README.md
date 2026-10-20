@@ -47,6 +47,10 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    [Ko-fi](https://ko-fi.com/zenodeon); **Continue without donating** always works.
 8. Approve UAC when the separate image-servicing worker starts.
 
+Errors open an **Action needed** popup. Build-check failures, including insufficient
+workspace space, offer **Retry** to check the requirements again and continue when
+ready. **Close** dismisses the popup so you can change the build settings.
+
 The GUI downloads and verifies Intel and Apple drivers before elevation; it does
 not install those drivers on the host. Building waits for the selected model's
 downloads to finish. The 2016 13-inch models use Intel **21.20.16.5174**; the 2017

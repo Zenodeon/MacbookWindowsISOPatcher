@@ -80,6 +80,17 @@ struct Settings {
     theme: ThemeMode,
 }
 
+#[derive(Clone, Copy)]
+enum BuildRetry {
+    Review,
+    Begin,
+}
+
+struct ActionError {
+    message: String,
+    retry: Option<BuildRetry>,
+}
+
 pub struct PatcherApp {
     page: Page,
     scroll_page: (Page, bool),
@@ -105,7 +116,7 @@ pub struct PatcherApp {
     window_fitted: bool,
     notice: Option<String>,
     cancel: Cancellation,
-    error: Option<String>,
+    error: Option<ActionError>,
     stage: String,
     detail: String,
     download: Option<(String, u64, Option<u64>)>,
@@ -231,7 +242,7 @@ impl PatcherApp {
                                 "ADK tools installed and ready.".into()
                             });
                         }
-                        Err(error) => self.error = Some(error),
+                        Err(error) => self.show_error(error),
                     }
                 }
                 Message::Dismounted(result, mount) => {
@@ -257,7 +268,7 @@ impl PatcherApp {
                         }
                         Err(error) => {
                             self.closing = false;
-                            self.error = Some(error);
+                            self.show_error(error);
                         }
                     }
                 }
@@ -295,7 +306,7 @@ impl PatcherApp {
                             self.page = Page::Editions;
                             self.error = None;
                         }
-                        Err(error) => self.error = Some(error),
+                        Err(error) => self.show_error(error),
                     }
                 }
                 Message::Build(event) => match event {
@@ -325,7 +336,7 @@ impl PatcherApp {
                     }
                     Event::Failed(error) => {
                         self.busy = false;
-                        self.error = Some(error);
+                        self.show_error(error);
                         self.stage = "Build stopped".into();
                     }
                     Event::Cancelled => {
@@ -342,9 +353,8 @@ impl PatcherApp {
             return;
         }
         if self.model().is_none() || self.iso_mount.is_some() {
-            self.error = Some(
-                "Choose your model first, and dismount the current ISO before selecting another."
-                    .into(),
+            self.show_error(
+                "Choose your model first, and dismount the current ISO before selecting another.",
             );
             return;
         }
@@ -430,12 +440,38 @@ impl PatcherApp {
             oscdimg: PathBuf::from(self.settings.oscdimg.trim()),
         })
     }
+    fn show_error(&mut self, message: impl Into<String>) {
+        self.error = Some(ActionError {
+            message: message.into(),
+            retry: None,
+        });
+    }
+    fn show_build_error(&mut self, message: String, retry: BuildRetry) {
+        self.error = Some(ActionError {
+            message,
+            retry: Some(retry),
+        });
+    }
+    fn review_build(&mut self, ctx: &egui::Context) {
+        match self.request().and_then(|req| engine::preflight(&req)) {
+            Ok(()) => {
+                self.error = None;
+                if self.selected.len() > 1 {
+                    self.donation = true;
+                    self.donation_clicked = false;
+                } else {
+                    self.begin(ctx);
+                }
+            }
+            Err(error) => self.show_build_error(format!("{error:#}"), BuildRetry::Review),
+        }
+    }
     fn begin(&mut self, ctx: &egui::Context) {
         if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
             return;
         }
         if !self.drivers_ready() {
-            self.error = Some("Finish downloading this model's drivers before building.".into());
+            self.show_error("Finish downloading this model's drivers before building.");
             return;
         }
         let req = match self.request().and_then(|r| {
@@ -444,7 +480,7 @@ impl PatcherApp {
         }) {
             Ok(req) => req,
             Err(e) => {
-                self.error = Some(format!("{e:#}"));
+                self.show_build_error(format!("{e:#}"), BuildRetry::Begin);
                 return;
             }
         };
@@ -556,11 +592,9 @@ impl PatcherApp {
                 if Self::primary(ui, "Donate on Ko-fi", true) {
                     match webbrowser::open(DONATION_URL) {
                         Ok(_) => self.donation_clicked = true,
-                        Err(e) => {
-                            self.error = Some(format!(
-                                "Could not open your browser: {e}. You can continue without donating."
-                            ))
-                        }
+                        Err(e) => self.show_error(format!(
+                            "Could not open your browser: {e}. You can continue without donating."
+                        )),
                     }
                 }
                 ui.hyperlink_to("ko-fi.com/zenodeon", DONATION_URL);
@@ -591,13 +625,13 @@ impl PatcherApp {
                 ui.horizontal(|ui| { ui.spinner(); ui.label(if self.cancel.is_cancelled() { "Cancellation requested. Waiting for the current servicing operation to finish safely…" } else { "Keep the app open while the build is running." }); });
             }
         });
-        if let Some(path) = &self.finished {
+        if let Some(path) = self.finished.clone() {
             Self::section(ui, "Your patched ISO", colors.model, |ui| {
-                ui.label(RichText::new(platform::display_path(path)).strong());
+                ui.label(RichText::new(platform::display_path(&path)).strong());
                 if ui.button("Open output folder").clicked()
                     && let Err(error) = platform::open_folder(path.parent().unwrap())
                 {
-                    self.error = Some(format!("Could not open output folder: {error:#}"));
+                    self.show_error(format!("Could not open output folder: {error:#}"));
                 }
                 ui.add_space(14.0);
                 ui.label("1. Create the BOOTCAMP partition in macOS first.");
@@ -652,7 +686,7 @@ impl eframe::App for PatcherApp {
         }
         let compact = ctx.content_rect().width() < 900.0;
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
-        if !dropped.is_empty() {
+        if !dropped.is_empty() && self.error.is_none() {
             if self.busy
                 || self.scanning
                 || self.dismounting
@@ -661,14 +695,12 @@ impl eframe::App for PatcherApp {
                 || self.closing
                 || self.iso_mount.is_some()
             {
-                self.error = Some(
-                    "Dismount the current ISO and finish any running operation before choosing another.".into(),
-                );
+                self.show_error("Dismount the current ISO and finish any running operation before choosing another.");
             } else {
                 match dropped_iso(&dropped) {
                     Ok(Some(path)) => {
                         if self.model().is_none() {
-                            self.error = Some("Select a MacBook model first.".into());
+                            self.show_error("Select a MacBook model first.");
                         } else {
                             self.iso = platform::display_path(&path);
                             self.page = Page::Iso;
@@ -677,7 +709,7 @@ impl eframe::App for PatcherApp {
                             self.scan(ctx);
                         }
                     }
-                    Err(error) => self.error = Some(error),
+                    Err(error) => self.show_error(error),
                     Ok(None) => (),
                 }
             }
@@ -829,7 +861,7 @@ impl eframe::App for PatcherApp {
                                 .clicked()
                                 && let Err(error) = webbrowser::open(DONATION_URL)
                             {
-                                self.error = Some(format!("Could not open Ko-fi: {error}"));
+                                self.show_error(format!("Could not open Ko-fi: {error}"));
                             }
                             if ui
                                 .button("GitHub")
@@ -837,7 +869,7 @@ impl eframe::App for PatcherApp {
                                 .clicked()
                                 && let Err(error) = webbrowser::open(REPO_URL)
                             {
-                                self.error = Some(format!("Could not open GitHub: {error}"));
+                                self.show_error(format!("Could not open GitHub: {error}"));
                             }
                         });
                     });
@@ -896,18 +928,7 @@ impl eframe::App for PatcherApp {
                             if self.page == Page::Review
                                 && self.build_iso_button(ui, !self.output.trim().is_empty() && self.model().is_some() && self.drivers_ready())
                             {
-                                match self.request().and_then(|req| engine::preflight(&req)) {
-                                    Ok(()) => {
-                                        if self.selected.len() > 1 {
-                                            self.donation = true;
-                                            self.donation_clicked = false;
-                                            self.error = None;
-                                        } else {
-                                            self.begin(ctx);
-                                        }
-                                    }
-                                    Err(e) => self.error = Some(format!("{e:#}")),
-                                }
+                                self.review_build(ctx);
                             }
                         }
                         ui.cursor().max.x
@@ -952,16 +973,6 @@ impl eframe::App for PatcherApp {
                     if let Some(notice) = &self.notice {
                         ui.label(notice);
                         ui.add_space(10.0);
-                    }
-                    if let Some(error) = &self.error {
-                        ui.group(|ui| {
-                            ui.colored_label(
-                                appearance::palette(ctx).error,
-                                RichText::new("Action needed").strong(),
-                            );
-                            ui.label(error);
-                        });
-                        ui.add_space(14.0);
                     }
                     if self.donation {
                         self.donation_page(ui, ctx);
@@ -1067,6 +1078,48 @@ impl eframe::App for PatcherApp {
                 });
             if modal.should_close() {
                 self.confirm_dismount = false;
+            }
+        }
+        if let Some(error) = &self.error {
+            let message = error.message.clone();
+            let retry = error.retry;
+            let colors = appearance::palette(ctx);
+            let mut retry_clicked = false;
+            let mut close_clicked = false;
+            let modal = egui::Modal::new(egui::Id::new("action-needed"))
+                .frame(egui::Frame::new().fill(colors.surface).corner_radius(16)
+                    .stroke(egui::Stroke::new(1.0_f32, ctx.style().visuals.widgets.noninteractive.bg_stroke.color))
+                    .inner_margin(24.0))
+                .show(ctx, |ui| {
+                    ui.set_width((ctx.content_rect().width() - 96.0).clamp(240.0, 460.0));
+                    ui.label(RichText::new("Action needed").size(23.0).strong());
+                    ui.add_space(12.0);
+                    egui::ScrollArea::vertical().id_salt("action-error-message")
+                        .max_height((ctx.content_rect().height() - 300.0).max(80.0))
+                        .show(ui, |ui| { ui.label(RichText::new(&message).color(colors.error)); });
+                    if retry.is_some() {
+                        ui.add_space(12.0);
+                        ui.label(RichText::new("Resolve the issue, then retry. Close this popup to change your build settings.").size(13.0).color(colors.muted));
+                    }
+                    ui.add_space(20.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if retry.is_some() {
+                            retry_clicked = Self::primary(ui, "Retry", true);
+                            close_clicked = ui.button("Close").clicked();
+                        } else {
+                            close_clicked = Self::primary(ui, "Close", true);
+                        }
+                    });
+                });
+            if retry_clicked || close_clicked || modal.should_close() {
+                self.error = None;
+            }
+            if retry_clicked {
+                match retry {
+                    Some(BuildRetry::Review) => self.review_build(ctx),
+                    Some(BuildRetry::Begin) => self.begin(ctx),
+                    None => (),
+                }
             }
         }
         // Optional renderer-level screenshot for release QA; no OS screen scraping.

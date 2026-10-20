@@ -17,6 +17,7 @@ impl PatcherApp {
             "iso-unverified" => ("iso", 1),
             "editions-unverified" => ("editions", 1),
             "review-unverified" => ("review-ready", 1),
+            "workspace-error" | "generic-error" => ("review-ready", 0),
             "build-active" | "build-preparing" => ("review-ready", 0),
             "review-unverified-download" => ("review-ready", 1),
             other => (other, 0),
@@ -137,5 +138,15 @@ impl PatcherApp {
             self.detail = "Adding the selected graphics and Boot Camp drivers.".into();
         }
         self.confirm_dismount = view == "dismount";
+        if driver_preview == "workspace-error" {
+            self.show_build_error(
+                "Not enough workspace disk space; allow at least 51.6 GiB".into(),
+                BuildRetry::Review,
+            );
+        } else if driver_preview == "generic-error" {
+            self.show_error(
+                "The selected ISO could not be read. Choose an existing Windows ISO and try again.",
+            );
+        }
     }
 }

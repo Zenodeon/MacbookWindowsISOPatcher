@@ -72,6 +72,12 @@ On the source page, put Selected Mac in a neutral section above the blue Source
 file section. Compatibility details belong to Source file. Present ordinary drive
 and UNC paths while keeping canonical paths for file operations. Reset the main
 scroll offset on every page/donation-screen transition, including return visits.
+Show Action needed errors in a centered modal, not an inline page banner. Keep
+the original message readable with Close; build-check failures also offer Retry.
+Retry reruns validation and preserves whether the user was reviewing the build
+or had already continued through the donation screen. Do not start a worker while
+the requirements still fail. Keep retry actions attached to their own error so
+unrelated messages never inherit a build retry.
 Use its identifier on narrow windows, with the full model name in a tooltip.
 Selecting a model only selects it. Pressing Start download & continue to Windows ISO
 authorizes its driver downloads and opens ISO selection without blocking scanning.

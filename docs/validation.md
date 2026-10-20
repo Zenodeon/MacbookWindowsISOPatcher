@@ -41,6 +41,9 @@ Path-display tests cover extended drive/UNC paths and preserving device namespac
 byte-progress tests cover unknown/zero totals and bounds. Renderer fixtures cover
 source-section ordering, footer download progress/errors/Retry, and the Build ISO
 button's measurable and indeterminate states. Main scrolling resets on page changes.
+The Action needed popup was rendered in both themes using the 51.6 GiB workspace
+message, with Close and Retry, plus a generic error with Close only. Retry routes
+through the original build validation entry point and retains the donation flow.
 The official ADK bootstrapper download and Microsoft signature verification were
 exercised without installing it. The default window was inspected at 1240 × 700
 content pixels; proportional fitting is covered by tests. Live ADK installation
