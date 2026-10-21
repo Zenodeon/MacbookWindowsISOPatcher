@@ -410,6 +410,11 @@ mod tests {
                     completed: 6,
                     total: 12,
                 },
+                Event::BuildFiles(crate::domain::BuildFiles {
+                    job: "C:/build fixtures/build-00000000-0000-4000-8000-000000000001".into(),
+                    log: "C:/build fixtures/build-00000000-0000-4000-8000-000000000001/build.log"
+                        .into(),
+                }),
             ] {
                 let serialized = serde_json::to_string(&event).unwrap() + "\n";
                 for fragment in serialized.as_bytes().chunks(3) {
@@ -457,6 +462,9 @@ mod tests {
                 total: 12
             }
         ));
+        assert!(
+            matches!(serde_json::from_str::<Event>(&line(&mut reader).unwrap()).unwrap(),Event::BuildFiles(files) if files.log==files.job.join("build.log"))
+        );
         cancel.cancel();
         assert!(matches!(
             serde_json::from_str::<Event>(&line(&mut reader).unwrap()).unwrap(),

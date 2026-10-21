@@ -140,6 +140,7 @@ impl BuildRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data")]
 pub enum Event {
+    BuildFiles(BuildFiles),
     Stage {
         name: String,
         detail: String,
@@ -161,6 +162,11 @@ pub enum Event {
     Finished(PathBuf),
     Failed(String),
     Cancelled,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildFiles {
+    pub job: PathBuf,
+    pub log: PathBuf,
 }
 pub type Emit = Arc<dyn Fn(Event) + Send + Sync>;
 #[derive(Clone, Default)]

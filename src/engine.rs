@@ -306,6 +306,10 @@ pub fn run(prepared: PreparedBuild, emit: Emit, cancel: Cancellation) -> Result<
         }
         original(event);
     });
+    emit(Event::BuildFiles(BuildFiles {
+        job: job.clone(),
+        log: job.join("build.log"),
+    }));
     emit(Event::Log(format!(
         "Build workspace and log: {}",
         job.display()
@@ -598,22 +602,18 @@ fn run_job(
         !ANSWER_FILE.contains("DiskConfiguration") && !ANSWER_FILE.contains("ImageInstall"),
         "Answer file contains disk automation"
     );
-    if req.model == MODEL_ID {
-        fs::write(root.join("README-A1706.txt"), INSTALL_GUIDE)?;
-    } else {
-        fs::write(
-            root.join("README-MacBook.txt"),
-            format!(
-                "Model: {}\r\nExternal display graphics: {}\r\nUnverified build using this model's selected graphics and Apple Boot Camp drivers.\r\nRun C:\\BootCamp\\Setup.exe after Windows installation.\r\nReport success or problems at https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues\r\n",
-                req.model,
-                if req.model == "a1707-2016" {
-                    "AMD Radeon Pro"
-                } else {
-                    crate::driver_prefetch::intel_graphics(&req.model)?.version
-                }
-            ),
-        )?;
-    }
+    fs::write(
+        root.join(if req.model == MODEL_ID {
+            "README-A1706.txt"
+        } else {
+            "README-MacBook.txt"
+        }),
+        format!(
+            "Model: {}\r\n\r\n{}",
+            req.model,
+            crate::completion::installation_guide(&req.model)
+        ),
+    )?;
     // Keep the temporary ISO on the output filesystem for an atomic, no-clobber publication.
     steps.advance(emit);
     let partial = req
@@ -1054,7 +1054,6 @@ pub const ANSWER_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
   </settings>
 </unattend>
 "#;
-pub const INSTALL_GUIDE: &str = "MacBook Pro A1706 — installation\r\n\r\n1. In macOS, create the BOOTCAMP partition using Boot Camp Assistant. Do not give it this ISO.\r\n2. Copy this ISO to a Ventoy USB and use WIMBOOT (press w). Keep the USB connected.\r\n3. Select and format only BOOTCAMP in Windows Setup. Leave the Mac and recovery partitions alone.\r\n4. After reaching Windows, check that Iris 550 uses driver 21.20.16.5174.\r\n5. Run C:\\BootCamp\\Setup.exe as administrator, then reboot for Touch Bar and full trackpad support. Do not run the old IntelHDGraphics64 installer.\r\n\r\nOnly Pro was validated in the source project. Other editions and this app's generated ISOs require hardware testing. The HDMI fix targets the 2016 A1706 with its internal display disconnected.\r\n\r\nLogs are saved under A1706Logs on writable media.\r\n";
 
 #[cfg(test)]
 mod tests {

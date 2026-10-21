@@ -1,6 +1,8 @@
 use crate::appearance::{self, ThemeMode};
 #[path = "ui_log.rs"]
 mod build_log;
+#[path = "ui_complete.rs"]
+mod complete;
 #[path = "ui_downloads.rs"]
 mod downloads;
 #[path = "ui_pages.rs"]
@@ -63,6 +65,7 @@ enum Page {
     Editions,
     Review,
     Build,
+    Complete,
 }
 
 enum Message {
@@ -137,6 +140,7 @@ pub struct PatcherApp {
     #[cfg(test)]
     log_viewport: Option<egui::Rect>,
     logs: Vec<String>,
+    build_files: Option<BuildFiles>,
     finished: Option<PathBuf>,
     donation: bool,
     donation_clicked: bool,
@@ -214,6 +218,7 @@ impl PatcherApp {
             #[cfg(test)]
             log_viewport: None,
             logs: vec![],
+            build_files: None,
             finished: None,
             donation: false,
             donation_clicked: false,
@@ -234,6 +239,17 @@ impl PatcherApp {
         }
         if let Ok(data) = serde_json::to_vec_pretty(&self.settings) {
             let _ = std::fs::write(&self.settings_file, data);
+        }
+    }
+    fn page_scroll(&mut self) -> egui::ScrollArea {
+        let current = (self.page, self.donation);
+        let changed = self.scroll_page != current;
+        self.scroll_page = current;
+        let scroll = egui::ScrollArea::vertical().id_salt("page_content");
+        if changed {
+            scroll.vertical_scroll_offset(0.0)
+        } else {
+            scroll
         }
     }
     fn consume(&mut self) {
@@ -368,6 +384,7 @@ impl PatcherApp {
                 Message::Build(event) => {
                     self.build_progress.apply(&event);
                     match event {
+                        Event::BuildFiles(files) => self.build_files = Some(files),
                         Event::OperationProgress { .. } | Event::OverallProgress { .. } => (),
                         Event::Stage { name, detail } => {
                             self.stage = name;
@@ -391,6 +408,7 @@ impl PatcherApp {
                             self.error = None;
                             self.busy = false;
                             self.finished = Some(path);
+                            self.page = Page::Complete;
                             self.stage = "Your patched ISO is ready".into();
                             self.detail =
                                 "Read the installation steps below before booting your Mac.".into();
@@ -610,6 +628,7 @@ impl PatcherApp {
         self.finished = None;
         self.error = None;
         self.logs.clear();
+        self.build_files = None;
         self.download = None;
         self.build_progress = Default::default();
         self.build_progress.apply(&Event::OverallProgress {
@@ -800,22 +819,6 @@ impl PatcherApp {
                 });
             }
         });
-        if let Some(path) = self.finished.clone() {
-            Self::section(ui, "Your patched ISO", colors.model, |ui| {
-                ui.label(RichText::new(platform::display_path(&path)).strong());
-                if ui.button("Open output folder").clicked()
-                    && let Err(error) = platform::open_folder(path.parent().unwrap())
-                {
-                    self.show_error(format!("Could not open output folder: {error:#}"));
-                }
-                ui.add_space(14.0);
-                ui.label("1. Create the BOOTCAMP partition in macOS first.");
-                ui.label("2. Boot this ISO through Ventoy WIMBOOT (press w).");
-                ui.label("3. Select only BOOTCAMP in Windows Setup.");
-                ui.label("4. On the Windows desktop, run C:\\BootCamp\\Setup.exe as administrator and reboot.");
-                ui.label(RichText::new("Hardware testing of this app’s output remains required. Do not run the old Intel graphics installer.").color(muted(ui)));
-            });
-        }
         ui.add_space(8.0);
         egui::Frame::new()
             .fill(colors.surface)
@@ -828,13 +831,8 @@ impl PatcherApp {
                 {
                     self.log_viewport = log_view.viewport;
                 }
-                if log_view.save_requested
-                    && let Some(path) = rfd::FileDialog::new()
-                        .set_file_name("macbook-patcher.log")
-                        .save_file()
-                    && let Err(error) = std::fs::write(path, self.logs.join("\n"))
-                {
-                    self.show_error(format!("Could not save build log: {error}"));
+                if log_view.save_requested {
+                    self.save_build_logs();
                 }
             });
     }
@@ -992,6 +990,7 @@ impl eframe::App for PatcherApp {
                             (Page::Editions, "Windows editions"),
                             (Page::Review, "Review"),
                             (Page::Build, "Build"),
+                            (Page::Complete, "Complete"),
                         ] {
                             let current = self.page == page;
                             ui.label(
@@ -1007,7 +1006,7 @@ impl eframe::App for PatcherApp {
                             if current {
                                 ui.label(RichText::new("Current step").size(12.0).color(muted(ui)));
                             }
-                            ui.add_space(10.0);
+                            ui.add_space(4.0);
                         }
                         ui.add_space(12.0);
                         ui.separator();
@@ -1128,9 +1127,12 @@ impl eframe::App for PatcherApp {
                     {
                         self.confirm_dismount = true;
                     }
+                    if self.page==Page::Complete && ui.add_enabled(!self.closing && !self.dismounting,egui::Button::new("Save build logs")).clicked(){self.save_build_logs();}
                     let model_left = ui.cursor().min.x;
                     let model_right = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if self.page==Page::Build && !self.busy && self.finished.is_none() {
+                        if self.page==Page::Complete {
+                            if Self::primary(ui,"Open ISO location",!self.closing && !self.dismounting){self.open_finished_iso();}
+                        } else if self.page==Page::Build && !self.busy && self.finished.is_none() {
                             if Self::primary(ui,"Retry build",self.can_retry_build()){self.begin(ctx);}
                         } else if self.busy || self.page == Page::Build { self.build_iso_button(ui, false); }
                         if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation && !self.closing {
@@ -1167,9 +1169,7 @@ impl eframe::App for PatcherApp {
                     }
                 });
             });
-        let scroll_page = (self.page, self.donation);
-        let reset_scroll = self.scroll_page != scroll_page;
-        self.scroll_page = scroll_page;
+        let page_scroll = self.page_scroll();
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -1177,9 +1177,16 @@ impl eframe::App for PatcherApp {
                     .inner_margin(if compact { 14.0 } else { 30.0 }),
             )
             .show(ctx, |ui| {
-                let scroll = egui::ScrollArea::vertical().id_salt("page_content");
-                let scroll = if reset_scroll {
-                    scroll.vertical_scroll_offset(0.0)
+                let scroll = page_scroll;
+                #[cfg(debug_assertions)]
+                let scroll = if std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some()
+                    && self.screenshot_frames == 1
+                {
+                    std::env::var("MACBOOK_PATCHER_PREVIEW_SCROLL")
+                        .ok()
+                        .and_then(|text| text.parse::<f32>().ok())
+                        .map(|offset| scroll.clone().vertical_scroll_offset(offset))
+                        .unwrap_or(scroll)
                 } else {
                     scroll
                 };
@@ -1204,6 +1211,7 @@ impl eframe::App for PatcherApp {
                             Page::Editions => self.editions_page(ui),
                             Page::Review => self.review_page(ui),
                             Page::Build => self.build_page(ui),
+                            Page::Complete => self.complete_page(ui),
                         }
                     }
                 });

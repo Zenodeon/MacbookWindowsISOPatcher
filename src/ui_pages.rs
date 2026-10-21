@@ -433,7 +433,10 @@ impl PatcherApp {
             },
             |ui| {
                 if missing_tools {
-                    ui.label("Install the missing tools or select their files below.");
+                    ui.colored_label(
+                        colors.warning,
+                        "Install the missing tools or select their files below.",
+                    );
                 } else {
                     ui.colored_label(colors.success, "All required build tools are installed.");
                 }

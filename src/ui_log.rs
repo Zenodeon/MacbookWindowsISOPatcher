@@ -41,7 +41,7 @@ pub(super) fn build_log_view(
         }
         if state.is_open() {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let response = ui.button("Save visible log…");
+                let response = ui.button("Save build logs…");
                 save_requested = response.clicked();
                 #[cfg(test)]
                 {

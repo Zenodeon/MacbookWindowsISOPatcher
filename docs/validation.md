@@ -1,5 +1,46 @@
 # Validation
 
+## Dedicated completion page and shared installation guide — 2026-10-21
+
+- Finished now navigates to Complete and resets the page scroll to the top.
+  The page shows the generated filename/path, Mac profile/identifier, editions,
+  and installation instructions. The fixed footer exposes Save build logs and
+  Open ISO location; Explorer selects the file after rechecking its existence.
+  A missing/moved file produces the existing actionable Copy error popup.
+- One shared seven-step guide supplies both the UI and the ISO's model-specific
+  README. It allows Boot Camp Assistant or another partitioning method, explains
+  Ventoy USB setup and menu-selected WIMBOOT, then Boot Camp Setup.exe, restart,
+  checking for Apple Software Update, desktop iTunes only if missing, applicable
+  Apple updates, and another restart. No keypress instruction remains in the
+  shipped guide. Model/edition support is not guaranteed; A1706 retains its
+  graphics-installer and USB A1706Logs guidance.
+- Official Ventoy, desktop iTunes, and Apple update links open in the browser.
+  Report an issue opens an encoded GitHub draft containing model/profile,
+  identifier, Windows editions/build, graphics, and app version, with attachment
+  instructions. Nothing submits an issue, uploads logs, installs software, or
+  changes partitions automatically.
+- Added authenticated BuildFiles metadata carrying the job and full log path;
+  Finished and job/history formats remain unchanged. Both pages use one export
+  action: copy the full retained log where available, otherwise clearly label a
+  buffered partial export in the dialog, filename, saved header, and notice.
+  Exports require a .log destination and cannot overwrite their retained source.
+- Replaced pink/maroon/purple surfaces with blue/teal in both themes. Errors,
+  missing-status text, and unverified badges use amber; readiness remains green.
+  Sidebar step gaps were tightened so the new Complete step preserves access to
+  the existing footer links at the default size.
+- 98 normal tests pass; formatting and Clippy with warnings denied pass. Coverage
+  includes actual scroll-state reset, missing ISO actions, 4,500 retained log
+  entries without truncation, missing/invalid log fallback, save failures/source
+  protection, issue-draft escaping and metadata, guide sequence, and fragmented
+  BuildFiles transport on the authenticated connection path. The separate native
+  Explorer integration passes with disposable spaced/extended paths and confirms
+  selection; it closes only its own test windows.
+- Native debug screenshots inspected in light/dark at 1240 x 700 and 800 x 520,
+  including top/bottom of the guide, unverified model, and cool prerequisite
+  surfaces. Preview ISO/log files are disposable UI fixtures, not built media.
+  No full ISO build, release build, package refresh, ZIP, push, issue submission,
+  software installation, or closure of the user's running app was performed.
+
 ## Larger build log and manual restart — 2026-10-21
 
 - Tightened build-page heading/progress spacing while retaining both stacked

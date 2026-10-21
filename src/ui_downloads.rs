@@ -272,7 +272,7 @@ impl PatcherApp {
         tooltip: &str,
     ) {
         let colors = appearance::palette(ui.ctx());
-        if self.page == Page::Build {
+        if matches!(self.page, Page::Build | Page::Complete) {
             let area = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 38.0));
             ui.put(
                 egui::Rect::from_min_size(area.min, egui::vec2(area.width(), 14.0)),

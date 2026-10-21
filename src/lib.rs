@@ -1,4 +1,5 @@
 pub mod cleanup;
+pub mod completion;
 pub mod domain;
 pub mod download;
 pub mod driver_prefetch;

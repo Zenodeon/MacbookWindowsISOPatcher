@@ -190,7 +190,9 @@ impl PatcherApp {
             | "build-preparing"
             | "build-log"
             | "build-failed"
-            | "build-failure-popup" => ("review-ready", 0),
+            | "build-failure-popup"
+            | "complete" => ("review-ready", 0),
+            "complete-unverified" => ("review-ready", 1),
             "review-unverified-download" => ("review-ready", 1),
             other => (other, 0),
         };
@@ -346,6 +348,32 @@ impl PatcherApp {
                     self.error = None;
                 }
             }
+        }
+        if driver_preview.starts_with("complete") {
+            let job = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join(".cache")
+                .join("completion-preview")
+                .join(format!("build-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&job).unwrap();
+            let iso = job.join("Win10_MacBook_Preview.iso");
+            std::fs::write(&iso, b"Debug completion screenshot fixture; not bootable.").unwrap();
+            let log = job.join("build.log");
+            self.logs = vec![
+                "Debug completion-page fixture".into(),
+                "ISO publication completed; build logs retained.".into(),
+            ];
+            std::fs::write(&log, self.logs.join("\n")).unwrap();
+            self.page = Page::Build;
+            self.build_progress.apply(&Event::OverallProgress {
+                completed: 11,
+                total: 12,
+            });
+            let _ = self
+                .sender
+                .send(Message::Build(Event::BuildFiles(BuildFiles { job, log })));
+            let _ = self.sender.send(Message::Build(Event::Finished(iso)));
+            self.consume();
+            self.close_ready = true;
         }
         self.confirm_dismount = view == "dismount";
         if driver_preview == "workspace-error" {

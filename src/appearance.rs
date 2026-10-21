@@ -50,12 +50,12 @@ pub fn palette(ctx: &egui::Context) -> Palette {
             muted: Color32::from_rgb(174, 185, 203),
             accent: Color32::from_rgb(148, 190, 255),
             primary: Color32::from_rgb(36, 85, 156),
-            error: Color32::from_rgb(255, 154, 157),
+            error: Color32::from_rgb(255, 188, 112),
             source: Color32::from_rgb(35, 47, 63),
-            model: Color32::from_rgb(47, 40, 59),
+            model: Color32::from_rgb(30, 51, 57),
             surface: Color32::from_rgb(37, 42, 51),
             drop: Color32::from_rgb(30, 40, 54),
-            missing: Color32::from_rgb(66, 38, 44),
+            missing: Color32::from_rgb(35, 49, 65),
             ready: Color32::from_rgb(30, 57, 45),
             success: Color32::from_rgb(130, 220, 166),
             warning: Color32::from_rgb(255, 188, 112),
@@ -68,12 +68,12 @@ pub fn palette(ctx: &egui::Context) -> Palette {
             muted: Color32::from_rgb(78, 88, 103),
             accent: Color32::from_rgb(24, 76, 145),
             primary: Color32::from_rgb(24, 76, 145),
-            error: Color32::from_rgb(155, 33, 33),
+            error: Color32::from_rgb(154, 76, 0),
             source: Color32::from_rgb(230, 239, 251),
-            model: Color32::from_rgb(239, 234, 247),
+            model: Color32::from_rgb(226, 243, 241),
             surface: Color32::WHITE,
             drop: Color32::from_rgb(244, 248, 255),
-            missing: Color32::from_rgb(255, 233, 234),
+            missing: Color32::from_rgb(230, 240, 250),
             ready: Color32::from_rgb(227, 244, 233),
             success: Color32::from_rgb(30, 111, 59),
             warning: Color32::from_rgb(154, 76, 0),
@@ -137,6 +137,12 @@ pub fn install(ctx: &egui::Context) {
             Color32::from_rgb(24, 76, 145)
         };
         style.visuals.selection.bg_fill = Color32::from_rgb(36, 85, 156);
+        style.visuals.error_fg_color = if theme == Theme::Dark {
+            Color32::from_rgb(255, 188, 112)
+        } else {
+            Color32::from_rgb(154, 76, 0)
+        };
+        style.visuals.warn_fg_color = style.visuals.error_fg_color;
         if theme == Theme::Dark {
             style.visuals.extreme_bg_color = Color32::from_rgb(22, 27, 35);
             style.visuals.window_fill = Color32::from_rgb(42, 48, 59);

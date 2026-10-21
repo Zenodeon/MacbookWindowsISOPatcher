@@ -138,13 +138,22 @@ Other compatible editions are allowed and explicitly labeled unverified.
 
 ## Install on the Mac
 
-1. Use macOS Boot Camp Assistant to create a **BOOTCAMP** partition first. Do not
-   give it the patched ISO; it can reintroduce the old Apple graphics driver.
-2. Copy the output ISO to Ventoy and use **WIMBOOT** (press **w**).
-3. Keep the USB connected. In Setup, select and format only BOOTCAMP.
-4. On the Windows desktop, confirm Iris 550 driver **21.20.16.5174**.
-5. Run `C:\BootCamp\Setup.exe` as administrator and reboot for Touch Bar and full
-   trackpad support. Do not run the older Intel graphics installer.
+1. Prepare a Windows partition using Boot Camp Assistant or another method.
+2. Set up a USB drive with [Ventoy](https://www.ventoy.net/en/download.html),
+   then copy the generated ISO onto it.
+3. Boot the USB, select the ISO in Ventoy, and choose **WIMBOOT**. Keep the USB connected.
+4. Complete Windows Setup normally using the Windows partition you prepared.
+5. In Windows, run `C:\BootCamp\Setup.exe` as administrator, then restart.
+6. Search Windows for **Apple Software Update**. If missing, install
+   [Apple's desktop iTunes installer](https://www.apple.com/itunes/download/win64/),
+   then check again. See [Apple's update guidance](https://support.apple.com/en-us/118406).
+7. Install the applicable Apple Software Update updates and restart. Check your
+   MacBook's features and [report any failures](https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues)
+   with your model number/identifier, Windows edition/build, and saved build logs.
+   For A1706 boot/setup failures, also include the USB's **A1706Logs** folder when available.
+
+Support varies by model and Windows edition. On A1706, keep the included signed
+Iris 550 driver **21.20.16.5174**; do not run the old IntelHDGraphics64 installer.
 
 The app does not partition disks, write USB sticks, change the host's drivers, or
 disable signature enforcement. The generated answer file only accepts the EULA
