@@ -199,7 +199,8 @@ impl PatcherApp {
             ))
             .inner_margin(22.0);
         let modal=egui::Modal::new(egui::Id::new("storage-settings")).frame(frame).show(ctx,|ui|{
-            ui.set_width((ctx.content_rect().width()-88.0).clamp(240.0,760.0));
+            let cache_confirmation=matches!(self.storage.confirmation,Some(CleanupRequest::Cache{..}));
+            ui.set_width((ctx.content_rect().width()-88.0).clamp(240.0,if cache_confirmation{560.0}else{760.0}));
             if let Some(request)=self.storage.confirmation.clone() {
                 let cache=matches!(request,CleanupRequest::Cache{..});
                 ui.label(RichText::new(if cache {"Clear cache?"}else{"Delete selected builds?"}).size(23.0).strong());
@@ -207,10 +208,25 @@ impl PatcherApp {
                 ui.label(if cache {"Cached drivers and setup downloads will need downloading again."}else{"Recorded generated ISOs, selected workspaces and build logs will be deleted. Unverified output files are kept."});
                 ui.label(RichText::new("Deletion is permanent. Original source ISOs are kept.").color(colors.warning));
                 let mut bytes=0;
-                egui::ScrollArea::vertical().id_salt("cleanup-confirm-paths").max_height((ctx.content_rect().height()-330.0).max(70.0)).show(ui,|ui|{
+                ui.add_space(16.0);
+                egui::ScrollArea::vertical().id_salt("cleanup-confirm-paths").max_height((ctx.content_rect().height()-370.0).max(70.0)).show(ui,|ui|{
                     if let Some(inventory)=&self.storage.inventory {
                         match &request {
-                            CleanupRequest::Cache{..}=>{bytes=inventory.cache.size.bytes;for path in &inventory.cache.paths {ui.label(platform::display_path(path));}},
+                            CleanupRequest::Cache{root,..}=>{
+                                bytes=inventory.cache.size.bytes;
+                                egui::Frame::new().fill(colors.source).corner_radius(12).inner_margin(16.0).show(ui,|ui|{
+                                    ui.set_min_width(ui.available_width());
+                                    ui.label(RichText::new("Cache location").strong());
+                                    ui.add(egui::Label::new(platform::display_path(root)).wrap().selectable(true));
+                                    ui.add_space(12.0);
+                                    egui::CollapsingHeader::new(format!("Files to delete ({})",inventory.cache.size.files)).id_salt("cache-confirm-files").show(ui,|ui|{
+                                        for path in &inventory.cache.paths {
+                                            ui.add(egui::Label::new(platform::display_path(path)).wrap().selectable(true));
+                                            ui.add_space(6.0);
+                                        }
+                                    });
+                                });
+                            },
                             CleanupRequest::Builds{ids,..}=>{for view in &inventory.builds {if ids.contains(&view.record.id){bytes+=view.size.bytes;ui.label(RichText::new(view.record.output.file_name().unwrap_or_default().to_string_lossy()).strong());if view.record.published.is_some(){ui.label(platform::display_path(&view.record.output));}ui.label(platform::display_path(&view.record.job));if let Some(path)=&view.record.partial{ui.label(platform::display_path(path));}
 if let Some(path)=&view.record.connection_log{ui.label(platform::display_path(path));}ui.add_space(6.0);}}}
                         }
