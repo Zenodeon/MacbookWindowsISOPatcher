@@ -186,7 +186,11 @@ impl PatcherApp {
             "editions-unverified" => ("editions", 1),
             "review-unverified" => ("review-ready", 1),
             "workspace-error" | "generic-error" | "worker-error" => ("review-ready", 0),
-            "build-active" | "build-preparing" | "build-log" => ("review-ready", 0),
+            "build-active"
+            | "build-preparing"
+            | "build-log"
+            | "build-failed"
+            | "build-failure-popup" => ("review-ready", 0),
             "review-unverified-download" => ("review-ready", 1),
             other => (other, 0),
         };
@@ -295,7 +299,11 @@ impl PatcherApp {
         }
         if matches!(
             driver_preview.as_str(),
-            "build-active" | "build-preparing" | "build-log"
+            "build-active"
+                | "build-preparing"
+                | "build-log"
+                | "build-failed"
+                | "build-failure-popup"
         ) {
             self.page = Page::Build;
             self.busy = true;
@@ -315,7 +323,10 @@ impl PatcherApp {
                 operation: "Importing Intel graphics driver".into(),
                 percent: Some(47.0),
             });
-            if driver_preview == "build-log" {
+            if matches!(
+                driver_preview.as_str(),
+                "build-log" | "build-failed" | "build-failure-popup"
+            ) {
                 self.logs = vec![
                     "[worker +0.12s] authenticating worker: read timeout: writer=Some(3s), reader=Some(3s)".into(),
                     "[worker +0.13s] sending build request: read timeout: writer=None, reader=None".into(),
@@ -325,6 +336,15 @@ impl PatcherApp {
                     "Adding signed Intel Iris 550 graphics driver".into(),
                     "The operation completed successfully.".into(),
                 ];
+                self.logs
+                    .extend((1..=30).map(|n| format!("[DISM] Servicing selected image: {n}.0%")));
+            }
+            if driver_preview.starts_with("build-fail") {
+                let _=self.sender.send(Message::Build(Event::Failed("Not enough disk space while servicing the image. The build workspace was retained.".into())));
+                self.consume();
+                if driver_preview == "build-failed" {
+                    self.error = None;
+                }
             }
         }
         self.confirm_dismount = view == "dismount";

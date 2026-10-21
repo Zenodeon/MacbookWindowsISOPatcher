@@ -132,6 +132,10 @@ pub struct PatcherApp {
     detail: String,
     download: Option<(String, u64, Option<u64>)>,
     build_progress: macbook_iso_patcher::progress::BuildStatus,
+    last_build_error: Option<String>,
+    last_build_workspace: Option<PathBuf>,
+    #[cfg(test)]
+    log_viewport: Option<egui::Rect>,
     logs: Vec<String>,
     finished: Option<PathBuf>,
     donation: bool,
@@ -205,6 +209,10 @@ impl PatcherApp {
             detail: String::new(),
             download: None,
             build_progress: Default::default(),
+            last_build_error: None,
+            last_build_workspace: None,
+            #[cfg(test)]
+            log_viewport: None,
             logs: vec![],
             finished: None,
             donation: false,
@@ -378,6 +386,7 @@ impl PatcherApp {
                             self.logs.push(text);
                         }
                         Event::Finished(path) => {
+                            self.last_build_error = None;
                             self.download = None;
                             self.error = None;
                             self.busy = false;
@@ -389,8 +398,10 @@ impl PatcherApp {
                         Event::Failed(error) => {
                             self.download = None;
                             self.busy = false;
-                            self.show_error(error);
+                            self.last_build_error = Some(error.clone());
+                            self.show_build_error(error, BuildRetry::Begin);
                             self.stage = "Build stopped".into();
+                            self.detail = "Resolve the issue, then retry from step 1. The previous workspace is retained.".into();
                         }
                         Event::Cancelled => {
                             self.download = None;
@@ -523,6 +534,17 @@ impl PatcherApp {
             Err(error) => self.show_build_error(format!("{error:#}"), BuildRetry::Review),
         }
     }
+    fn can_retry_build(&self) -> bool {
+        self.page == Page::Build
+            && !self.busy
+            && self.finished.is_none()
+            && !self.scanning
+            && !self.dismounting
+            && !self.installing_adk
+            && !self.closing
+            && !self.confirm_dismount
+            && !self.storage.busy()
+    }
     fn begin(&mut self, ctx: &egui::Context) {
         if self.storage.busy() {
             return;
@@ -531,7 +553,16 @@ impl PatcherApp {
             return;
         }
         if !self.drivers_ready() {
-            self.show_error("Finish downloading this model's drivers before building.");
+            self.show_build_error(
+                "Finish downloading this model's drivers before building.".into(),
+                BuildRetry::Begin,
+            );
+            return;
+        }
+        if let Some(workspace) = &self.last_build_workspace
+            && let Err(error) = engine::workspace_available(workspace)
+        {
+            self.show_build_error(format!("{error:#}"), BuildRetry::Begin);
             return;
         }
         let req = match self.request().and_then(|r| {
@@ -545,21 +576,10 @@ impl PatcherApp {
             }
         };
         self.persist_settings();
-        self.page = Page::Build;
-        self.donation = false;
-        self.busy = true;
-        self.finished = None;
-        self.error = None;
-        self.logs.clear();
-        self.download = None;
-        self.build_progress = Default::default();
-        self.build_progress.apply(&Event::OverallProgress {
-            completed: 0,
-            total: macbook_iso_patcher::progress::build_steps(req.selected.len(), &req.model),
-        });
-        self.cancel = Cancellation::default();
-        self.stage = "Preparing your build".into();
-        self.detail = "Checking and downloading pinned driver packages.".into();
+        self.reset_build_state(
+            &req.workspace,
+            macbook_iso_patcher::progress::build_steps(req.selected.len(), &req.model),
+        );
         let tx = self.sender.clone();
         let ctx = ctx.clone();
         let cancel = self.cancel.clone();
@@ -580,6 +600,25 @@ impl PatcherApp {
                 ctx.request_repaint();
             }
         });
+    }
+    fn reset_build_state(&mut self, workspace: &std::path::Path, total: u32) {
+        self.last_build_workspace = Some(workspace.to_owned());
+        self.last_build_error = None;
+        self.page = Page::Build;
+        self.donation = false;
+        self.busy = true;
+        self.finished = None;
+        self.error = None;
+        self.logs.clear();
+        self.download = None;
+        self.build_progress = Default::default();
+        self.build_progress.apply(&Event::OverallProgress {
+            completed: 0,
+            total,
+        });
+        self.cancel = Cancellation::default();
+        self.stage = "Preparing your build".into();
+        self.detail = "Checking and downloading pinned driver packages.".into();
     }
     fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
         ui.heading(title);
@@ -684,12 +723,20 @@ impl PatcherApp {
         );
     }
     fn build_page(&mut self, ui: &mut egui::Ui) {
-        Self::heading(ui, &self.stage, &self.detail);
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 3.0;
+            ui.label(RichText::new(&self.stage).size(22.0).strong());
+            ui.label(RichText::new(&self.detail).size(13.0).color(muted(ui)));
+        });
+        ui.add_space(8.0);
         let colors = appearance::palette(ui.ctx());
-        Self::section(ui, "Progress", colors.source, |ui| {
+        egui::Frame::new().fill(colors.source).corner_radius(12).inner_margin(12.0).show(ui,|ui| {
+            ui.set_min_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y=3.0;
+            ui.label(RichText::new("Progress").size(16.0).strong());
             ui.label(RichText::new(&self.stage).strong());
-            ui.label(RichText::new(&self.detail).color(muted(ui)));
-            ui.add_space(8.0);
+            ui.label(RichText::new(&self.detail).size(13.0).color(muted(ui)));
+            ui.add_space(4.0);
             let transfer = self.download.as_ref().map(|(name, received, total)| {
                 (
                     format!("Downloading {name}"),
@@ -710,7 +757,7 @@ impl PatcherApp {
                     ui.add(
                         egui::ProgressBar::new(*percent / 100.0)
                             .fill(bar_fill)
-                            .desired_height(24.0)
+                            .desired_height(20.0)
                             .text(format!("{name} · {percent:.1}%")),
                     );
                 } else if self.busy {
@@ -735,16 +782,22 @@ impl PatcherApp {
                 ui.add(
                     egui::ProgressBar::new(self.build_progress.fraction().unwrap_or(0.0))
                         .fill(bar_fill)
-                        .desired_height(24.0)
+                        .desired_height(20.0)
                         .text(self.build_progress.label()),
                 );
             };
             current_operation(ui);
-            ui.add_space(8.0);
+            ui.add_space(4.0);
             overall(ui);
             if self.busy {
-                ui.add_space(6.0);
+                ui.add_space(3.0);
                 ui.label(RichText::new(if self.cancel.is_cancelled() { "Cancellation requested. Waiting for the current servicing operation to finish safely…" } else { "Keep the app open. Overall progress counts steps, not time remaining." }).size(12.0).color(muted(ui)));
+            }
+            if let Some(error)=&self.last_build_error {
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Copy error").clicked(){ui.ctx().copy_text(error.clone());}
+                    ui.label(RichText::new("Free space or change the workspace in setup, then retry.").size(12.0).color(muted(ui)));
+                });
             }
         });
         if let Some(path) = self.finished.clone() {
@@ -763,20 +816,27 @@ impl PatcherApp {
                 ui.label(RichText::new("Hardware testing of this app’s output remains required. Do not run the old Intel graphics installer.").color(muted(ui)));
             });
         }
-        ui.add_space(12.0);
-        Self::section(ui, "Build details", colors.surface, |ui| {
-            let default_open = cfg!(debug_assertions)
-                && std::env::var("MACBOOK_PATCHER_PREVIEW").as_deref() == Ok("build-log")
-                && std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some();
-            if build_log::build_log_view(ui, &self.logs, default_open).save_requested
-                && let Some(path) = rfd::FileDialog::new()
-                    .set_file_name("macbook-patcher.log")
-                    .save_file()
-                && let Err(error) = std::fs::write(path, self.logs.join("\n"))
-            {
-                self.show_error(format!("Could not save build log: {error}"));
-            }
-        });
+        ui.add_space(8.0);
+        egui::Frame::new()
+            .fill(colors.surface)
+            .corner_radius(12)
+            .inner_margin(12.0)
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                let log_view = build_log::build_log_view(ui, &self.logs, true);
+                #[cfg(test)]
+                {
+                    self.log_viewport = log_view.viewport;
+                }
+                if log_view.save_requested
+                    && let Some(path) = rfd::FileDialog::new()
+                        .set_file_name("macbook-patcher.log")
+                        .save_file()
+                    && let Err(error) = std::fs::write(path, self.logs.join("\n"))
+                {
+                    self.show_error(format!("Could not save build log: {error}"));
+                }
+            });
     }
 }
 
@@ -1049,6 +1109,9 @@ impl eframe::App for PatcherApp {
                         {
                             self.cancel.cancel();
                         }
+                    } else if self.page==Page::Build && self.finished.is_none() && ui.add_enabled(self.can_retry_build(),egui::Button::new("Back to setup")).clicked() {
+                        self.page=Page::Review;
+                        self.error=None;
                     } else if self.donation && ui.add_enabled(!self.closing && !self.dismounting && !self.installing_adk, egui::Button::new("Back to review")).clicked() {
                         self.donation = false;
                         self.error = None;
@@ -1067,7 +1130,9 @@ impl eframe::App for PatcherApp {
                     }
                     let model_left = ui.cursor().min.x;
                     let model_right = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if self.busy || self.page == Page::Build { self.build_iso_button(ui, false); }
+                        if self.page==Page::Build && !self.busy && self.finished.is_none() {
+                            if Self::primary(ui,"Retry build",self.can_retry_build()){self.begin(ctx);}
+                        } else if self.busy || self.page == Page::Build { self.build_iso_button(ui, false); }
                         if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation && !self.closing {
                             if self.page == Page::Model && Self::primary(ui,"Start download & continue to Windows ISO", self.model().is_some() && !self.storage.busy()) {
                                 self.drivers.requested_model = self.model().map(|model| model.id);
@@ -1263,7 +1328,7 @@ impl eframe::App for PatcherApp {
                         .show(ui, |ui| { ui.label(RichText::new(&message).color(colors.error)); });
                     if retry.is_some() {
                         ui.add_space(12.0);
-                        ui.label(RichText::new("Resolve the issue, then retry. Close this popup to change your build settings.").size(13.0).color(colors.muted));
+                        ui.label(RichText::new(if self.page==Page::Build{"Retry starts from step 1 in a new workspace. Retained build files are kept. Close this popup to return to setup or inspect the log."}else{"Resolve the issue, then retry. Close this popup to change your build settings."}).size(13.0).color(colors.muted));
                     }
                     ui.add_space(20.0);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1332,6 +1397,103 @@ impl eframe::App for PatcherApp {
 #[cfg(test)]
 mod drop_tests {
     use super::*;
+    #[test]
+    fn manual_retry_resets_to_step_one_and_keeps_the_selection() {
+        let ctx = egui::Context::default();
+        let mut app = PatcherApp::new_with_context(&ctx);
+        app.model_selected = Some(0);
+        app.selected.insert(6);
+        app.logs.push("failed attempt".into());
+        app.build_progress.apply(&Event::OverallProgress {
+            completed: 8,
+            total: 12,
+        });
+        app.sender
+            .send(Message::Build(Event::Failed("No disk space".into())))
+            .unwrap();
+        app.page = Page::Build;
+        app.consume();
+        assert!(app.can_retry_build());
+        assert!(matches!(
+            app.error.as_ref().unwrap().retry,
+            Some(BuildRetry::Begin)
+        ));
+        // A failed prerequisite check preserves diagnostics and doesn't start work.
+        app.drivers.ready = true;
+        app.drivers.key = Some((
+            MODEL_PROFILES[0].id,
+            PathBuf::from(app.settings.cache.trim()),
+        ));
+        app.begin(&ctx); // No source inventory: deterministic preflight failure.
+        assert!(!app.busy && app.logs == ["failed attempt"]);
+        assert_eq!(app.build_progress.completed, 8);
+        app.cancel.cancel();
+        app.reset_build_state(std::path::Path::new("C:/retry-workspace"), 12);
+        assert!(app.busy && !app.cancel.is_cancelled());
+        assert_eq!(app.build_progress.label(), "Step 1 of 12");
+        assert_eq!(app.stage, "Preparing your build");
+        assert!(app.logs.is_empty() && app.error.is_none() && app.last_build_error.is_none());
+        assert!(app.selected.contains(&6) && app.model_selected == Some(0));
+        assert!(!app.can_retry_build());
+    }
+    #[test]
+    fn build_log_has_room_for_more_than_three_lines_at_default_size() {
+        for failed in [false, true] {
+            let ctx = egui::Context::default();
+            let mut app = PatcherApp::new_with_context(&ctx);
+            app.page = Page::Build;
+            app.busy = !failed;
+            app.stage = if failed {
+                "Build stopped"
+            } else {
+                "Servicing Windows"
+            }
+            .into();
+            app.detail = if failed {
+                "Resolve the issue, then retry from step 1. The previous workspace is retained."
+            } else {
+                "Adding the selected graphics and Boot Camp drivers."
+            }
+            .into();
+            app.last_build_error = failed.then(|| "Not enough disk space".into());
+            app.logs = (0..40)
+                .map(|n| format!("Line {n}: servicing the selected Windows image"))
+                .collect();
+            app.build_progress.apply(&Event::OverallProgress {
+                completed: 6,
+                total: 12,
+            });
+            for _ in 0..3 {
+                let _ = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1240.0, 700.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::SidePanel::left("test-sidebar")
+                            .exact_width(220.0)
+                            .show(ctx, |_| {});
+                        egui::TopBottomPanel::bottom("test-footer")
+                            .exact_height(74.0)
+                            .show(ctx, |_| {});
+                        egui::CentralPanel::default()
+                            .frame(egui::Frame::new().inner_margin(30.0))
+                            .show(ctx, |ui| {
+                                egui::ScrollArea::vertical().show(ui, |ui| app.build_page(ui));
+                            });
+                    },
+                );
+            }
+            assert!(
+                app.log_viewport.unwrap().height() >= 180.0,
+                "Log viewport: {:?}",
+                app.log_viewport
+            );
+        }
+    }
     #[test]
     fn build_events_clear_operation_and_download_without_losing_overall_position() {
         for terminal in [

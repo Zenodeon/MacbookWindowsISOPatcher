@@ -8,6 +8,8 @@ pub(super) struct LogViewResponse {
     pub heading: egui::Rect,
     #[cfg(test)]
     pub save: Option<egui::Rect>,
+    #[cfg(test)]
+    pub viewport: Option<egui::Rect>,
 }
 
 pub(super) fn build_log_view(
@@ -25,6 +27,8 @@ pub(super) fn build_log_view(
     let mut heading = egui::Rect::NOTHING;
     #[cfg(test)]
     let mut save = None;
+    #[cfg(test)]
+    let mut viewport = None;
     ui.horizontal(|ui| {
         state.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
         let response = ui.add(egui::Label::new("Show build log").sense(egui::Sense::click()));
@@ -47,8 +51,8 @@ pub(super) fn build_log_view(
         }
     });
     state.show_body_unindented(ui, |ui| {
-        let height = (ui.clip_rect().bottom() - ui.cursor().top() - 6.0).clamp(96.0, 320.0);
-        egui::ScrollArea::vertical()
+        let height = (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(96.0);
+        let output = egui::ScrollArea::vertical()
             .id_salt("log")
             .max_height(height)
             .stick_to_bottom(true)
@@ -58,6 +62,12 @@ pub(super) fn build_log_view(
                     ui.monospace(line);
                 }
             });
+        #[cfg(test)]
+        {
+            viewport = Some(output.inner_rect);
+        }
+        #[cfg(not(test))]
+        let _ = output;
     });
     LogViewResponse {
         save_requested,
@@ -67,6 +77,8 @@ pub(super) fn build_log_view(
         heading,
         #[cfg(test)]
         save,
+        #[cfg(test)]
+        viewport,
     }
 }
 

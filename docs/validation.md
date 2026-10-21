@@ -1,5 +1,33 @@
 # Validation
 
+## Larger build log and manual restart — 2026-10-21
+
+- Tightened build-page heading/progress spacing while retaining both stacked
+  bars and the live stage/details. Removed the redundant Build details heading;
+  the expanded log now uses the remaining viewport height without a 320px cap.
+  It opens by default and retains its own scrolling, compact line spacing,
+  automatic following, and header-row Save visible log control.
+- Failed builds expose Retry in the existing Copy error popup and Retry build
+  on the page after dismissal. Back to setup returns to editable output/workspace
+  settings. The failure remains copyable on the build page.
+- Manual retry runs the normal prerequisite/disk-space checks and starts the
+  normal build pipeline from step 1, with a new UUID job directory. It does not
+  resume partial output or delete the previous workspace. Verified downloads are
+  reused. Progress, cancellation, and the visible log reset only after preflight
+  succeeds; failed checks retain the previous attempt's diagnostics.
+- Preflight checks the workspace build lock before preparing files. A retry also
+  checks the previous attempt's workspace if the user changes the destination,
+  so a surviving worker blocks another attempt. The elevated worker still takes
+  its normal exclusive lock before mount recovery and job creation.
+- 92 normal automated tests pass; formatting and Clippy with warnings denied
+  pass. New tests verify retained diagnostics on failed prerequisites, restart
+  at step 1 with unchanged selections, retry eligibility, active/released worker
+  locks, and at least 180px of log viewport at 1240 x 700 in active/failed states.
+- Actual debug-app previews inspected in both themes, including failure popup,
+  persistent Retry build/Back to setup, and an 800 x 520 active view. At the
+  default size roughly ten log lines are visible. No full ISO test, release
+  build, package refresh, ZIP, push, or deletion of retained user files.
+
 ## Build progress, log header, and limited Settings — 2026-10-21
 
 - Progress shows the live stage/details, current DISM or Oscdimg operation,

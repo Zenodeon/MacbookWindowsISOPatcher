@@ -127,7 +127,25 @@ fn validate_paths(req: &BuildRequest) -> Result<()> {
 }
 
 pub fn preflight(req: &BuildRequest) -> Result<()> {
+    workspace_available(&req.workspace)?;
     validate_paths(req)
+}
+
+/// A manual retry must not overlap a worker surviving a connection failure.
+pub fn workspace_available(workspace: &Path) -> Result<()> {
+    let lock = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(workspace.join(".build.lock"))
+    {
+        Ok(lock) => lock,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).context("Cannot check the retained workspace build lock"),
+    };
+    fs2::FileExt::try_lock_exclusive(&lock).context(
+        "A build worker is still using this workspace. Wait for it to finish before retrying",
+    )?;
+    Ok(())
 }
 
 /// All network downloads and third-party archive extraction run without elevation.
@@ -1041,6 +1059,31 @@ pub const INSTALL_GUIDE: &str = "MacBook Pro A1706 — installation\r\n\r\n1. In
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retry_preflight_refuses_a_surviving_worker_lock() {
+        let temp = std::env::temp_dir().canonicalize().unwrap();
+        let root = temp.join(format!("retry-lock-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        assert!(workspace_available(&root).is_ok());
+        let lock = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .open(root.join(".build.lock"))
+            .unwrap();
+        fs2::FileExt::try_lock_exclusive(&lock).unwrap();
+        assert!(
+            workspace_available(&root)
+                .unwrap_err()
+                .to_string()
+                .contains("worker is still using")
+        );
+        drop(lock);
+        assert!(workspace_available(&root).is_ok());
+        assert_eq!(root.parent(), Some(temp.as_path()));
+        fs::remove_file(root.join(".build.lock")).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
 
     #[cfg(windows)]
     #[test]
