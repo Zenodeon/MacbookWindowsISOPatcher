@@ -1,6 +1,18 @@
 use super::*;
 use macbook_iso_patcher::cleanup::{self, CleanupReport, CleanupRequest};
 
+fn storage_paint_clip(
+    bounds: egui::Rect,
+    parent: egui::Rect,
+    visuals: &egui::Visuals,
+) -> egui::Rect {
+    let margin = [&visuals.widgets.hovered, &visuals.widgets.active]
+        .iter()
+        .map(|v| v.expansion + v.bg_stroke.width)
+        .fold(visuals.clip_rect_margin, f32::max);
+    bounds.expand(margin).intersect(parent)
+}
+
 // One independent hit target: opening a location never toggles the build row.
 fn storage_path_link(
     ui: &mut egui::Ui,
@@ -399,7 +411,7 @@ impl PatcherApp {
             let footer_rect=egui::Rect::from_min_max(egui::pos2(shell_rect.left(),shell_rect.bottom()-38.0),shell_rect.max);
             let body_rect=egui::Rect::from_min_max(shell_rect.min,egui::pos2(shell_rect.right(),footer_rect.top()-14.0));
             let mut body=ui.new_child(egui::UiBuilder::new().max_rect(body_rect).layout(egui::Layout::top_down(egui::Align::Min)));
-            body.set_clip_rect(body_rect.intersect(ui.clip_rect()));
+            body.set_clip_rect(storage_paint_clip(body_rect,ui.clip_rect(),ui.visuals()));
             let confirmation_kind=match self.storage.confirmation {None=>0,Some(CleanupRequest::Cache{..})=>1,Some(CleanupRequest::Builds{..})=>2,Some(CleanupRequest::Isos{..})=>3};
             egui::ScrollArea::vertical().id_salt(("storage-page",self.storage.builds_page,confirmation_kind,self.storage.navigation_epoch)).max_height(body_rect.height()).auto_shrink([false,false]).show(&mut body,|ui|{
             if let Some(request)=self.storage.confirmation.clone() {
@@ -540,7 +552,7 @@ impl PatcherApp {
             });
             });
             let mut footer_ui=ui.new_child(egui::UiBuilder::new().max_rect(footer_rect).layout(egui::Layout::top_down(egui::Align::Min)));
-            footer_ui.set_clip_rect(footer_rect.intersect(ui.clip_rect()));
+            footer_ui.set_clip_rect(storage_paint_clip(footer_rect,ui.clip_rect(),ui.visuals()));
             let footer=footer_ui.horizontal(|ui|{
                 if self.storage.confirmation.is_some(){cancel_confirmation=ui.add_enabled(!self.storage.deleting,egui::Button::new("Cancel")).clicked();}
                 else if self.storage.builds_page && ui.add_enabled(!self.storage.deleting,egui::Button::new("Back to settings")).clicked(){navigate=Some(false);}
@@ -929,5 +941,62 @@ mod availability_tests {
         assert!(app.storage.open && app.storage.builds_page && app.storage.confirmation.is_none());
         render_popup(&mut app, &ctx, size);
         assert_eq!(app.storage.modal_rect.unwrap(), before);
+    }
+    #[test]
+    fn hover_outlines_at_body_and_footer_edges_are_not_clipped() {
+        for theme in [appearance::ThemeMode::Light, appearance::ThemeMode::Dark] {
+            for footer in [false, true] {
+                let ctx = egui::Context::default();
+                let mut app = PatcherApp::new_with_context(&ctx);
+                theme.apply(&ctx);
+                app.storage = StorageSettings {
+                    open: true,
+                    inventory: Some(inventory(true, true)),
+                    ..Default::default()
+                };
+                let size = egui::vec2(1240.0, 700.0);
+                render_popup(&mut app, &ctx, size);
+                render_popup(&mut app, &ctx, size);
+                let bounds = app.storage.modal_rect.unwrap();
+                let bar = app.storage.footer_rect.unwrap();
+                let position = if footer {
+                    bar.right_center() - egui::vec2(32.0, 0.0)
+                } else {
+                    egui::pos2(bar.right() - 40.0, bounds.top() + 40.0)
+                };
+                let output = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                        events: vec![egui::Event::PointerMoved(position)],
+                        ..Default::default()
+                    },
+                    |ctx| app.storage_popup(ctx),
+                );
+                let mut found = false;
+                for shape in output.shapes {
+                    if let egui::Shape::Rect(rect) = &shape.shape
+                        && rect.rect.contains(position)
+                        && rect.rect.width() < 160.0
+                        && rect.rect.height() < 60.0
+                        && rect.stroke.width > 0.0
+                    {
+                        found = true;
+                        assert!(
+                            shape
+                                .clip_rect
+                                .contains_rect(shape.shape.visual_bounding_rect()),
+                            "{theme:?}, footer={footer}: outline {:?} exceeds clip {:?}",
+                            shape.shape.visual_bounding_rect(),
+                            shape.clip_rect
+                        );
+                    }
+                }
+                assert!(
+                    found,
+                    "Hovered button outline not found: {theme:?}, footer={footer}"
+                );
+                assert_eq!(app.storage.modal_rect.unwrap(), bounds);
+            }
+        }
     }
 }

@@ -13,13 +13,18 @@
 - Settings, Builds, confirmation and checking states share one bounded shell
   and an anchored footer. Navigation is applied between frames. Back restores
   the build list's scroll identity; entering from Settings starts at the top.
-- 79 automated tests pass, including production-popup geometry checks at
+- 80 automated tests pass, including production-popup geometry checks at
   1240 × 700, 800 × 520 and 640 × 400, plus Back/Escape cancellation and busy
   navigation checks. Cancellation is handled before a ready preflight can
   dispatch cleanup. Formatting and Clippy with warnings denied pass.
 - Geometry checks also cover cache confirmation, very long cache paths/notices,
   large errors and unusually long build text. A pointer-click regression verifies
   Cancel in the fixed footer returns to Builds without changing the popup bounds.
+- Hover clipping regression checks the actual painted outlines against their clip
+  rectangles on Refresh and Close in both themes. Body/footer clips now permit
+  widget expansion into existing frame padding while leaving layout bounds exact.
+  Native debug hover screenshots confirm the complete outlines without moving the
+  user's OS cursor; the hover input override is absent from release builds.
 - Actual-history native screenshots checked in both themes, with separate
   confirmation/checking captures and a smaller-window confirmation capture.
   No release build, package refresh, ZIP or push was performed.

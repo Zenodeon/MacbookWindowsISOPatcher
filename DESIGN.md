@@ -106,6 +106,8 @@ Use one exact-size outer dialog on Settings, Builds and every confirmation.
 Allocate its outer rectangle independently of content, with a clipped, scrollable
 body and a separate fixed footer. Long errors, paths and expanded lists must never
 resize the frame. Only the app window getting smaller may reduce the shared size.
+Allow widget hover/focus paint to extend a few pixels into the surrounding frame
+padding, without enlarging the body/footer allocations or clipping their outlines.
 Keep the footer anchored, with Back/Cancel on the
 left and Close on the right. Apply navigation only after the frame is rendered;
 preserve list scroll when cancelling confirmation and reset it on entry from

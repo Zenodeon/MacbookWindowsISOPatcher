@@ -722,6 +722,28 @@ impl PatcherApp {
 }
 
 impl eframe::App for PatcherApp {
+    #[cfg(debug_assertions)]
+    fn raw_input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        if std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_none() {
+            return;
+        }
+        let Ok(target) = std::env::var("MACBOOK_PATCHER_PREVIEW_HOVER") else {
+            return;
+        };
+        let screen = input.screen_rect.unwrap_or_else(|| ctx.content_rect());
+        let size = egui::vec2(
+            (screen.width() - 88.0).clamp(240.0, 760.0),
+            (screen.height() - 100.0).clamp(220.0, 560.0),
+        );
+        let shell = egui::Rect::from_center_size(screen.center(), size);
+        let position = match target.as_str() {
+            "close" => egui::pos2(shell.right() - 32.0, shell.bottom() - 20.0),
+            "refresh" => egui::pos2(shell.right() - 40.0, shell.top() + 18.0),
+            _ => return,
+        };
+        // Renderer QA only: exercise real hover styling without moving the OS cursor.
+        input.events.push(egui::Event::PointerMoved(position));
+    }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.consume();
         let focused = ctx.input(|i| i.focused);
