@@ -86,21 +86,27 @@ phase, elapsed time and a retained connection-log path for troubleshooting.
 Place Settings above Appearance in the sidebar. Its themed modal separates a
 blue cache summary (cached files, Cache size, Clear cache) from a compact Builds
 summary (workspace count and total space used). Manage builds opens a separate
-view with selectable rounded rows (ISO, model, editions, UTC date, state and
-combined size). Keep Paths and folder links independent from row selection.
+view with rounded build cards (ISO, model, editions, UTC date, state and
+combined size). Deletion is per card; no bulk selection controls or selected
+count footer. Keep Paths and folder links independent from delete controls.
 Show a folder-arrow icon on both ISO and workspace path links; reveal the ISO
 in File Explorer and open the workspace folder. Use decimal GB/MB/KB units.
-Put Workspace above ISO. Indicate selection with the row highlight; omit
-per-card Select/Deselect controls. Each card has Delete ISO (keep workspace and
-history) and Delete (ISO plus workspace), each with a scoped permanent-deletion
+Put Workspace above ISO. Cards have no selection interaction. Each card has
+Delete ISO (keep workspace and history) and Delete (ISO plus workspace), each
+with a scoped permanent-deletion
 confirmation. Disable Delete ISO when no verified generated ISO is present.
 Show only existing, accessible paths and hide Delete ISO when its verified file
 is absent. Use the workspace folder name when no ISO exists; missing outputs
 never get green Complete status. Count existing workspace folders and measure
 existing artifacts, retaining empty records internally but hiding their cards.
 Refresh on entering Builds, returning to the app, and before confirmation.
-Recheck before deleting; changed selections require confirmation again. A path
+Recheck before deleting; changed files require confirmation again. A path
 removed in Explorer produces a short notice and refresh, not a dead link error.
+Use the same bounded dialog size on Settings, Builds and confirmation. Reserve
+body height during checks and keep the footer anchored, with Back/Cancel on the
+left and Close on the right. Apply navigation only after the frame is rendered;
+preserve list scroll when cancelling confirmation and reset it on entry from
+Settings. Apply cancellation before dispatching any completed cleanup preflight.
 Keep Close visible while the content scrolls; put cleanup results and copyable
 errors above the list. Confirm permanent deletion with paths and estimated size.
 Cleanup affects recorded generated ISOs and associated workspaces, never original

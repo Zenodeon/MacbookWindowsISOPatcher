@@ -138,7 +138,10 @@ pub struct PatcherApp {
 }
 impl PatcherApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        appearance::install(&cc.egui_ctx);
+        Self::new_with_context(&cc.egui_ctx)
+    }
+    fn new_with_context(ctx: &egui::Context) -> Self {
+        appearance::install(ctx);
         let dirs = directories::ProjectDirs::from("com", "Zenodeon", "MacBookISOPatcher")
             .expect("User profile is required");
         let settings_file = dirs.config_dir().join("settings.json");
@@ -167,7 +170,7 @@ impl PatcherApp {
                 _ => (),
             }
         }
-        settings.theme.apply(&cc.egui_ctx);
+        settings.theme.apply(ctx);
         let app = Self {
             page: Page::Model,
             scroll_page: (Page::Model, false),
@@ -249,7 +252,6 @@ impl PatcherApp {
                     match result {
                         Ok(report) => {
                             self.storage.report = Some(report);
-                            self.storage.selected.clear();
                         }
                         Err(error) => self.storage.error = Some(error),
                     }
@@ -722,9 +724,6 @@ impl PatcherApp {
 impl eframe::App for PatcherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.consume();
-        if let Some(request) = self.storage.ready_cleanup.take() {
-            self.start_cleanup(request, ctx);
-        }
         let focused = ctx.input(|i| i.focused);
         let snapshot_preview = cfg!(debug_assertions)
             && std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some()
@@ -899,7 +898,7 @@ impl eframe::App for PatcherApp {
                         ui.add_space(12.0);
                         if ui.button("Settings").clicked() {
                             self.storage.open = true;
-                            self.storage.builds_page = false;
+                            self.storage.navigate_builds(false);
                             self.scan_storage(ctx);
                         }
                         ui.add_space(12.0);
@@ -1157,6 +1156,11 @@ impl eframe::App for PatcherApp {
             }
         }
         self.storage_popup(ctx);
+        // Process Cancel/Back/Close first, even if a preflight result arrived
+        // in this frame. A cancelled confirmation must never launch a worker.
+        if let Some(request) = self.storage.ready_cleanup.take() {
+            self.start_cleanup(request, ctx);
+        }
         if let Some(error) = &self.error {
             let message = error.message.clone();
             let retry = error.retry;
@@ -1212,7 +1216,8 @@ impl eframe::App for PatcherApp {
         if let Some(path) = std::env::var_os("MACBOOK_PATCHER_SCREENSHOT") {
             self.screenshot_frames += 1;
             let scanning_fixture = cfg!(debug_assertions)
-                && std::env::var("MACBOOK_PATCHER_PREVIEW").as_deref() == Ok("settings-scanning");
+                && std::env::var("MACBOOK_PATCHER_PREVIEW")
+                    .is_ok_and(|v| v == "settings-scanning" || v == "settings-live-checking");
             if self.screenshot_frames > 3
                 && !self.screenshot_sent
                 && (!self.storage.scanning || scanning_fixture)

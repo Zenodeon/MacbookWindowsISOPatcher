@@ -71,13 +71,17 @@ fn storage_path_link(
 
 #[derive(Default)]
 pub(super) struct StorageSettings {
+    #[cfg(test)]
+    modal_rect: Option<egui::Rect>,
+    #[cfg(test)]
+    footer_rect: Option<egui::Rect>,
     pub needs_scan: bool,
     pub open: bool,
     pub builds_page: bool,
     pub scanning: bool,
     pub deleting: bool,
     pub inventory: Option<cleanup::Inventory>,
-    pub selected: BTreeSet<String>,
+    pub navigation_epoch: u64,
     pub confirmation: Option<CleanupRequest>,
     pub confirmation_ready: bool,
     pub execute_after_scan: bool,
@@ -90,6 +94,32 @@ pub(super) struct StorageSettings {
     pub copied: bool,
 }
 impl StorageSettings {
+    pub fn navigate_builds(&mut self, builds: bool) {
+        if self.deleting {
+            return;
+        }
+        if builds && !self.builds_page {
+            self.navigation_epoch = self.navigation_epoch.wrapping_add(1);
+        }
+        self.builds_page = builds;
+        self.cancel_confirmation();
+    }
+    pub fn cancel_confirmation(&mut self) {
+        self.confirmation = None;
+        self.confirmation_ready = false;
+        self.execute_after_scan = false;
+        self.ready_cleanup = None;
+    }
+    pub fn back(&mut self) {
+        if self.deleting {
+            return;
+        }
+        if self.confirmation.is_some() {
+            self.cancel_confirmation();
+        } else {
+            self.navigate_builds(false);
+        }
+    }
     pub fn busy(&self) -> bool {
         self.scanning || self.deleting
     }
@@ -98,12 +128,6 @@ impl StorageSettings {
             .confirmation
             .as_ref()
             .and_then(|r| confirmation_manifest(self.inventory.as_ref()?, r));
-        self.selected.retain(|id| {
-            inventory
-                .builds
-                .iter()
-                .any(|v| &v.record.id == id && v.can_delete())
-        });
         let current = self
             .confirmation
             .as_ref()
@@ -356,6 +380,7 @@ impl PatcherApp {
         let mut retry = None;
         let mut confirm = None;
         let mut cancel_confirmation = false;
+        let mut navigate = None;
         let mut open_location = None;
         let frame = egui::Frame::new()
             .fill(colors.surface)
@@ -366,8 +391,12 @@ impl PatcherApp {
             ))
             .inner_margin(22.0);
         let modal=egui::Modal::new(egui::Id::new("storage-settings")).frame(frame).show(ctx,|ui|{
-            let cache_confirmation=matches!(self.storage.confirmation,Some(CleanupRequest::Cache{..}));
-            ui.set_width((ctx.content_rect().width()-88.0).clamp(240.0,if cache_confirmation || !self.storage.builds_page{560.0}else{760.0}));
+            let width=(ctx.content_rect().width()-88.0).clamp(240.0,760.0);
+            let height=(ctx.content_rect().height()-100.0).clamp(220.0,560.0);
+            ui.set_width(width);
+            ui.set_min_height(height);
+            ui.allocate_ui_with_layout(egui::vec2(width,height-60.0),egui::Layout::top_down(egui::Align::Min),|ui|{
+            ui.set_min_height(height-60.0);
             if let Some(request)=self.storage.confirmation.clone() {
                 let cache=matches!(request,CleanupRequest::Cache{..});
                 let iso_only=matches!(request,CleanupRequest::Isos{..});
@@ -376,16 +405,16 @@ impl PatcherApp {
                 ui.add_space(8.0);
                 if !self.storage.confirmation_ready || self.storage.scanning {
                     ui.horizontal(|ui|{ui.spinner();ui.label("Checking which files are still available…");});
-                    ui.add_space(16.0);
-                    cancel_confirmation=ui.button("Cancel").clicked();
                     return;
                 }
+                let details_height=ui.available_height().max(30.0);
+                egui::ScrollArea::vertical().id_salt("cleanup-confirm-details").max_height(details_height).auto_shrink([false,false]).show(ui,|ui|{
                 if let Some(notice)=&self.storage.notice{ui.label(RichText::new(notice).color(colors.muted));ui.add_space(8.0);}
                 ui.label(if cache {"Cached drivers and setup downloads will need downloading again."}else if iso_only{"Only the generated ISO listed below will be deleted."}else{"Only the listed build files and folders will be deleted. Unverified output files are kept."});
                 ui.label(RichText::new("Deletion is permanent. Original source ISOs are kept.").color(colors.warning));
                 let mut bytes=0;
                 ui.add_space(16.0);
-                egui::ScrollArea::vertical().id_salt("cleanup-confirm-paths").max_height((ctx.content_rect().height()-370.0).max(70.0)).show(ui,|ui|{
+                ui.scope(|ui|{
                     if let Some(inventory)=&self.storage.inventory {
                         match &request {
                             CleanupRequest::Cache{root,..}=>{
@@ -417,23 +446,17 @@ impl PatcherApp {
                         }
                     }
                 });
-                ui.add_space(12.0);ui.label(format!("{}: {}",if cache{"Cache size"}else{"Selected size"},cleanup::format_bytes(bytes)));
+                ui.add_space(12.0);ui.label(format!("{}: {}",if cache{"Cache size"}else if iso_only{"ISO size"}else{"Build size"},cleanup::format_bytes(bytes)));
                 if !cache {ui.label(RichText::new(if iso_only{"Windows may ask for administrator permission to delete the ISO."}else{"Windows may ask for administrator permission to clean image mounts."}).size(13.0).color(colors.muted));}
-                ui.add_space(16.0);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
-                    if Self::primary(ui,if cache{"Clear cache"}else{"Delete permanently"},!blocked){execute=Some(request.clone());}
-                    cancel_confirmation=ui.button("Cancel").clicked();
                 });
                 return;
             }
-            if self.storage.builds_page && ui.button("Back to settings").clicked(){self.storage.builds_page=false;}
             ui.horizontal(|ui|{ui.label(RichText::new(if self.storage.builds_page{"Builds"}else{"Settings"}).size(25.0).strong());ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{refresh=ui.add_enabled(!self.storage.busy(),egui::Button::new("Refresh")).clicked();});});
-            ui.label(RichText::new(if self.storage.builds_page{"Select builds to delete, or open their locations."}else{"Manage cached downloads and generated ISOs."}).size(13.0).color(colors.muted));
+            ui.label(RichText::new(if self.storage.builds_page{"Open build locations or delete files from each card."}else{"Manage cached downloads and generated ISOs."}).size(13.0).color(colors.muted));
             ui.add_space(14.0);
-            let status_start=ui.cursor().top();
             self.storage_status(ui,ctx,blocked,&mut retry,&mut refresh);
-            let status_height=ui.cursor().top()-status_start;
-            egui::ScrollArea::vertical().id_salt(("storage-content",self.storage.builds_page)).max_height((ctx.content_rect().height()-270.0-status_height).max(60.0)).show(ui,|ui|{
+            let content_height=ui.available_height().max(30.0);
+            egui::ScrollArea::vertical().id_salt(("storage-content",self.storage.builds_page,self.storage.navigation_epoch)).max_height(content_height).auto_shrink([false,false]).show(ui,|ui|{
                 if !self.storage.builds_page {
                 egui::Frame::new().fill(colors.source).corner_radius(12).inner_margin(16.0).show(ui,|ui|{
                     ui.set_min_width(ui.available_width());
@@ -454,40 +477,29 @@ impl PatcherApp {
                     }else{ui.label("Finding saved workspaces…");}
                     ui.label(RichText::new("Generated ISOs and associated workspaces.").size(13.0).color(colors.muted));
                     ui.add_space(8.0);
-                    if ui.button("Manage builds").clicked(){self.storage.builds_page=true;refresh=true;}
+                    if ui.button("Manage builds").clicked(){navigate=Some(true);refresh=true;}
                 });
                 } else {
                 if let Some(inventory)=&self.storage.inventory {
                     ui.label(format!("{} workspaces · {}: {}",inventory.workspace_count(),inventory.space_label(),cleanup::format_bytes(inventory.total_bytes())));
                     ui.add_space(8.0);
                 }
-                ui.horizontal_wrapped(|ui|{
-                    if let Some(inventory)=&self.storage.inventory {
-                        let eligible: BTreeSet<_>=inventory.builds.iter().filter(|v|v.can_delete()).map(|v|v.record.id.clone()).collect();
-                        let all=!eligible.is_empty() && self.storage.selected==eligible;
-                        if ui.add_enabled(!blocked && !eligible.is_empty(),egui::Button::new(if all{"Clear selection"}else{"Select all"})).clicked(){if all {self.storage.selected.clear();}else{self.storage.selected=eligible;}}
-                        if ui.add_enabled(!blocked && !self.storage.selected.is_empty(),egui::Button::new(format!("Delete selected ({})",self.storage.selected.len()))).clicked(){confirm=Some(CleanupRequest::Builds{ids:self.storage.selected.iter().cloned().collect(),protected:vec![]});}
-                    }
-                });
-                ui.label(RichText::new("Generated ISOs and their associated workspaces.").size(13.0).color(colors.muted));
-                ui.add_space(8.0);
                 if let Some(inventory)=&self.storage.inventory {
                     if inventory.builds.is_empty(){ui.label("No saved builds yet. Failed or interrupted builds will appear here too.");}
                     for view in &inventory.builds {
-                        let r=&view.record;let selected=self.storage.selected.contains(&r.id);
-                        let frame=egui::Frame::new().fill(if selected{colors.source}else{colors.canvas}).corner_radius(12).inner_margin(13.0)
-                            .stroke(egui::Stroke::new(1.0_f32,if selected{colors.accent}else{ctx.style().visuals.widgets.noninteractive.bg_stroke.color}));
+                        let r=&view.record;
+                        let frame=egui::Frame::new().fill(colors.canvas).corner_radius(12).inner_margin(13.0)
+                            .stroke(egui::Stroke::new(1.0_f32,ctx.style().visuals.widgets.noninteractive.bg_stroke.color));
                         frame.show(ui,|ui|{
                             ui.set_min_width(ui.available_width());
                             ui.horizontal_top(|ui|{
                             let summary_width=(ui.available_width()-190.0).max(100.0);
-                            let selection=ui.allocate_ui_with_layout(egui::vec2(summary_width,0.0),egui::Layout::top_down(egui::Align::Min),|ui|{
+                            ui.allocate_ui_with_layout(egui::vec2(summary_width,0.0),egui::Layout::top_down(egui::Align::Min),|ui|{
                             ui.label(RichText::new(view.title()).strong());
                             let model=MODEL_PROFILES.iter().find(|m|m.id==r.model).map(|m|m.name).unwrap_or(&r.model);
                             ui.label(RichText::new(format!("{model} · {}",r.editions.join(", "))).size(13.0));
                             ui.label(RichText::new(format!("{} · {} · {}",cleanup::format_date(r.created),view.status(),cleanup::format_bytes(view.size.bytes))).size(12.0).color(if view.complete(){colors.success}else{colors.warning}));
-                            }).response;
-                            if selection.interact(egui::Sense::click()).on_hover_text(if selected{"Deselect this build"}else{"Select this build"}).clicked() && !blocked && view.can_delete(){if selected{self.storage.selected.remove(&r.id);}else{self.storage.selected.insert(r.id.clone());}}
+                            });
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min),|ui|{
                                 if ui.add_enabled(!blocked && view.can_delete(),egui::Button::new("Delete")).on_hover_text("Delete the remaining build files, including any verified ISO and workspace").clicked(){confirm=Some(CleanupRequest::Builds{ids:vec![r.id.clone()],protected:vec![]});}
                                 if view.can_delete_iso() && ui.add_enabled(!blocked,egui::Button::new("Delete ISO")).on_hover_text("Delete only the generated ISO; keep the workspace").clicked(){confirm=Some(CleanupRequest::Isos{ids:vec![r.id.clone()],protected:vec![]});}
@@ -497,7 +509,7 @@ impl PatcherApp {
                             if view.artifacts().any(|a|a.available()) {
                             let paths=egui::CollapsingHeader::new("Paths").id_salt((&r.id,"paths"));
                             #[cfg(debug_assertions)]
-                            let paths=paths.default_open(selected && std::env::var("MACBOOK_PATCHER_PREVIEW").is_ok_and(|v|v=="settings-builds" || v.starts_with("settings-live")));
+                            let paths=paths.default_open(inventory.builds.first().is_some_and(|v|v.record.id==r.id) && std::env::var("MACBOOK_PATCHER_PREVIEW").is_ok_and(|v|v=="settings-builds" || v.starts_with("settings-live")));
                             paths.show(ui,|ui|{
                                 if view.workspace.available(){ui.horizontal_top(|ui|{
                                 ui.add_sized([78.0,36.0],egui::Label::new(RichText::new("Workspace").size(13.0).color(colors.muted)));
@@ -520,12 +532,30 @@ impl PatcherApp {
                 }else{ui.label("Finding saved builds…");}
                 }
             });
-            ui.add_space(14.0);
-            ui.horizontal(|ui|{
-                if self.storage.deleting{ui.spinner();ui.label("Cleaning storage… Approve Windows if prompted.");}else if self.storage.scanning{ui.spinner();ui.label("Scanning storage…");}else if blocked{ui.label(RichText::new("Finish the current operation before deleting files.").size(12.0).color(colors.muted));}else if self.storage.builds_page && let Some(inventory)=&self.storage.inventory{ui.label(format!("{} selected · {}",self.storage.selected.len(),cleanup::format_bytes(inventory.builds.iter().filter(|v|self.storage.selected.contains(&v.record.id)).map(|v|v.size.bytes).sum())));}
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{close=ui.add_enabled(!self.storage.deleting,egui::Button::new("Close")).clicked();});
             });
+            ui.add_space(14.0);
+            let footer=ui.horizontal(|ui|{
+                if self.storage.confirmation.is_some(){cancel_confirmation=ui.add_enabled(!self.storage.deleting,egui::Button::new("Cancel")).clicked();}
+                else if self.storage.builds_page && ui.add_enabled(!self.storage.deleting,egui::Button::new("Back to settings")).clicked(){navigate=Some(false);}
+                if self.storage.deleting{ui.spinner();ui.label("Cleaning storage…");}else if self.storage.scanning && self.storage.confirmation.is_none(){ui.spinner();ui.label("Checking files…");}
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
+                    close=ui.add_enabled(!self.storage.deleting,egui::Button::new("Close")).clicked();
+                    if let Some(request)=&self.storage.confirmation && Self::primary(ui,if matches!(request,CleanupRequest::Cache{..}){"Clear cache"}else{"Delete permanently"},!blocked && self.storage.confirmation_ready){execute=Some(request.clone());}
+                });
+            });
+            #[cfg(test)]
+            {self.storage.footer_rect=Some(footer.response.rect);}
+            #[cfg(not(test))]
+            let _=footer;
         });
+        #[cfg(test)]
+        {
+            self.storage.modal_rect = Some(modal.response.rect);
+        }
+        if let Some(builds) = navigate {
+            self.storage.navigate_builds(builds);
+            ctx.request_repaint();
+        }
         if let Some(request) = confirm {
             self.storage.confirmation = Some(request);
             self.storage.notice = None;
@@ -537,10 +567,11 @@ impl PatcherApp {
             ctx.request_repaint();
         }
         if cancel_confirmation || (modal.should_close() && self.storage.confirmation.is_some()) {
-            self.storage.confirmation = None;
-            self.storage.execute_after_scan = false;
+            self.storage.back();
+            ctx.request_repaint();
         } else if (close || modal.should_close()) && !self.storage.deleting {
             self.storage.open = false;
+            self.storage.cancel_confirmation();
         }
         if refresh {
             self.storage.error = None;
@@ -681,15 +712,151 @@ mod availability_tests {
         assert!(!settings.execute_after_scan);
     }
     #[test]
-    fn refresh_drops_missing_selection_and_cancels_empty_confirmation() {
+    fn refresh_cancels_empty_confirmation() {
         let mut settings = StorageSettings {
-            selected: BTreeSet::from(["test".into()]),
             inventory: Some(inventory(true, true)),
             confirmation: Some(request()),
             ..Default::default()
         };
         settings.apply_inventory(Inventory::default());
-        assert!(settings.selected.is_empty() && settings.confirmation.is_none());
+        assert!(settings.confirmation.is_none());
         assert!(settings.ready_cleanup.is_none());
+    }
+    #[test]
+    fn back_from_confirmation_cancels_pending_cleanup_and_keeps_builds_page() {
+        let mut settings = StorageSettings {
+            builds_page: true,
+            confirmation: Some(request()),
+            execute_after_scan: true,
+            ready_cleanup: Some(request()),
+            ..Default::default()
+        };
+        settings.back();
+        assert!(settings.builds_page && settings.confirmation.is_none());
+        assert!(!settings.execute_after_scan && settings.ready_cleanup.is_none());
+        settings.apply_inventory(inventory(true, true));
+        assert!(settings.ready_cleanup.is_none());
+        settings.back();
+        assert!(!settings.builds_page);
+    }
+    #[test]
+    fn entering_builds_resets_list_once_and_cancel_keeps_its_scroll_identity() {
+        let mut settings = StorageSettings::default();
+        settings.navigate_builds(true);
+        let epoch = settings.navigation_epoch;
+        settings.confirmation = Some(request());
+        settings.back();
+        assert_eq!(settings.navigation_epoch, epoch);
+        settings.back();
+        settings.navigate_builds(true);
+        assert_ne!(settings.navigation_epoch, epoch);
+    }
+    #[test]
+    fn busy_cleanup_cannot_navigate_away() {
+        let mut settings = StorageSettings {
+            builds_page: true,
+            deleting: true,
+            ..Default::default()
+        };
+        settings.back();
+        settings.navigate_builds(false);
+        assert!(settings.builds_page);
+    }
+    fn render_popup(app: &mut PatcherApp, ctx: &egui::Context, size: egui::Vec2) {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                ..Default::default()
+            },
+            |ctx| app.storage_popup(ctx),
+        );
+    }
+    #[test]
+    fn popup_and_footer_do_not_jump_between_pages_or_during_checks() {
+        for size in [
+            egui::vec2(1240.0, 700.0),
+            egui::vec2(800.0, 520.0),
+            egui::vec2(640.0, 400.0),
+        ] {
+            let ctx = egui::Context::default();
+            let mut app = PatcherApp::new_with_context(&ctx);
+            app.storage = StorageSettings {
+                open: true,
+                inventory: Some(inventory(true, true)),
+                ..Default::default()
+            };
+            render_popup(&mut app, &ctx, size);
+            render_popup(&mut app, &ctx, size);
+            let baseline = app.storage.modal_rect.unwrap();
+            let footer = app.storage.footer_rect.unwrap();
+            app.storage.navigate_builds(true);
+            for phase in 0..5 {
+                match phase {
+                    0 => {}
+                    1 => {
+                        app.storage.confirmation = Some(request());
+                        app.storage.confirmation_ready = false;
+                        app.storage.scanning = true;
+                    }
+                    2 => {
+                        app.storage.scanning = false;
+                        app.storage.confirmation_ready = true;
+                    }
+                    3 => {
+                        app.storage.back();
+                    }
+                    4 => {
+                        app.storage.back();
+                    }
+                    _ => unreachable!(),
+                }
+                render_popup(&mut app, &ctx, size);
+                let actual = app.storage.modal_rect.unwrap();
+                let actual_footer = app.storage.footer_rect.unwrap();
+                assert!(
+                    (actual.min - baseline.min).length() < 1.0
+                        && (actual.max - baseline.max).length() < 1.0,
+                    "phase {phase}, screen {size:?}: {actual:?} vs {baseline:?}"
+                );
+                assert!(
+                    (actual_footer.top() - footer.top()).abs() < 1.0,
+                    "footer shifted at phase {phase}: {actual_footer:?} vs {footer:?}"
+                );
+                assert!(actual.bottom() <= size.y && actual.right() <= size.x);
+            }
+        }
+    }
+    #[test]
+    fn escape_from_confirmation_cancels_a_just_finished_preflight() {
+        let ctx = egui::Context::default();
+        let mut app = PatcherApp::new_with_context(&ctx);
+        app.storage = StorageSettings {
+            open: true,
+            builds_page: true,
+            inventory: Some(inventory(true, true)),
+            confirmation: Some(request()),
+            confirmation_ready: true,
+            ..Default::default()
+        };
+        let size = egui::vec2(1240.0, 700.0);
+        render_popup(&mut app, &ctx, size);
+        render_popup(&mut app, &ctx, size);
+        app.storage.ready_cleanup = Some(request());
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            },
+            |ctx| app.storage_popup(ctx),
+        );
+        assert!(app.storage.open && app.storage.builds_page);
+        assert!(app.storage.confirmation.is_none() && app.storage.ready_cleanup.is_none());
     }
 }

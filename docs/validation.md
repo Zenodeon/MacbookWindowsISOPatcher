@@ -1,5 +1,20 @@
 # Validation
 
+## Storage navigation review — 2026-10-21
+
+- Removed bulk selection, selection highlights and the selected-count footer.
+  ISO-only and full deletion remain available on individual cards.
+- Settings, Builds, confirmation and checking states share one bounded shell
+  and an anchored footer. Navigation is applied between frames. Back restores
+  the build list's scroll identity; entering from Settings starts at the top.
+- 78 automated tests pass, including production-popup geometry checks at
+  1240 × 700, 800 × 520 and 640 × 400, plus Back/Escape cancellation and busy
+  navigation checks. Cancellation is handled before a ready preflight can
+  dispatch cleanup. Formatting and Clippy with warnings denied pass.
+- Actual-history native screenshots checked in both themes, with separate
+  confirmation/checking captures and a smaller-window confirmation capture.
+  No release build, package refresh, ZIP or push was performed.
+
 ## Storage availability review — 2026-10-21
 
 - 73 automated tests pass; formatting and Clippy with warnings denied pass.

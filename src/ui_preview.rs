@@ -18,20 +18,24 @@ impl PatcherApp {
                 &PathBuf::from(self.settings.work.trim()),
             ) {
                 Ok(inventory) => {
-                    self.storage.selected = inventory
-                        .builds
-                        .iter()
-                        .take(1)
-                        .map(|v| v.record.id.clone())
-                        .collect();
-                    if view == "settings-live-confirm" {
+                    if view == "settings-live-confirm" || view == "settings-live-checking" {
                         self.storage.confirmation =
                             Some(macbook_iso_patcher::cleanup::CleanupRequest::Builds {
-                                ids: self.storage.selected.iter().cloned().collect(),
+                                ids: inventory
+                                    .builds
+                                    .iter()
+                                    .take(1)
+                                    .map(|v| v.record.id.clone())
+                                    .collect(),
                                 protected: vec![],
                             });
                     }
                     self.storage.apply_inventory(inventory);
+                    if view == "settings-live-checking" {
+                        self.storage.scanning = true;
+                        self.storage.confirmation_ready = false;
+                        self.close_ready = true;
+                    }
                 }
                 Err(e) => self.storage.error = Some(format!("{e:#}")),
             }
@@ -95,21 +99,17 @@ impl PatcherApp {
                             None
                         },
                     };
-                    self.storage.selected.insert(id);
                     inventory.builds.push(inspect_build(record));
                 }
             }
-            if view == "settings-builds" {
-                self.storage.selected = inventory
-                    .builds
-                    .iter()
-                    .take(1)
-                    .map(|v| v.record.id.clone())
-                    .collect();
-            }
             if view == "settings-confirm" {
                 self.storage.confirmation = Some(CleanupRequest::Builds {
-                    ids: self.storage.selected.iter().cloned().collect(),
+                    ids: inventory
+                        .builds
+                        .iter()
+                        .take(1)
+                        .map(|v| v.record.id.clone())
+                        .collect(),
                     protected: vec![],
                 });
             }
