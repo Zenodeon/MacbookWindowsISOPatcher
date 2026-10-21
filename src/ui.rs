@@ -739,16 +739,9 @@ impl PatcherApp {
                         .text(self.build_progress.label()),
                 );
             };
-            if ui.available_width() >= 640.0 {
-                ui.columns(2, |columns| {
-                    current_operation(&mut columns[0]);
-                    overall(&mut columns[1]);
-                });
-            } else {
-                current_operation(ui);
-                ui.add_space(8.0);
-                overall(ui);
-            }
+            current_operation(ui);
+            ui.add_space(8.0);
+            overall(ui);
             if self.busy {
                 ui.add_space(6.0);
                 ui.label(RichText::new(if self.cancel.is_cancelled() { "Cancellation requested. Waiting for the current servicing operation to finish safely…" } else { "Keep the app open. Overall progress counts steps, not time remaining." }).size(12.0).color(muted(ui)));
