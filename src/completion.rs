@@ -7,7 +7,7 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
 
-pub const VENTOY_URL: &str = "https://www.ventoy.net/en/download.html";
+pub const VENTOY_URL: &str = "https://www.ventoy.net/";
 pub const ITUNES_URL: &str = "https://www.apple.com/itunes/download/win64/";
 pub const APPLE_UPDATE_URL: &str = "https://support.apple.com/en-us/118406";
 pub const ISSUES_URL: &str = "https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues/new";

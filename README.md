@@ -139,7 +139,7 @@ Other compatible editions are allowed and explicitly labeled unverified.
 ## Install on the Mac
 
 1. Prepare a Windows partition using Boot Camp Assistant or another method.
-2. Set up a USB drive with [Ventoy](https://www.ventoy.net/en/download.html),
+2. Set up a USB drive with [Ventoy](https://www.ventoy.net/),
    then copy the generated ISO onto it.
 3. Boot the USB, select the ISO in Ventoy, and choose **WIMBOOT**. Keep the USB connected.
 4. Complete Windows Setup normally using the Windows partition you prepared.

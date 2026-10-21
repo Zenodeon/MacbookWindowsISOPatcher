@@ -98,17 +98,6 @@ impl PatcherApp {
             for (index, step) in completion::INSTALL_STEPS[4..].iter().enumerate() {
                 ui.label(format!("{}. {step}", index + 5));
             }
-            ui.horizontal_wrapped(|ui| {
-                if ui
-                    .button("Desktop iTunes (if updater is missing)")
-                    .clicked()
-                {
-                    self.completion_link(completion::ITUNES_URL);
-                }
-                if ui.button("Apple update guidance").clicked() {
-                    self.completion_link(completion::APPLE_UPDATE_URL);
-                }
-            });
             if self.model().is_some_and(|model| model.id == MODEL_ID) {
                 ui.label(RichText::new("Keep the included Intel graphics driver. Do not run the old IntelHDGraphics64 installer.").size(13.0).color(muted(ui)));
             }
