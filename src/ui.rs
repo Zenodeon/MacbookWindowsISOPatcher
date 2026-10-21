@@ -886,6 +886,7 @@ impl eframe::App for PatcherApp {
                         ui.add_space(12.0);
                         if ui.button("Settings").clicked() {
                             self.storage.open = true;
+                            self.storage.builds_page = false;
                             self.scan_storage(ctx);
                         }
                         ui.add_space(12.0);

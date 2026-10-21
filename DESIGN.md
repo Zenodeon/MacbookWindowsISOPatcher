@@ -84,8 +84,12 @@ Keep build-log entries compact with 2 px vertical gaps, preserving the monospace
 font, wrapping, auto-scroll and saved log text. Connection errors include their
 phase, elapsed time and a retained connection-log path for troubleshooting.
 Place Settings above Appearance in the sidebar. Its themed modal separates a
-blue cache summary (reclaimable files and size, Clear cache) from selectable
-rounded build rows (ISO, model, editions, UTC date, state and combined size).
+blue cache summary (cached files, Cache size, Clear cache) from a compact Builds
+summary (workspace count and total space used). Manage builds opens a separate
+view with selectable rounded rows (ISO, model, editions, UTC date, state and
+combined size). Keep Paths and folder links independent from row selection.
+Show a folder-arrow icon on both ISO and workspace path links; reveal the ISO
+in File Explorer and open the workspace folder. Use decimal GB/MB/KB units.
 Keep Close visible while the content scrolls; put cleanup results and copyable
 errors above the list. Confirm permanent deletion with paths and estimated size.
 Cleanup affects recorded generated ISOs and associated workspaces, never original

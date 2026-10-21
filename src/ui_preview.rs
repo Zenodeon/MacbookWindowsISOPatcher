@@ -12,6 +12,7 @@ impl PatcherApp {
         if view.starts_with("settings") {
             use macbook_iso_patcher::cleanup::*;
             self.storage.open = true;
+            self.storage.builds_page = view == "settings-builds";
             self.settings_file = std::env::temp_dir().join("macbook-patcher-preview-settings.json");
             let mut inventory = macbook_iso_patcher::cleanup::Inventory::default();
             if view != "settings-empty" && view != "settings-scanning" {
@@ -67,6 +68,14 @@ impl PatcherApp {
                         problem: None,
                     });
                 }
+            }
+            if view == "settings-builds" {
+                self.storage.selected = inventory
+                    .builds
+                    .iter()
+                    .take(1)
+                    .map(|v| v.record.id.clone())
+                    .collect();
             }
             if view == "settings-confirm" {
                 self.storage.confirmation = Some(CleanupRequest::Builds {
@@ -243,7 +252,7 @@ impl PatcherApp {
         self.confirm_dismount = view == "dismount";
         if driver_preview == "workspace-error" {
             self.show_build_error(
-                "Not enough workspace disk space; allow at least 51.6 GiB".into(),
+                "Not enough workspace disk space; allow at least 55.4 GB".into(),
                 BuildRetry::Review,
             );
         } else if driver_preview == "worker-error" {

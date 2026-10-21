@@ -366,8 +366,35 @@ pub fn now() -> u64 {
         .as_secs()
 }
 
+pub fn reveal_file(path: &Path) -> Result<()> {
+    ensure!(
+        path.is_file(),
+        "ISO file does not exist: {}",
+        display_path(path)
+    );
+    #[cfg(windows)]
+    {
+        Command::new(system_binary("explorer.exe"))
+            .arg(format!("/select,{}", display_path(path)))
+            .spawn()?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open").arg("-R").arg(path).spawn()?;
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        open_folder(path.parent().context("ISO has no parent folder")?)?;
+    }
+    Ok(())
+}
+
 pub fn open_folder(path: &Path) -> Result<()> {
-    ensure!(path.is_dir(), "Output folder does not exist");
+    ensure!(
+        path.is_dir(),
+        "Folder does not exist: {}",
+        display_path(path)
+    );
     #[cfg(windows)]
     {
         Command::new(system_binary("explorer.exe"))

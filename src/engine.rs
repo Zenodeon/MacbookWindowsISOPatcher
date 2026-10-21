@@ -110,16 +110,18 @@ fn validate_paths(req: &BuildRequest) -> Result<()> {
     let required = req.required_space()?;
     ensure!(
         fs2::available_space(&cache)? >= 8 * GIB,
-        "The driver cache needs at least 8 GiB free for downloading and extraction"
+        "The driver cache needs at least {} free for downloading and extraction",
+        crate::cleanup::format_bytes(8 * GIB)
     );
     ensure!(
         fs2::available_space(&work)? >= required,
-        "Not enough workspace disk space; allow at least {:.1} GiB",
-        required as f64 / GIB as f64
+        "Not enough workspace disk space; allow at least {}",
+        crate::cleanup::format_bytes(required)
     );
     ensure!(
         fs2::available_space(output_parent)? >= req.inventory.iso_size.saturating_add(8 * GIB),
-        "Output disk needs room for the patched ISO (source size plus at least 8 GiB)"
+        "Output disk needs room for the patched ISO (source size plus at least {})",
+        crate::cleanup::format_bytes(8 * GIB)
     );
     Ok(())
 }

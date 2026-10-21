@@ -531,8 +531,8 @@ impl PatcherApp {
             {
                 ui.label(
                     RichText::new(format!(
-                        "Workspace: allow {:.1} GiB free, plus room for your output ISO.",
-                        space as f64 / GIB as f64
+                        "Workspace: allow {} free, plus room for your output ISO.",
+                        macbook_iso_patcher::cleanup::format_bytes(space)
                     ))
                     .size(13.0)
                     .color(colors.muted),

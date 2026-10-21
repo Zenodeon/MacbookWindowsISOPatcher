@@ -996,10 +996,12 @@ pub fn execute(request: CleanupRequest) -> Result<CleanupReport> {
     }
 }
 pub fn format_bytes(bytes: u64) -> String {
-    if bytes >= GIB {
-        format!("{:.2} GiB", bytes as f64 / GIB as f64)
-    } else if bytes >= 1024 * 1024 {
-        format!("{:.1} MiB", bytes as f64 / (1024 * 1024) as f64)
+    if bytes >= 1_000_000_000 {
+        format!("{:.2} GB", bytes as f64 / 1_000_000_000.0)
+    } else if bytes >= 1_000_000 {
+        format!("{:.1} MB", bytes as f64 / 1_000_000.0)
+    } else if bytes >= 1_000 {
+        format!("{:.1} KB", bytes as f64 / 1_000.0)
     } else {
         format!("{bytes} bytes")
     }
@@ -1374,7 +1376,9 @@ mod tests {
     fn display_helpers_are_stable() {
         assert_eq!(format_date(0), "1970-01-01 (UTC)");
         assert_eq!(format_date(1609459200), "2021-01-01 (UTC)");
-        assert_eq!(format_bytes(GIB), "1.00 GiB");
+        assert_eq!(format_bytes(1_000_000_000), "1.00 GB");
+        assert_eq!(format_bytes(1_000_000), "1.0 MB");
+        assert_eq!(format_bytes(1_000), "1.0 KB");
     }
 
     #[cfg(windows)]
