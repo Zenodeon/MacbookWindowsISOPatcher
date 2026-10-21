@@ -372,7 +372,9 @@ impl PatcherApp {
                             .stroke(egui::Stroke::new(1.0_f32,if selected{colors.accent}else{ctx.style().visuals.widgets.noninteractive.bg_stroke.color}));
                         frame.show(ui,|ui|{
                             ui.set_min_width(ui.available_width());
-                            let selection=ui.allocate_ui_with_layout(egui::vec2(ui.available_width(),0.0),egui::Layout::top_down(egui::Align::Min),|ui|{
+                            ui.horizontal_top(|ui|{
+                            let summary_width=(ui.available_width()-190.0).max(100.0);
+                            let selection=ui.allocate_ui_with_layout(egui::vec2(summary_width,0.0),egui::Layout::top_down(egui::Align::Min),|ui|{
                             ui.label(RichText::new(r.output.file_name().unwrap_or_default().to_string_lossy()).strong());
                             let model=MODEL_PROFILES.iter().find(|m|m.id==r.model).map(|m|m.name).unwrap_or(&r.model);
                             ui.label(RichText::new(format!("{model} · {}",r.editions.join(", "))).size(13.0));
@@ -380,6 +382,11 @@ impl PatcherApp {
                             ui.label(RichText::new(format!("{} · {state} · {}",cleanup::format_date(r.created),cleanup::format_bytes(view.size.bytes))).size(12.0).color(if r.state==cleanup::BuildState::Complete{colors.success}else{colors.warning}));
                             }).response;
                             if selection.interact(egui::Sense::click()).on_hover_text(if selected{"Deselect this build"}else{"Select this build"}).clicked() && !blocked && view.problem.is_none(){if selected{self.storage.selected.remove(&r.id);}else{self.storage.selected.insert(r.id.clone());}}
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min),|ui|{
+                                if ui.add_enabled(!blocked && view.problem.is_none(),egui::Button::new("Delete")).on_hover_text("Delete the generated ISO and workspace").clicked(){confirm=Some(CleanupRequest::Builds{ids:vec![r.id.clone()],protected:vec![]});}
+                                if ui.add_enabled(!blocked && view.problem.is_none() && view.output_present && r.published.is_some(),egui::Button::new("Delete ISO")).on_hover_text("Delete only the generated ISO; keep the workspace").clicked(){confirm=Some(CleanupRequest::Isos{ids:vec![r.id.clone()],protected:vec![]});}
+                            });
+                            });
                             if let Some(problem)=&view.problem{ui.label(RichText::new(problem).size(12.0).color(colors.error));}
                             let paths=egui::CollapsingHeader::new("Paths").id_salt((&r.id,"paths"));
                             #[cfg(debug_assertions)]
@@ -395,11 +402,6 @@ impl PatcherApp {
                                 if storage_path_link(ui,&r.output,!self.storage.deleting,"Open folder with ISO selected").clicked() && let Err(e)=platform::reveal_file(&r.output){self.storage.error=Some(format!("Could not open ISO location: {e:#}"));self.storage.last_request=None;self.storage.copied=false;}
                                 });
                                 if r.published.is_none(){ui.label("No verified generated ISO is recorded; only its workspace will be removed.");}
-                            });
-                            ui.add_space(8.0);
-                            ui.horizontal(|ui|{
-                                if ui.add_enabled(!blocked && view.problem.is_none() && view.output_present && r.published.is_some(),egui::Button::new("Delete ISO")).on_hover_text("Delete only the generated ISO; keep the workspace").clicked(){confirm=Some(CleanupRequest::Isos{ids:vec![r.id.clone()],protected:vec![]});}
-                                if ui.add_enabled(!blocked && view.problem.is_none(),egui::Button::new("Delete")).on_hover_text("Delete the generated ISO and workspace").clicked(){confirm=Some(CleanupRequest::Builds{ids:vec![r.id.clone()],protected:vec![]});}
                             });
                         });
                         ui.add_space(7.0);
