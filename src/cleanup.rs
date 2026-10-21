@@ -660,6 +660,11 @@ pub enum CleanupRequest {
         #[serde(default)]
         protected: Vec<PathBuf>,
     },
+    Isos {
+        ids: Vec<String>,
+        #[serde(default)]
+        protected: Vec<PathBuf>,
+    },
 }
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct CleanupReport {
@@ -989,10 +994,83 @@ fn delete_builds_at_protected(
     }
     Ok(report)
 }
+fn delete_isos_at(
+    root: &Path,
+    ids: &[String],
+    protected_sources: &[PathBuf],
+    check_iso: &impl Fn(&Path) -> Result<()>,
+) -> Result<CleanupReport> {
+    let history = {
+        let _lock = history_lock(root)?;
+        read_history(root)?
+    };
+    let originals: Vec<_> = history
+        .records
+        .iter()
+        .map(|r| r.source.clone())
+        .chain(protected_sources.iter().cloned())
+        .collect();
+    let mut report = CleanupReport::default();
+    for id in ids {
+        let Some(record) = history.records.iter().find(|r| &r.id == id) else {
+            report
+                .errors
+                .push(format!("Build {id} is no longer in history"));
+            continue;
+        };
+        let result = (|| -> Result<u64> {
+            validate_record(record)?;
+            let _lock = activity(&record.workspace, ".build.lock", true)?;
+            let published = record
+                .published
+                .as_ref()
+                .context("No verified generated ISO is recorded; nothing was deleted")?;
+            protected(&record.output, &originals)?;
+            if !record.output.exists() {
+                return Ok(0);
+            }
+            ensure!(
+                fingerprint(&record.output)? == *published,
+                "The generated ISO changed or was replaced; it has been preserved"
+            );
+            check_iso(&record.output)?;
+            // Recheck after the potentially slow mount query. This operation
+            // never discards WIM mounts or touches any workspace contents.
+            safe_path(&record.output)?;
+            protected(&record.output, &originals)?;
+            ensure!(
+                fingerprint(&record.output)? == *published,
+                "Generated ISO changed during cleanup; it has been preserved"
+            );
+            fs::remove_file(&record.output)?;
+            Ok(published.size)
+        })();
+        match result {
+            Ok(bytes) => {
+                report.bytes += bytes;
+                report.deleted.push(platform::display_path(&record.output));
+            }
+            Err(e) => report
+                .errors
+                .push(format!("{}: {e:#}", platform::display_path(&record.output))),
+        }
+    }
+    // Keep history, including the publication fingerprint. A later scan shows
+    // workspace-only status, and any replacement ISO still fails identity checks.
+    Ok(report)
+}
+
 pub fn execute(request: CleanupRequest) -> Result<CleanupReport> {
     match request {
         CleanupRequest::Cache { root, protected } => clear_cache(&root, &protected),
         CleanupRequest::Builds { ids, protected } => delete_builds(&ids, &protected),
+        CleanupRequest::Isos { ids, protected } => {
+            ensure!(
+                platform::is_admin(),
+                "ISO cleanup requires administrator access"
+            );
+            delete_isos_at(&history_dir(), &ids, &protected, &ensure_iso_not_mounted)
+        }
     }
 }
 pub fn format_bytes(bytes: u64) -> String {
@@ -1371,6 +1449,101 @@ mod tests {
         assert!(cache_inventory(&f.path("cache")).is_err());
         assert!(target.exists());
         fs::remove_dir(link).unwrap();
+    }
+    #[test]
+    fn iso_only_deletion_keeps_workspace_history_and_source_for_later_cleanup() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        let job_json = fs::read(r.job.join("job.json")).unwrap();
+        let report =
+            delete_isos_at(&config, std::slice::from_ref(&r.id), &[], &|_| Ok(())).unwrap();
+        assert!(report.errors.is_empty());
+        assert_eq!(report.bytes, r.published.as_ref().unwrap().size);
+        assert!(!r.output.exists());
+        assert_eq!(fs::read(r.job.join("job.json")).unwrap(), job_json);
+        assert!(r.job.join("build.log").exists());
+        assert!(r.source.exists());
+        assert_eq!(
+            read_history(&config).unwrap().records[0].published,
+            r.published
+        );
+        let again = delete_isos_at(&config, std::slice::from_ref(&r.id), &[], &|_| {
+            bail!("Absent ISO must not query mounts")
+        })
+        .unwrap();
+        assert!(again.errors.is_empty());
+        assert_eq!(again.bytes, 0);
+        let full = delete_builds_at(&config, &[r.id], &[], &|_| Ok(()), &|_| Ok(())).unwrap();
+        assert!(full.errors.is_empty());
+        assert!(!r.job.exists());
+        assert!(read_history(&config).unwrap().records.is_empty());
+    }
+    #[test]
+    fn iso_only_deletion_refuses_replacements_and_retains_history() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        fs::write(&r.output, b"replacement ISO").unwrap();
+        let report = delete_isos_at(&config, &[r.id], &[], &|_| Ok(())).unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert_eq!(fs::read(&r.output).unwrap(), b"replacement ISO");
+        assert!(r.job.exists());
+        assert_eq!(read_history(&config).unwrap().records.len(), 1);
+    }
+    #[test]
+    fn iso_only_deletion_rechecks_after_mount_query() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        let report = delete_isos_at(&config, &[r.id], &[], &|path| {
+            fs::write(path, b"replaced during query")?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert_eq!(fs::read(&r.output).unwrap(), b"replaced during query");
+        assert!(r.job.exists());
+    }
+    #[test]
+    fn iso_only_deletion_respects_active_lock() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        let _lock = activity(&r.workspace, ".build.lock", true).unwrap();
+        let report = delete_isos_at(&config, &[r.id], &[], &|_| Ok(())).unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert!(r.output.exists());
+        assert!(r.job.exists());
+    }
+    #[test]
+    fn iso_only_deletion_refuses_mounted_isos_and_current_sources() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        let report = delete_isos_at(&config, std::slice::from_ref(&r.id), &[], &|_| {
+            bail!("ISO is mounted")
+        })
+        .unwrap();
+        assert_eq!(report.errors.len(), 1);
+        let report = delete_isos_at(&config, &[r.id], std::slice::from_ref(&r.output), &|_| {
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert!(r.output.exists());
+        assert!(r.job.exists());
+    }
+    #[test]
+    fn iso_only_deletion_refuses_unverified_outputs() {
+        let f = Fixture::new();
+        let mut r = f.record();
+        r.published = None;
+        let config = f.history(vec![r.clone()]);
+        let report = delete_isos_at(&config, &[r.id], &[], &|_| Ok(())).unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert!(r.output.exists());
+        assert!(r.job.exists());
     }
     #[test]
     fn display_helpers_are_stable() {

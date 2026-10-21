@@ -90,6 +90,10 @@ view with selectable rounded rows (ISO, model, editions, UTC date, state and
 combined size). Keep Paths and folder links independent from row selection.
 Show a folder-arrow icon on both ISO and workspace path links; reveal the ISO
 in File Explorer and open the workspace folder. Use decimal GB/MB/KB units.
+Put Workspace above ISO. Indicate selection with the row highlight; omit
+per-card Select/Deselect controls. Each card has Delete ISO (keep workspace and
+history) and Delete (ISO plus workspace), each with a scoped permanent-deletion
+confirmation. Disable Delete ISO when no verified generated ISO is present.
 Keep Close visible while the content scrolls; put cleanup results and copyable
 errors above the list. Confirm permanent deletion with paths and estimated size.
 Cleanup affects recorded generated ISOs and associated workspaces, never original

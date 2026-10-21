@@ -12,7 +12,9 @@ impl PatcherApp {
         if view.starts_with("settings") {
             use macbook_iso_patcher::cleanup::*;
             self.storage.open = true;
-            self.storage.builds_page = view == "settings-builds";
+            self.storage.builds_page = view == "settings-builds"
+                || view == "settings-iso-confirm"
+                || view == "settings-build-confirm";
             self.settings_file = std::env::temp_dir().join("macbook-patcher-preview-settings.json");
             let mut inventory = macbook_iso_patcher::cleanup::Inventory::default();
             if view != "settings-empty" && view != "settings-scanning" {
@@ -80,6 +82,28 @@ impl PatcherApp {
             if view == "settings-confirm" {
                 self.storage.confirmation = Some(CleanupRequest::Builds {
                     ids: self.storage.selected.iter().cloned().collect(),
+                    protected: vec![],
+                });
+            }
+            if view == "settings-build-confirm" {
+                self.storage.confirmation = Some(CleanupRequest::Builds {
+                    ids: inventory
+                        .builds
+                        .iter()
+                        .take(1)
+                        .map(|v| v.record.id.clone())
+                        .collect(),
+                    protected: vec![],
+                });
+            }
+            if view == "settings-iso-confirm" {
+                self.storage.confirmation = Some(CleanupRequest::Isos {
+                    ids: inventory
+                        .builds
+                        .iter()
+                        .take(1)
+                        .map(|v| v.record.id.clone())
+                        .collect(),
                     protected: vec![],
                 });
             }

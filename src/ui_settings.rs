@@ -188,7 +188,7 @@ impl PatcherApp {
                     );
                 }
             }
-            CleanupRequest::Builds { ids, protected } => {
+            CleanupRequest::Builds { ids, protected } | CleanupRequest::Isos { ids, protected } => {
                 if let Some(inventory) = &self.inventory {
                     protected.push(inventory.iso.clone());
                 }
@@ -216,7 +216,7 @@ impl PatcherApp {
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let result = match &request {
-                CleanupRequest::Builds { .. } => ipc::cleanup_elevated(request.clone()),
+                CleanupRequest::Builds { .. } | CleanupRequest::Isos { .. } => ipc::cleanup_elevated(request.clone()),
                 CleanupRequest::Cache { root, protected } => {
                     match cleanup::clear_cache(root, protected) {
                         Ok(first) if first.requires_admin => {
@@ -272,9 +272,11 @@ impl PatcherApp {
             ui.set_width((ctx.content_rect().width()-88.0).clamp(240.0,if cache_confirmation || !self.storage.builds_page{560.0}else{760.0}));
             if let Some(request)=self.storage.confirmation.clone() {
                 let cache=matches!(request,CleanupRequest::Cache{..});
-                ui.label(RichText::new(if cache {"Clear cache?"}else{"Delete selected builds?"}).size(23.0).strong());
+                let iso_only=matches!(request,CleanupRequest::Isos{..});
+                let multiple=matches!(&request,CleanupRequest::Builds{ids,..} if ids.len()>1);
+                ui.label(RichText::new(if cache {"Clear cache?"}else if iso_only{"Delete ISO?"}else if multiple{"Delete builds?"}else{"Delete build?"}).size(23.0).strong());
                 ui.add_space(8.0);
-                ui.label(if cache {"Cached drivers and setup downloads will need downloading again."}else{"Recorded generated ISOs, selected workspaces and build logs will be deleted. Unverified output files are kept."});
+                ui.label(if cache {"Cached drivers and setup downloads will need downloading again."}else if iso_only{"Only the generated ISO will be deleted. The workspace and build logs will be kept."}else{"Generated ISOs, workspaces and build logs will be deleted. Unverified output files are kept."});
                 ui.label(RichText::new("Deletion is permanent. Original source ISOs are kept.").color(colors.warning));
                 let mut bytes=0;
                 ui.add_space(16.0);
@@ -296,13 +298,20 @@ impl PatcherApp {
                                     });
                                 });
                             },
-                            CleanupRequest::Builds{ids,..}=>{for view in &inventory.builds {if ids.contains(&view.record.id){bytes+=view.size.bytes;ui.label(RichText::new(view.record.output.file_name().unwrap_or_default().to_string_lossy()).strong());if view.record.published.is_some(){ui.label(platform::display_path(&view.record.output));}ui.label(platform::display_path(&view.record.job));if let Some(path)=&view.record.partial{ui.label(platform::display_path(path));}
-if let Some(path)=&view.record.connection_log{ui.label(platform::display_path(path));}ui.add_space(6.0);}}}
+                            CleanupRequest::Builds{ids,..} | CleanupRequest::Isos{ids,..}=>{for view in &inventory.builds {if ids.contains(&view.record.id){bytes+=if iso_only{if view.output_present{view.record.published.as_ref().map(|p|p.size).unwrap_or(0)}else{0}}else{view.size.bytes};
+                                egui::Frame::new().fill(colors.source).corner_radius(12).inner_margin(16.0).show(ui,|ui|{
+                                    ui.set_min_width(ui.available_width());
+                                    ui.label(RichText::new(view.record.output.file_name().unwrap_or_default().to_string_lossy()).strong());
+                                    if !iso_only{ui.label("Workspace");ui.add(egui::Label::new(platform::display_path(&view.record.job)).wrap().selectable(true));}
+                                    if view.record.published.is_some() && view.output_present{ui.label("ISO");ui.add(egui::Label::new(platform::display_path(&view.record.output)).wrap().selectable(true));}
+                                    if !iso_only{if let Some(path)=&view.record.partial{ui.add(egui::Label::new(platform::display_path(path)).wrap().selectable(true));}
+                                    if let Some(path)=&view.record.connection_log{ui.add(egui::Label::new(platform::display_path(path)).wrap().selectable(true));}}
+                                });ui.add_space(6.0);}}}
                         }
                     }
                 });
                 ui.add_space(12.0);ui.label(format!("{}: {}",if cache{"Cache size"}else{"Selected size"},cleanup::format_bytes(bytes)));
-                if !cache {ui.label(RichText::new("Windows may ask for administrator permission to clean image mounts.").size(13.0).color(colors.muted));}
+                if !cache {ui.label(RichText::new(if iso_only{"Windows may ask for administrator permission to delete the ISO."}else{"Windows may ask for administrator permission to clean image mounts."}).size(13.0).color(colors.muted));}
                 ui.add_space(16.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
                     if Self::primary(ui,if cache{"Clear cache"}else{"Delete permanently"},!blocked){execute=Some(request.clone());}
@@ -363,32 +372,34 @@ if let Some(path)=&view.record.connection_log{ui.label(platform::display_path(pa
                             .stroke(egui::Stroke::new(1.0_f32,if selected{colors.accent}else{ctx.style().visuals.widgets.noninteractive.bg_stroke.color}));
                         frame.show(ui,|ui|{
                             ui.set_min_width(ui.available_width());
-                            ui.horizontal_top(|ui|{
-                            let selection=ui.allocate_ui_with_layout(egui::vec2((ui.available_width()-110.0).max(100.0),0.0),egui::Layout::top_down(egui::Align::Min),|ui|{
+                            let selection=ui.allocate_ui_with_layout(egui::vec2(ui.available_width(),0.0),egui::Layout::top_down(egui::Align::Min),|ui|{
                             ui.label(RichText::new(r.output.file_name().unwrap_or_default().to_string_lossy()).strong());
                             let model=MODEL_PROFILES.iter().find(|m|m.id==r.model).map(|m|m.name).unwrap_or(&r.model);
                             ui.label(RichText::new(format!("{model} · {}",r.editions.join(", "))).size(13.0));
                             let state=if r.published.is_some() && !view.output_present{"ISO missing · workspace only"}else if r.published.is_none(){match r.state { cleanup::BuildState::Failed=>"Failed · workspace only",cleanup::BuildState::Cancelled=>"Cancelled · workspace only",cleanup::BuildState::Building=>"Interrupted / in progress · workspace only",_=>"Incomplete / unknown · workspace only"}}else{r.state.label()};
                             ui.label(RichText::new(format!("{} · {state} · {}",cleanup::format_date(r.created),cleanup::format_bytes(view.size.bytes))).size(12.0).color(if r.state==cleanup::BuildState::Complete{colors.success}else{colors.warning}));
                             }).response;
-                            let select=ui.add_enabled(!blocked && view.problem.is_none(),egui::Button::new(if selected{"Deselect"}else{"Select"})).clicked();
-                            if (selection.interact(egui::Sense::click()).on_hover_text("Select this build").clicked() || select) && !blocked && view.problem.is_none(){if selected{self.storage.selected.remove(&r.id);}else{self.storage.selected.insert(r.id.clone());}}
-                            });
+                            if selection.interact(egui::Sense::click()).on_hover_text(if selected{"Deselect this build"}else{"Select this build"}).clicked() && !blocked && view.problem.is_none(){if selected{self.storage.selected.remove(&r.id);}else{self.storage.selected.insert(r.id.clone());}}
                             if let Some(problem)=&view.problem{ui.label(RichText::new(problem).size(12.0).color(colors.error));}
                             let paths=egui::CollapsingHeader::new("Paths").id_salt((&r.id,"paths"));
                             #[cfg(debug_assertions)]
                             let paths=paths.default_open(selected && std::env::var("MACBOOK_PATCHER_PREVIEW").as_deref()==Ok("settings-builds"));
                             paths.show(ui,|ui|{
                                 ui.horizontal_top(|ui|{
-                                ui.add_sized([78.0,36.0],egui::Label::new(RichText::new("ISO").size(13.0).color(colors.muted)));
-                                if storage_path_link(ui,&r.output,!self.storage.deleting,"Open folder with ISO selected").clicked() && let Err(e)=platform::reveal_file(&r.output){self.storage.error=Some(format!("Could not open ISO location: {e:#}"));self.storage.last_request=None;self.storage.copied=false;}
-                                });
-                                ui.add_space(6.0);
-                                ui.horizontal_top(|ui|{
                                 ui.add_sized([78.0,36.0],egui::Label::new(RichText::new("Workspace").size(13.0).color(colors.muted)));
                                 if storage_path_link(ui,&r.job,!self.storage.deleting,"Open workspace folder").clicked() && let Err(e)=platform::open_folder(&r.job){self.storage.error=Some(format!("Could not open workspace folder: {e:#}"));self.storage.last_request=None;self.storage.copied=false;}
                                 });
+                                ui.add_space(6.0);
+                                ui.horizontal_top(|ui|{
+                                ui.add_sized([78.0,36.0],egui::Label::new(RichText::new("ISO").size(13.0).color(colors.muted)));
+                                if storage_path_link(ui,&r.output,!self.storage.deleting,"Open folder with ISO selected").clicked() && let Err(e)=platform::reveal_file(&r.output){self.storage.error=Some(format!("Could not open ISO location: {e:#}"));self.storage.last_request=None;self.storage.copied=false;}
+                                });
                                 if r.published.is_none(){ui.label("No verified generated ISO is recorded; only its workspace will be removed.");}
+                            });
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui|{
+                                if ui.add_enabled(!blocked && view.problem.is_none() && view.output_present && r.published.is_some(),egui::Button::new("Delete ISO")).on_hover_text("Delete only the generated ISO; keep the workspace").clicked(){confirm=Some(CleanupRequest::Isos{ids:vec![r.id.clone()],protected:vec![]});}
+                                if ui.add_enabled(!blocked && view.problem.is_none(),egui::Button::new("Delete")).on_hover_text("Delete the generated ISO and workspace").clicked(){confirm=Some(CleanupRequest::Builds{ids:vec![r.id.clone()],protected:vec![]});}
                             });
                         });
                         ui.add_space(7.0);
