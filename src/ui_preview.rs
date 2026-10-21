@@ -9,7 +9,13 @@ impl PatcherApp {
         let Ok(view) = std::env::var("MACBOOK_PATCHER_PREVIEW") else {
             return;
         };
+        self.window_fitted = true; // Keep the explicitly requested screenshot viewport size.
         if view.starts_with("settings-live") {
+            if view.ends_with("-limited") {
+                self.page = Page::Iso;
+                self.model_selected = Some(0);
+            }
+            let view = view.strip_suffix("-limited").unwrap_or(&view);
             self.storage.open = true;
             self.storage.builds_page =
                 view != "settings-live-summary" && view != "settings-live-cache";
@@ -301,6 +307,14 @@ impl PatcherApp {
             }
             .into();
             self.detail = "Adding the selected graphics and Boot Camp drivers.".into();
+            self.build_progress.apply(&Event::OverallProgress {
+                completed: 6,
+                total: 12,
+            });
+            self.build_progress.apply(&Event::OperationProgress {
+                operation: "Importing Intel graphics driver".into(),
+                percent: Some(47.0),
+            });
             if driver_preview == "build-log" {
                 self.logs = vec![
                     "[worker +0.12s] authenticating worker: read timeout: writer=Some(3s), reader=Some(3s)".into(),

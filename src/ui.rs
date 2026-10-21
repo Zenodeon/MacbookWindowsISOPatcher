@@ -1,4 +1,6 @@
 use crate::appearance::{self, ThemeMode};
+#[path = "ui_log.rs"]
+mod build_log;
 #[path = "ui_downloads.rs"]
 mod downloads;
 #[path = "ui_pages.rs"]
@@ -129,6 +131,7 @@ pub struct PatcherApp {
     stage: String,
     detail: String,
     download: Option<(String, u64, Option<u64>)>,
+    build_progress: macbook_iso_patcher::progress::BuildStatus,
     logs: Vec<String>,
     finished: Option<PathBuf>,
     donation: bool,
@@ -201,6 +204,7 @@ impl PatcherApp {
             stage: String::new(),
             detail: String::new(),
             download: None,
+            build_progress: Default::default(),
             logs: vec![],
             finished: None,
             donation: false,
@@ -353,42 +357,49 @@ impl PatcherApp {
                         Err(error) => self.show_error(error),
                     }
                 }
-                Message::Build(event) => match event {
-                    Event::Stage { name, detail } => {
-                        self.stage = name;
-                        self.detail = detail;
-                        self.download = None;
-                    }
-                    Event::Download {
-                        name,
-                        received,
-                        total,
-                    } => self.download = Some((name, received, total)),
-                    Event::Log(text) => {
-                        if self.logs.len() >= 4000 {
-                            self.logs.drain(..500);
+                Message::Build(event) => {
+                    self.build_progress.apply(&event);
+                    match event {
+                        Event::OperationProgress { .. } | Event::OverallProgress { .. } => (),
+                        Event::Stage { name, detail } => {
+                            self.stage = name;
+                            self.detail = detail;
+                            self.download = None;
                         }
-                        self.logs.push(text);
+                        Event::Download {
+                            name,
+                            received,
+                            total,
+                        } => self.download = Some((name, received, total)),
+                        Event::Log(text) => {
+                            if self.logs.len() >= 4000 {
+                                self.logs.drain(..500);
+                            }
+                            self.logs.push(text);
+                        }
+                        Event::Finished(path) => {
+                            self.download = None;
+                            self.error = None;
+                            self.busy = false;
+                            self.finished = Some(path);
+                            self.stage = "Your patched ISO is ready".into();
+                            self.detail =
+                                "Read the installation steps below before booting your Mac.".into();
+                        }
+                        Event::Failed(error) => {
+                            self.download = None;
+                            self.busy = false;
+                            self.show_error(error);
+                            self.stage = "Build stopped".into();
+                        }
+                        Event::Cancelled => {
+                            self.download = None;
+                            self.busy = false;
+                            self.stage = "Build cancelled".into();
+                            self.detail = "The worker has finished its cleanup. Download caches and diagnostic files are retained.".into();
+                        }
                     }
-                    Event::Finished(path) => {
-                        self.error = None;
-                        self.busy = false;
-                        self.finished = Some(path);
-                        self.stage = "Your patched ISO is ready".into();
-                        self.detail =
-                            "Read the installation steps below before booting your Mac.".into();
-                    }
-                    Event::Failed(error) => {
-                        self.busy = false;
-                        self.show_error(error);
-                        self.stage = "Build stopped".into();
-                    }
-                    Event::Cancelled => {
-                        self.busy = false;
-                        self.stage = "Build cancelled".into();
-                        self.detail = "The worker has finished its cleanup. Download caches and diagnostic files are retained.".into();
-                    }
-                },
+                }
             }
         }
     }
@@ -540,6 +551,12 @@ impl PatcherApp {
         self.finished = None;
         self.error = None;
         self.logs.clear();
+        self.download = None;
+        self.build_progress = Default::default();
+        self.build_progress.apply(&Event::OverallProgress {
+            completed: 0,
+            total: macbook_iso_patcher::progress::build_steps(req.selected.len(), &req.model),
+        });
         self.cancel = Cancellation::default();
         self.stage = "Preparing your build".into();
         self.detail = "Checking and downloading pinned driver packages.".into();
@@ -670,8 +687,71 @@ impl PatcherApp {
         Self::heading(ui, &self.stage, &self.detail);
         let colors = appearance::palette(ui.ctx());
         Self::section(ui, "Progress", colors.source, |ui| {
+            ui.label(RichText::new(&self.stage).strong());
+            ui.label(RichText::new(&self.detail).color(muted(ui)));
+            ui.add_space(8.0);
+            let transfer = self.download.as_ref().map(|(name, received, total)| {
+                (
+                    format!("Downloading {name}"),
+                    total.filter(|v| *v > 0).map(|total| {
+                        (*received as f64 / total as f64 * 100.0).clamp(0.0, 100.0) as f32
+                    }),
+                )
+            });
+            let operation = self.build_progress.operation.as_ref().or(transfer.as_ref());
+            let bar_fill = if ui.visuals().dark_mode {
+                ui.visuals().selection.bg_fill
+            } else {
+                colors.accent.gamma_multiply(0.35)
+            };
+            let current_operation = |ui: &mut egui::Ui| {
+                ui.label("Current operation");
+                if let Some((name, Some(percent))) = operation {
+                    ui.add(
+                        egui::ProgressBar::new(*percent / 100.0)
+                            .fill(bar_fill)
+                            .desired_height(24.0)
+                            .text(format!("{name} · {percent:.1}%")),
+                    );
+                } else if self.busy {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spinner();
+                        ui.label(
+                            operation
+                                .map(|(name, _)| name.as_str())
+                                .unwrap_or("Working on this step…"),
+                        );
+                    });
+                } else {
+                    ui.label(if self.finished.is_some() {
+                        "Complete"
+                    } else {
+                        "Stopped"
+                    });
+                }
+            };
+            let overall = |ui: &mut egui::Ui| {
+                ui.label("Overall build");
+                ui.add(
+                    egui::ProgressBar::new(self.build_progress.fraction().unwrap_or(0.0))
+                        .fill(bar_fill)
+                        .desired_height(24.0)
+                        .text(self.build_progress.label()),
+                );
+            };
+            if ui.available_width() >= 640.0 {
+                ui.columns(2, |columns| {
+                    current_operation(&mut columns[0]);
+                    overall(&mut columns[1]);
+                });
+            } else {
+                current_operation(ui);
+                ui.add_space(8.0);
+                overall(ui);
+            }
             if self.busy {
-                ui.horizontal(|ui| { ui.spinner(); ui.label(if self.cancel.is_cancelled() { "Cancellation requested. Waiting for the current servicing operation to finish safely…" } else { "Keep the app open while the build is running." }); });
+                ui.add_space(6.0);
+                ui.label(RichText::new(if self.cancel.is_cancelled() { "Cancellation requested. Waiting for the current servicing operation to finish safely…" } else { "Keep the app open. Overall progress counts steps, not time remaining." }).size(12.0).color(muted(ui)));
             }
         });
         if let Some(path) = self.finished.clone() {
@@ -692,31 +772,17 @@ impl PatcherApp {
         }
         ui.add_space(12.0);
         Self::section(ui, "Build details", colors.surface, |ui| {
-            egui::CollapsingHeader::new("Show build log")
-                .default_open(
-                    cfg!(debug_assertions)
-                        && std::env::var("MACBOOK_PATCHER_PREVIEW").as_deref() == Ok("build-log")
-                        && std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some(),
-                )
-                .show(ui, |ui| {
-                    if ui.button("Save visible log…").clicked()
-                        && let Some(path) = rfd::FileDialog::new()
-                            .set_file_name("macbook-patcher.log")
-                            .save_file()
-                    {
-                        let _ = std::fs::write(path, self.logs.join("\n"));
-                    }
-                    egui::ScrollArea::vertical()
-                        .id_salt("log")
-                        .max_height(280.0)
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            ui.spacing_mut().item_spacing.y = 2.0;
-                            for line in &self.logs {
-                                ui.monospace(line);
-                            }
-                        });
-                });
+            let default_open = cfg!(debug_assertions)
+                && std::env::var("MACBOOK_PATCHER_PREVIEW").as_deref() == Ok("build-log")
+                && std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some();
+            if build_log::build_log_view(ui, &self.logs, default_open).save_requested
+                && let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("macbook-patcher.log")
+                    .save_file()
+                && let Err(error) = std::fs::write(path, self.logs.join("\n"))
+            {
+                self.show_error(format!("Could not save build log: {error}"));
+            }
         });
     }
 }
@@ -918,16 +984,7 @@ impl eframe::App for PatcherApp {
                                 .color(muted(ui)),
                         );
                         ui.add_space(12.0);
-                        if ui
-                            .add_enabled(
-                                self.page == Page::Model && self.model_selected.is_none(),
-                                egui::Button::new("Settings"),
-                            )
-                            .on_disabled_hover_text(
-                                "Settings are available before selecting a MacBook model.",
-                            )
-                            .clicked()
-                        {
+                        if ui.button("Settings").clicked() {
                             self.storage.open = true;
                             self.storage.navigate_builds(false);
                             self.scan_storage(ctx);
@@ -1019,7 +1076,7 @@ impl eframe::App for PatcherApp {
                     let model_right = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if self.busy || self.page == Page::Build { self.build_iso_button(ui, false); }
                         if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation && !self.closing {
-                            if self.page == Page::Model && Self::primary(ui,"Start download & continue to Windows ISO", self.model().is_some()) {
+                            if self.page == Page::Model && Self::primary(ui,"Start download & continue to Windows ISO", self.model().is_some() && !self.storage.busy()) {
                                 self.drivers.requested_model = self.model().map(|model| model.id);
                                 self.ensure_driver_downloads(ctx);
                                 self.page = Page::Iso;
@@ -1282,6 +1339,43 @@ impl eframe::App for PatcherApp {
 #[cfg(test)]
 mod drop_tests {
     use super::*;
+    #[test]
+    fn build_events_clear_operation_and_download_without_losing_overall_position() {
+        for terminal in [
+            Event::Cancelled,
+            Event::Failed("test failure".into()),
+            Event::Finished("test.iso".into()),
+        ] {
+            let success = matches!(terminal, Event::Finished(_));
+            let mut app = PatcherApp::new_with_context(&egui::Context::default());
+            app.page = Page::Build;
+            app.busy = true;
+            for event in [
+                Event::OverallProgress {
+                    completed: 6,
+                    total: 12,
+                },
+                Event::OperationProgress {
+                    operation: "Saving".into(),
+                    percent: Some(40.0),
+                },
+                Event::Download {
+                    name: "package".into(),
+                    received: 50,
+                    total: Some(100),
+                },
+                terminal,
+            ] {
+                app.sender.send(Message::Build(event)).unwrap();
+            }
+            app.consume();
+            assert!(!app.busy && app.download.is_none() && app.build_progress.operation.is_none());
+            assert_eq!(
+                app.build_progress.fraction(),
+                Some(if success { 1.0 } else { 0.5 })
+            );
+        }
+    }
     #[test]
     fn startup_fits_smaller_monitors_without_changing_proportions() {
         for monitor in [

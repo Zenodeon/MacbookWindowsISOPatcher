@@ -149,6 +149,14 @@ pub enum Event {
         received: u64,
         total: Option<u64>,
     },
+    OperationProgress {
+        operation: String,
+        percent: Option<f32>,
+    },
+    OverallProgress {
+        completed: u32,
+        total: u32,
+    },
     Log(String),
     Finished(PathBuf),
     Failed(String),

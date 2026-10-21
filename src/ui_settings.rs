@@ -260,14 +260,17 @@ impl PatcherApp {
             ui.add_space(10.0);
         }
     }
-    pub(super) fn storage_blocked(&self) -> bool {
-        self.busy
+    pub(super) fn storage_read_only(&self) -> bool {
+        self.page != Page::Model
+            || self.busy
             || self.scanning
             || self.dismounting
             || self.installing_adk
             || self.drivers.running
             || self.closing
-            || self.storage.busy()
+    }
+    pub(super) fn storage_blocked(&self) -> bool {
+        self.storage_read_only() || self.storage.busy()
     }
     pub(super) fn scan_storage(&mut self, ctx: &egui::Context) {
         if self.storage.busy() {
@@ -472,6 +475,7 @@ impl PatcherApp {
             }
             ui.horizontal(|ui|{ui.label(RichText::new(if self.storage.builds_page{"Builds"}else{"Settings"}).size(25.0).strong());ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{refresh=ui.add_enabled(!self.storage.busy(),egui::Button::new("Refresh")).clicked();});});
             ui.label(RichText::new(if self.storage.builds_page{"Open build locations or delete files from each card."}else{"Manage cached downloads and generated ISOs."}).size(13.0).color(colors.muted));
+            if self.storage_read_only(){ui.add_space(6.0);ui.label(RichText::new("You can open folders. Clearing cache and deleting builds are unavailable during this workflow.").size(13.0).color(colors.muted));}
             ui.add_space(14.0);
             self.storage_status(ui,ctx,blocked,&mut retry,&mut refresh);
             ui.scope(|ui|{
@@ -483,7 +487,8 @@ impl PatcherApp {
                         ui.label(format!("{} cached files",inventory.cache.size.files));
                         ui.horizontal_wrapped(|ui|{ui.label(format!("Cache size: {}",cleanup::format_bytes(inventory.cache.size.bytes)));if ui.add_enabled(!blocked && !inventory.cache.paths.is_empty(),egui::Button::new("Clear cache")).clicked(){confirm=Some(CleanupRequest::Cache{root:PathBuf::from(self.settings.cache.trim()),protected:self.inventory.as_ref().map(|i|vec![i.iso.clone()]).unwrap_or_default()});}});
                     }else{ui.label("Scanning cached downloads…");}
-                    ui.label(RichText::new(platform::display_path(&PathBuf::from(self.settings.cache.trim()))).size(12.0).color(colors.muted));
+                    let cache_path=PathBuf::from(self.settings.cache.trim());
+                    if cache_path.is_dir() && storage_path_link(ui,&cache_path,!self.storage.deleting,"Open cache folder").clicked(){open_location=Some((cache_path,false));}
                 });
                 ui.add_space(16.0);
                 egui::Frame::new().fill(colors.canvas).corner_radius(12).inner_margin(16.0).show(ui,|ui|{
@@ -614,6 +619,30 @@ impl PatcherApp {
 #[cfg(test)]
 mod availability_tests {
     use super::*;
+    #[test]
+    fn settings_become_read_only_after_continue_not_model_selection() {
+        let ctx = egui::Context::default();
+        let mut app = PatcherApp::new_with_context(&ctx);
+        app.model_selected = Some(0);
+        assert!(!app.storage_read_only());
+        assert!(!app.storage_blocked());
+        for page in [Page::Iso, Page::Editions, Page::Review, Page::Build] {
+            app.page = page;
+            assert!(app.storage_read_only());
+            app.start_cleanup(
+                CleanupRequest::Cache {
+                    root: PathBuf::from("never-used"),
+                    protected: vec![],
+                },
+                &ctx,
+            );
+            assert!(!app.storage.deleting);
+        }
+        app.page = Page::Model;
+        assert!(!app.storage_read_only());
+        app.drivers.running = true;
+        assert!(app.storage_read_only());
+    }
     use cleanup::{
         ArtifactView, BuildRecord, BuildState, BuildView, Fingerprint, Inventory, StorageSize,
     };

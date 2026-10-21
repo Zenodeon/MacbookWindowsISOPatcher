@@ -1,5 +1,37 @@
 # Validation
 
+## Build progress, log header, and limited Settings — 2026-10-21
+
+- Progress shows the live stage/details, current DISM or Oscdimg operation,
+  and overall build steps. Tool percentages appear only in Progress; the footer
+  and build button share the overall completed-step fraction. Overall measures
+  actual operations, not time, and reaches 100% only on Finished.
+- The authenticated transport carries typed operation/overall events. Tool output
+  is read incrementally across CR/LF and fragmented chunks while retaining log
+  messages. Supported percentage formats are recognized only for the relevant
+  tools. Each command resets its operation state; terminal states clear operation
+  and download details while preserving completed overall steps on interruption.
+- Build step totals account for each selected edition's export/patch and the
+  model-specific Windows Setup patch. Preparation, administrator handoff, media
+  copying, driver staging, validation, ISO creation/publication, and cleanup are
+  included. Windows image servicing itself was not rerun for this UI change.
+- Save visible log shares the expandable heading row and is hidden when closed.
+  The recovered space goes to the compact log viewport, sized to the visible
+  area. Saving reports write errors and never toggles the log.
+- Settings remains openable. Selecting a model alone does not lock cleanup.
+  Continuing to the ISO page locks destructive actions, including backend retry
+  dispatch; existing activity guards remain in place. Browsing, refresh, folder
+  links, and copying errors remain available. The cache path now opens its folder.
+- 89 normal tests pass, plus formatting and Clippy with warnings denied. Tests
+  cover supported/unsupported percentages, fragmented UTF-16/CR/LF updates,
+  overall totals and terminal states, fragmented progress events on authenticated
+  loopback transport, save-button placement/click independence, and cleanup guards
+  before/after Continue. Existing popup geometry/hover tests also pass.
+- Actual debug-renderer screenshots inspected in both themes at 1240 x 700;
+  smaller 800 x 520 captures verify stacked progress and scrollable limited
+  Settings. Settings captures use current history. No cleanup action, full ISO
+  build, release build, package refresh, ZIP, push, or closure of the running app.
+
 ## A1706 fresh-image graphics preparation — 2026-10-21
 
 - The working project's earlier scripts explicitly prepared the offline `igfx`

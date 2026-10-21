@@ -6,7 +6,6 @@ use anyhow::{Context, Result, bail, ensure};
 use std::{
     ffi::OsStr,
     fs,
-    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
@@ -255,6 +254,24 @@ pub fn run(
     let mut child = cmd
         .spawn()
         .with_context(|| format!("Cannot start {}", program.display()))?;
+    let tool = match program
+        .file_name()
+        .and_then(|p| p.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "dism.exe" => Some(crate::progress::Tool::Dism),
+        "oscdimg.exe" => Some(crate::progress::Tool::Oscdimg),
+        _ => None,
+    };
+    let operation = tool.map(|tool| tool.operation(args)).unwrap_or_default();
+    if tool.is_some() {
+        emit(Event::OperationProgress {
+            operation: operation.clone(),
+            percent: None,
+        });
+    }
     let mut readers = Vec::new();
     for pipe in [
         child
@@ -270,12 +287,12 @@ pub fn run(
     .flatten()
     {
         let emit = emit.clone();
+        let operation = operation.clone();
         readers.push(thread::spawn(move || {
-            for line in BufReader::new(pipe).split(b'\n').flatten() {
-                let text = String::from_utf8_lossy(&line).replace('\0', "");
-                if !text.trim().is_empty() {
-                    emit(Event::Log(text.trim().to_owned()));
-                }
+            if let Err(error) = crate::progress::read_output(pipe, tool, &operation, &emit) {
+                emit(Event::Log(format!(
+                    "Could not read command output: {error}"
+                )));
             }
         }));
     }
@@ -291,6 +308,12 @@ pub fn run(
     };
     for reader in readers {
         let _ = reader.join();
+    }
+    if tool.is_some() {
+        emit(Event::OperationProgress {
+            operation: String::new(),
+            percent: None,
+        });
     }
     cancel.check()?;
     ensure!(

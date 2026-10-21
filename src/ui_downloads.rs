@@ -210,12 +210,8 @@ impl PatcherApp {
                 && self
                     .model()
                     .is_some_and(|model| self.drivers.requested_for(model.id)));
-        let progress = if self.busy {
-            self.download
-                .as_ref()
-                .and_then(|(_, received, total)| download_fraction(*received, *total))
-        } else if self.page == Page::Build {
-            self.finished.as_ref().map(|_| 1.0)
+        let progress = if self.busy || self.page == Page::Build {
+            self.build_progress.fraction()
         } else {
             self.current_driver_transfer()
                 .and_then(|(_, received, total)| download_fraction(*received, *total))
@@ -276,6 +272,47 @@ impl PatcherApp {
         tooltip: &str,
     ) {
         let colors = appearance::palette(ui.ctx());
+        if self.page == Page::Build {
+            let area = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 38.0));
+            ui.put(
+                egui::Rect::from_min_size(area.min, egui::vec2(area.width(), 14.0)),
+                egui::Label::new(RichText::new(model).size(12.0).color(colors.muted)).truncate(),
+            )
+            .on_hover_text(tooltip);
+            ui.put(
+                egui::Rect::from_min_size(
+                    area.min + egui::vec2(0.0, 15.0),
+                    egui::vec2(area.width(), 17.0),
+                ),
+                egui::Label::new(
+                    RichText::new(format!("{} · {}", self.build_progress.label(), self.stage))
+                        .size(11.0)
+                        .color(colors.muted),
+                )
+                .truncate(),
+            )
+            .on_hover_text(format!("{}\n{}", self.build_progress.label(), self.detail));
+            let track =
+                egui::Rect::from_min_max(egui::pos2(area.left(), area.bottom() - 4.0), area.max);
+            ui.painter()
+                .rect_filled(track, 2, colors.muted.gamma_multiply(0.2));
+            ui.painter().rect_filled(
+                egui::Rect::from_min_size(
+                    track.min,
+                    egui::vec2(
+                        track.width() * self.build_progress.fraction().unwrap_or(0.0),
+                        track.height(),
+                    ),
+                ),
+                2,
+                if self.finished.is_some() {
+                    colors.success
+                } else {
+                    colors.accent
+                },
+            );
+            return;
+        }
         let status = if self.busy {
             Some((self.stage.clone(), colors.muted))
         } else {

@@ -365,6 +365,8 @@ fn run_job(
 ) -> Result<PathBuf> {
     let req = &prepared.request;
     let assets = load_assets(prepared, cancel)?;
+    // Preparation and the authenticated administrator handoff are complete.
+    let mut steps = crate::progress::BuildSteps::new(req.selected.len(), &req.model, 2, emit);
     stage(
         emit,
         "Checking Windows media",
@@ -376,6 +378,7 @@ fn run_job(
         fresh.images == req.inventory.images && fresh.install_file == req.inventory.install_file,
         "Windows image metadata changed. Scan again"
     );
+    steps.advance(emit);
     let root = job.join("iso-root");
     stage(
         emit,
@@ -413,6 +416,7 @@ fn run_job(
         !root.join("$WinPEDriver$").exists(),
         "Source contains custom WinPE drivers. Use original Microsoft media"
     );
+    steps.advance(emit);
     let selected = req.selected_images()?;
     let target = root.join("sources/install.wim");
     for (n, image) in selected.iter().enumerate() {
@@ -440,8 +444,14 @@ fn run_job(
             emit,
             cancel,
         )?;
+        steps.advance(emit);
     }
     drop(source);
+    stage(
+        emit,
+        "Staging Apple drivers",
+        "Copying Boot Camp drivers and Windows setup configuration",
+    );
     let pe_drivers = root.join("$WinPEDriver$");
     fs::create_dir(&pe_drivers)?;
     for folder in BOOT_ALLOWLIST {
@@ -466,6 +476,7 @@ fn run_job(
         "[Channel]\r\nRetail\r\n[VL]\r\n0\r\n".into()
     };
     fs::write(root.join("sources/ei.cfg"), edition_cfg)?;
+    steps.advance(emit);
     for (n, image) in selected.iter().enumerate() {
         stage(
             emit,
@@ -515,6 +526,7 @@ fn run_job(
             }
         }
         mount.commit(cancel)?;
+        steps.advance(emit);
     }
     if req.model == MODEL_ID {
         let intel = assets
@@ -546,6 +558,7 @@ fn run_job(
         validate_signed_store(&mount.mount, intel, &req.model)?;
         prepare_a1706_boot_graphics(&mount.mount, intel, emit)?;
         mount.commit(cancel)?;
+        steps.advance(emit);
     }
     stage(
         emit,
@@ -584,6 +597,7 @@ fn run_job(
         )?;
     }
     // Keep the temporary ISO on the output filesystem for an atomic, no-clobber publication.
+    steps.advance(emit);
     let partial = req
         .output
         .parent()
@@ -601,6 +615,7 @@ fn run_job(
         let _ = fs::remove_file(&partial);
         return Err(error);
     }
+    steps.advance(emit);
     stage(
         emit,
         "Checking finished ISO",
@@ -629,11 +644,17 @@ fn run_job(
     platform::publish_iso(&partial, &req.output)
         .context("Could not publish ISO. The validated temporary ISO is retained")?;
     crate::cleanup::published(job).context("ISO was created, but its ownership record could not be saved. The ISO and workspace have been retained")?;
+    steps.advance(emit);
     emit(Event::Log(format!(
         "Completed. Build log: {}",
         job.join("build.log").display()
     )));
     // Large staging files belong to this UUID job only. Retain job.json and build.log.
+    stage(
+        emit,
+        "Finishing build",
+        "Cleaning temporary media and saving the build result",
+    );
     ensure!(
         root.canonicalize()?.starts_with(job.canonicalize()?),
         "Cleanup path escaped build workspace"

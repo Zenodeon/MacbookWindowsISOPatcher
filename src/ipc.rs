@@ -153,8 +153,11 @@ fn monitor_cancellation(
 }
 
 pub fn start(request: BuildRequest, emit: Emit, cancel: Cancellation) -> Result<()> {
+    let mut steps =
+        crate::progress::BuildSteps::new(request.selected.len(), &request.model, 0, &emit);
     let _cache_activity = crate::cleanup::cache_activity(&request.cache)?;
     let mut prepared = engine::prepare(request, &emit, &cancel)?;
+    steps.advance(&emit);
     let mut lease = PreparedLease {
         cache: prepared.request.cache.clone(),
         root: prepared.assets_root.clone(),
@@ -398,6 +401,21 @@ mod tests {
             stream.write_all(&serialized.as_bytes()[..1]).unwrap();
             thread::sleep(Duration::from_millis(75));
             stream.write_all(&serialized.as_bytes()[1..]).unwrap();
+            for event in [
+                Event::OperationProgress {
+                    operation: "Saving image".into(),
+                    percent: Some(47.0),
+                },
+                Event::OverallProgress {
+                    completed: 6,
+                    total: 12,
+                },
+            ] {
+                let serialized = serde_json::to_string(&event).unwrap() + "\n";
+                for fragment in serialized.as_bytes().chunks(3) {
+                    stream.write_all(fragment).unwrap();
+                }
+            }
             assert_eq!(line(&mut reader).unwrap().trim(), "cancel");
             send(&mut stream, &Event::Cancelled).unwrap();
         });
@@ -429,6 +447,16 @@ mod tests {
             monitor_cancellation(stream.try_clone().unwrap(), cancel.clone(), done.clone());
         let event: Event = serde_json::from_str(&line(&mut reader).unwrap()).unwrap();
         assert!(matches!(event, Event::Stage { name, .. } if name == "Checking Windows media"));
+        assert!(
+            matches!(serde_json::from_str::<Event>(&line(&mut reader).unwrap()).unwrap(),Event::OperationProgress{percent:Some(percent),..} if percent==47.0)
+        );
+        assert!(matches!(
+            serde_json::from_str::<Event>(&line(&mut reader).unwrap()).unwrap(),
+            Event::OverallProgress {
+                completed: 6,
+                total: 12
+            }
+        ));
         cancel.cancel();
         assert!(matches!(
             serde_json::from_str::<Event>(&line(&mut reader).unwrap()).unwrap(),

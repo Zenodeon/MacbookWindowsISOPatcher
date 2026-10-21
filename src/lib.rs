@@ -7,4 +7,5 @@ pub mod ipc;
 pub mod models;
 pub mod platform;
 pub mod prerequisites;
+pub mod progress;
 pub mod wim;
