@@ -918,7 +918,16 @@ impl eframe::App for PatcherApp {
                                 .color(muted(ui)),
                         );
                         ui.add_space(12.0);
-                        if ui.button("Settings").clicked() {
+                        if ui
+                            .add_enabled(
+                                self.page == Page::Model && self.model_selected.is_none(),
+                                egui::Button::new("Settings"),
+                            )
+                            .on_disabled_hover_text(
+                                "Settings are available before selecting a MacBook model.",
+                            )
+                            .clicked()
+                        {
                             self.storage.open = true;
                             self.storage.navigate_builds(false);
                             self.scan_storage(ctx);
