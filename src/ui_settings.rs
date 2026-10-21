@@ -79,6 +79,11 @@ pub(super) struct StorageSettings {
     pub inventory: Option<cleanup::Inventory>,
     pub selected: BTreeSet<String>,
     pub confirmation: Option<CleanupRequest>,
+    pub confirmation_ready: bool,
+    pub execute_after_scan: bool,
+    pub ready_cleanup: Option<CleanupRequest>,
+    pub notice: Option<String>,
+    pub focused: bool,
     pub last_request: Option<CleanupRequest>,
     pub report: Option<CleanupReport>,
     pub error: Option<String>,
@@ -88,6 +93,70 @@ impl StorageSettings {
     pub fn busy(&self) -> bool {
         self.scanning || self.deleting
     }
+    pub fn apply_inventory(&mut self, inventory: cleanup::Inventory) {
+        let previous = self
+            .confirmation
+            .as_ref()
+            .and_then(|r| confirmation_manifest(self.inventory.as_ref()?, r));
+        self.selected.retain(|id| {
+            inventory
+                .builds
+                .iter()
+                .any(|v| &v.record.id == id && v.can_delete())
+        });
+        let current = self
+            .confirmation
+            .as_ref()
+            .and_then(|r| confirmation_manifest(&inventory, r));
+        self.inventory = Some(inventory);
+        self.confirmation_ready = current.as_ref().is_some_and(|m| !m.is_empty());
+        if self.confirmation.is_some() && !self.confirmation_ready {
+            self.confirmation = None;
+            self.notice = Some(
+                "Selected files are no longer available for deletion. Review the refreshed list."
+                    .into(),
+            );
+        } else if self.execute_after_scan && previous == current {
+            self.ready_cleanup = self.confirmation.clone();
+        } else if self.execute_after_scan {
+            self.notice =
+                Some("Files changed. Review the updated paths before confirming again.".into());
+        }
+        self.execute_after_scan = false;
+    }
+}
+
+fn confirmation_manifest(
+    inventory: &cleanup::Inventory,
+    request: &CleanupRequest,
+) -> Option<Vec<(PathBuf, u64)>> {
+    let mut entries = match request {
+        CleanupRequest::Cache { .. } => inventory
+            .cache
+            .paths
+            .iter()
+            .map(|p| (p.clone(), inventory.cache.size.bytes))
+            .collect::<Vec<_>>(),
+        CleanupRequest::Builds { ids, .. } | CleanupRequest::Isos { ids, .. } => {
+            let iso_only = matches!(request, CleanupRequest::Isos { .. });
+            let mut entries = Vec::new();
+            for id in ids {
+                let view = inventory.builds.iter().find(|v| &v.record.id == id)?;
+                if (iso_only && !view.can_delete_iso()) || (!iso_only && !view.can_delete()) {
+                    return None;
+                }
+                entries.extend(
+                    view.deletable_artifacts(iso_only)
+                        .into_iter()
+                        .map(|a| (a.path.clone(), a.size.bytes)),
+                );
+            }
+            entries
+        }
+    };
+    entries.sort();
+    entries.dedup();
+    Some(entries)
 }
 
 impl PatcherApp {
@@ -100,6 +169,10 @@ impl PatcherApp {
         refresh: &mut bool,
     ) {
         let colors = appearance::palette(ctx);
+        if let Some(notice) = &self.storage.notice {
+            ui.label(RichText::new(notice).color(colors.muted));
+            ui.add_space(8.0);
+        }
         if let Some(report) = &self.storage.report {
             ui.label(RichText::new(report.message()).color(colors.success));
         }
@@ -109,12 +182,12 @@ impl PatcherApp {
             .clone()
             .into_iter()
             .chain(self.storage.report.iter().flat_map(|r| r.errors.clone()))
-            .chain(
-                self.storage
-                    .inventory
-                    .iter()
-                    .flat_map(|i| i.warnings.clone()),
-            )
+            .chain(self.storage.inventory.iter().flat_map(|i| {
+                i.warnings
+                    .clone()
+                    .into_iter()
+                    .chain(i.builds.iter().filter_map(|v| v.problem.clone()))
+            }))
             .collect::<Vec<_>>()
             .join("\n\n");
         if !errors.is_empty() {
@@ -165,6 +238,7 @@ impl PatcherApp {
             return;
         }
         self.storage.scanning = true;
+        self.storage.confirmation_ready = false;
         let cache = PathBuf::from(self.settings.cache.trim());
         let workspace = PathBuf::from(self.settings.work.trim());
         let tx = self.sender.clone();
@@ -174,6 +248,26 @@ impl PatcherApp {
             let _ = tx.send(Message::StorageScanned(result));
             ctx.request_repaint();
         });
+    }
+    fn open_storage_location(&mut self, path: &std::path::Path, iso: bool) {
+        let result = if iso {
+            platform::reveal_file(path)
+        } else {
+            platform::open_folder(path)
+        };
+        if let Err(e) = result {
+            if e.chain().any(|e| {
+                e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+            }) {
+                self.storage.notice = Some("Location no longer exists.".into());
+            } else {
+                self.storage.error = Some(format!("Could not open location: {e:#}"));
+                self.storage.last_request = None;
+                self.storage.copied = false;
+            }
+            self.storage.needs_scan = true;
+        }
     }
     pub(super) fn start_cleanup(&mut self, mut request: CleanupRequest, ctx: &egui::Context) {
         if self.storage_blocked() {
@@ -207,9 +301,12 @@ impl PatcherApp {
             }
         }
         self.storage.confirmation = None;
+        self.storage.ready_cleanup = None;
+        self.storage.confirmation_ready = false;
         self.storage.error = None;
         self.storage.report = None;
         self.storage.copied = false;
+        self.storage.notice = None;
         self.storage.last_request = Some(request.clone());
         self.storage.deleting = true;
         let tx = self.sender.clone();
@@ -259,6 +356,7 @@ impl PatcherApp {
         let mut retry = None;
         let mut confirm = None;
         let mut cancel_confirmation = false;
+        let mut open_location = None;
         let frame = egui::Frame::new()
             .fill(colors.surface)
             .corner_radius(16)
@@ -276,7 +374,14 @@ impl PatcherApp {
                 let multiple=matches!(&request,CleanupRequest::Builds{ids,..} if ids.len()>1);
                 ui.label(RichText::new(if cache {"Clear cache?"}else if iso_only{"Delete ISO?"}else if multiple{"Delete builds?"}else{"Delete build?"}).size(23.0).strong());
                 ui.add_space(8.0);
-                ui.label(if cache {"Cached drivers and setup downloads will need downloading again."}else if iso_only{"Only the generated ISO will be deleted. The workspace and build logs will be kept."}else{"Generated ISOs, workspaces and build logs will be deleted. Unverified output files are kept."});
+                if !self.storage.confirmation_ready || self.storage.scanning {
+                    ui.horizontal(|ui|{ui.spinner();ui.label("Checking which files are still available…");});
+                    ui.add_space(16.0);
+                    cancel_confirmation=ui.button("Cancel").clicked();
+                    return;
+                }
+                if let Some(notice)=&self.storage.notice{ui.label(RichText::new(notice).color(colors.muted));ui.add_space(8.0);}
+                ui.label(if cache {"Cached drivers and setup downloads will need downloading again."}else if iso_only{"Only the generated ISO listed below will be deleted."}else{"Only the listed build files and folders will be deleted. Unverified output files are kept."});
                 ui.label(RichText::new("Deletion is permanent. Original source ISOs are kept.").color(colors.warning));
                 let mut bytes=0;
                 ui.add_space(16.0);
@@ -298,14 +403,16 @@ impl PatcherApp {
                                     });
                                 });
                             },
-                            CleanupRequest::Builds{ids,..} | CleanupRequest::Isos{ids,..}=>{for view in &inventory.builds {if ids.contains(&view.record.id){bytes+=if iso_only{if view.output_present{view.record.published.as_ref().map(|p|p.size).unwrap_or(0)}else{0}}else{view.size.bytes};
+                            CleanupRequest::Builds{ids,..} | CleanupRequest::Isos{ids,..}=>{for view in &inventory.builds {if ids.contains(&view.record.id){
                                 egui::Frame::new().fill(colors.source).corner_radius(12).inner_margin(16.0).show(ui,|ui|{
                                     ui.set_min_width(ui.available_width());
-                                    ui.label(RichText::new(view.record.output.file_name().unwrap_or_default().to_string_lossy()).strong());
-                                    if !iso_only{ui.label("Workspace");ui.add(egui::Label::new(platform::display_path(&view.record.job)).wrap().selectable(true));}
-                                    if view.record.published.is_some() && view.output_present{ui.label("ISO");ui.add(egui::Label::new(platform::display_path(&view.record.output)).wrap().selectable(true));}
-                                    if !iso_only{if let Some(path)=&view.record.partial{ui.add(egui::Label::new(platform::display_path(path)).wrap().selectable(true));}
-                                    if let Some(path)=&view.record.connection_log{ui.add(egui::Label::new(platform::display_path(path)).wrap().selectable(true));}}
+                                    ui.label(RichText::new(view.title()).strong());
+                                    for artifact in view.deletable_artifacts(iso_only) {
+                                        if artifact.path==view.workspace.path {ui.label("Workspace");}
+                                        else if artifact.path==view.output.path {ui.label("ISO");}
+                                        bytes+=if artifact.path!=view.workspace.path && view.workspace.available() && artifact.path.starts_with(&view.workspace.path){0}else{artifact.size.bytes};
+                                        ui.add(egui::Label::new(platform::display_path(&artifact.path)).wrap().selectable(true));
+                                    }
                                 });ui.add_space(6.0);}}}
                         }
                     }
@@ -342,21 +449,21 @@ impl PatcherApp {
                     ui.set_min_width(ui.available_width());
                     ui.label(RichText::new("Builds").size(18.0).strong());
                     if let Some(inventory)=&self.storage.inventory {
-                        ui.label(format!("{} workspaces",inventory.builds.len()));
-                        ui.label(format!("Total space used: {}",cleanup::format_bytes(inventory.builds.iter().map(|v|v.size.bytes).sum())));
+                        ui.label(format!("{} workspaces",inventory.workspace_count()));
+                        ui.label(format!("{}: {}",inventory.space_label(),cleanup::format_bytes(inventory.total_bytes())));
                     }else{ui.label("Finding saved workspaces…");}
                     ui.label(RichText::new("Generated ISOs and associated workspaces.").size(13.0).color(colors.muted));
                     ui.add_space(8.0);
-                    if ui.button("Manage builds").clicked(){self.storage.builds_page=true;}
+                    if ui.button("Manage builds").clicked(){self.storage.builds_page=true;refresh=true;}
                 });
                 } else {
                 if let Some(inventory)=&self.storage.inventory {
-                    ui.label(format!("{} workspaces · Total space used: {}",inventory.builds.len(),cleanup::format_bytes(inventory.builds.iter().map(|v|v.size.bytes).sum())));
+                    ui.label(format!("{} workspaces · {}: {}",inventory.workspace_count(),inventory.space_label(),cleanup::format_bytes(inventory.total_bytes())));
                     ui.add_space(8.0);
                 }
                 ui.horizontal_wrapped(|ui|{
                     if let Some(inventory)=&self.storage.inventory {
-                        let eligible: BTreeSet<_>=inventory.builds.iter().filter(|v|v.problem.is_none()).map(|v|v.record.id.clone()).collect();
+                        let eligible: BTreeSet<_>=inventory.builds.iter().filter(|v|v.can_delete()).map(|v|v.record.id.clone()).collect();
                         let all=!eligible.is_empty() && self.storage.selected==eligible;
                         if ui.add_enabled(!blocked && !eligible.is_empty(),egui::Button::new(if all{"Clear selection"}else{"Select all"})).clicked(){if all {self.storage.selected.clear();}else{self.storage.selected=eligible;}}
                         if ui.add_enabled(!blocked && !self.storage.selected.is_empty(),egui::Button::new(format!("Delete selected ({})",self.storage.selected.len()))).clicked(){confirm=Some(CleanupRequest::Builds{ids:self.storage.selected.iter().cloned().collect(),protected:vec![]});}
@@ -375,34 +482,38 @@ impl PatcherApp {
                             ui.horizontal_top(|ui|{
                             let summary_width=(ui.available_width()-190.0).max(100.0);
                             let selection=ui.allocate_ui_with_layout(egui::vec2(summary_width,0.0),egui::Layout::top_down(egui::Align::Min),|ui|{
-                            ui.label(RichText::new(r.output.file_name().unwrap_or_default().to_string_lossy()).strong());
+                            ui.label(RichText::new(view.title()).strong());
                             let model=MODEL_PROFILES.iter().find(|m|m.id==r.model).map(|m|m.name).unwrap_or(&r.model);
                             ui.label(RichText::new(format!("{model} · {}",r.editions.join(", "))).size(13.0));
-                            let state=if r.published.is_some() && !view.output_present{"ISO missing · workspace only"}else if r.published.is_none(){match r.state { cleanup::BuildState::Failed=>"Failed · workspace only",cleanup::BuildState::Cancelled=>"Cancelled · workspace only",cleanup::BuildState::Building=>"Interrupted / in progress · workspace only",_=>"Incomplete / unknown · workspace only"}}else{r.state.label()};
-                            ui.label(RichText::new(format!("{} · {state} · {}",cleanup::format_date(r.created),cleanup::format_bytes(view.size.bytes))).size(12.0).color(if r.state==cleanup::BuildState::Complete{colors.success}else{colors.warning}));
+                            ui.label(RichText::new(format!("{} · {} · {}",cleanup::format_date(r.created),view.status(),cleanup::format_bytes(view.size.bytes))).size(12.0).color(if view.complete(){colors.success}else{colors.warning}));
                             }).response;
-                            if selection.interact(egui::Sense::click()).on_hover_text(if selected{"Deselect this build"}else{"Select this build"}).clicked() && !blocked && view.problem.is_none(){if selected{self.storage.selected.remove(&r.id);}else{self.storage.selected.insert(r.id.clone());}}
+                            if selection.interact(egui::Sense::click()).on_hover_text(if selected{"Deselect this build"}else{"Select this build"}).clicked() && !blocked && view.can_delete(){if selected{self.storage.selected.remove(&r.id);}else{self.storage.selected.insert(r.id.clone());}}
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min),|ui|{
-                                if ui.add_enabled(!blocked && view.problem.is_none(),egui::Button::new("Delete")).on_hover_text("Delete the generated ISO and workspace").clicked(){confirm=Some(CleanupRequest::Builds{ids:vec![r.id.clone()],protected:vec![]});}
-                                if ui.add_enabled(!blocked && view.problem.is_none() && view.output_present && r.published.is_some(),egui::Button::new("Delete ISO")).on_hover_text("Delete only the generated ISO; keep the workspace").clicked(){confirm=Some(CleanupRequest::Isos{ids:vec![r.id.clone()],protected:vec![]});}
+                                if ui.add_enabled(!blocked && view.can_delete(),egui::Button::new("Delete")).on_hover_text("Delete the remaining build files, including any verified ISO and workspace").clicked(){confirm=Some(CleanupRequest::Builds{ids:vec![r.id.clone()],protected:vec![]});}
+                                if view.can_delete_iso() && ui.add_enabled(!blocked,egui::Button::new("Delete ISO")).on_hover_text("Delete only the generated ISO; keep the workspace").clicked(){confirm=Some(CleanupRequest::Isos{ids:vec![r.id.clone()],protected:vec![]});}
                             });
                             });
                             if let Some(problem)=&view.problem{ui.label(RichText::new(problem).size(12.0).color(colors.error));}
+                            if view.artifacts().any(|a|a.available()) {
                             let paths=egui::CollapsingHeader::new("Paths").id_salt((&r.id,"paths"));
                             #[cfg(debug_assertions)]
-                            let paths=paths.default_open(selected && std::env::var("MACBOOK_PATCHER_PREVIEW").as_deref()==Ok("settings-builds"));
+                            let paths=paths.default_open(selected && std::env::var("MACBOOK_PATCHER_PREVIEW").is_ok_and(|v|v=="settings-builds" || v.starts_with("settings-live")));
                             paths.show(ui,|ui|{
-                                ui.horizontal_top(|ui|{
+                                if view.workspace.available(){ui.horizontal_top(|ui|{
                                 ui.add_sized([78.0,36.0],egui::Label::new(RichText::new("Workspace").size(13.0).color(colors.muted)));
-                                if storage_path_link(ui,&r.job,!self.storage.deleting,"Open workspace folder").clicked() && let Err(e)=platform::open_folder(&r.job){self.storage.error=Some(format!("Could not open workspace folder: {e:#}"));self.storage.last_request=None;self.storage.copied=false;}
-                                });
-                                ui.add_space(6.0);
-                                ui.horizontal_top(|ui|{
+                                if storage_path_link(ui,&r.job,!self.storage.deleting,"Open workspace folder").clicked(){open_location=Some((r.job.clone(),false));}
+                                });}
+                                if view.output.available(){ui.add_space(6.0);ui.horizontal_top(|ui|{
                                 ui.add_sized([78.0,36.0],egui::Label::new(RichText::new("ISO").size(13.0).color(colors.muted)));
-                                if storage_path_link(ui,&r.output,!self.storage.deleting,"Open folder with ISO selected").clicked() && let Err(e)=platform::reveal_file(&r.output){self.storage.error=Some(format!("Could not open ISO location: {e:#}"));self.storage.last_request=None;self.storage.copied=false;}
-                                });
-                                if r.published.is_none(){ui.label("No verified generated ISO is recorded; only its workspace will be removed.");}
+                                if storage_path_link(ui,&r.output,!self.storage.deleting,"Open folder with ISO selected").clicked(){open_location=Some((r.output.clone(),true));}
+                                });}
+                                for artifact in view.partial.iter().chain(view.connection_log.iter()).filter(|a|a.available()) {
+                                    ui.add_space(6.0);ui.label(if view.partial.as_ref().is_some_and(|a|a.path==artifact.path){"Temporary ISO"}else{"Connection log"});
+                                    if storage_path_link(ui,&artifact.path,!self.storage.deleting,"Open containing folder").clicked(){open_location=Some((artifact.path.clone(),true));}
+                                }
+                                if view.output.available() && !view.verified_iso{ui.label("Unverified output is kept during cleanup.");}
                             });
+                            }
                         });
                         ui.add_space(7.0);
                     }
@@ -417,9 +528,17 @@ impl PatcherApp {
         });
         if let Some(request) = confirm {
             self.storage.confirmation = Some(request);
+            self.storage.notice = None;
+            self.storage.execute_after_scan = false;
+            self.scan_storage(ctx);
+        }
+        if let Some((path, iso)) = open_location {
+            self.open_storage_location(&path, iso);
+            ctx.request_repaint();
         }
         if cancel_confirmation || (modal.should_close() && self.storage.confirmation.is_some()) {
             self.storage.confirmation = None;
+            self.storage.execute_after_scan = false;
         } else if (close || modal.should_close()) && !self.storage.deleting {
             self.storage.open = false;
         }
@@ -430,8 +549,147 @@ impl PatcherApp {
             self.storage.copied = false;
             self.scan_storage(ctx);
         }
-        if let Some(request) = execute.or(retry) {
-            self.start_cleanup(request, ctx);
+        if let Some(request) = execute {
+            self.storage.confirmation = Some(request);
+            self.storage.execute_after_scan = true;
+            self.scan_storage(ctx);
+        } else if let Some(request) = retry {
+            self.storage.confirmation = Some(request);
+            self.storage.execute_after_scan = false;
+            self.scan_storage(ctx);
         }
+    }
+}
+
+#[cfg(test)]
+mod availability_tests {
+    use super::*;
+    use cleanup::{
+        ArtifactView, BuildRecord, BuildState, BuildView, Fingerprint, Inventory, StorageSize,
+    };
+    fn inventory(workspace: bool, iso: bool) -> Inventory {
+        let root = std::env::temp_dir().join("storage-confirmation-state");
+        let job = root.join("build-test");
+        let output = root.join("generated.iso");
+        let artifact = |path: PathBuf, present| ArtifactView {
+            path,
+            present,
+            size: StorageSize {
+                files: u64::from(present),
+                bytes: if present { 10 } else { 0 },
+            },
+            problem: None,
+        };
+        Inventory {
+            builds: vec![BuildView {
+                workspace: artifact(job.clone(), workspace),
+                output: artifact(output.clone(), iso),
+                verified_iso: iso,
+                partial: None,
+                connection_log: None,
+                size: StorageSize {
+                    files: u64::from(workspace) + u64::from(iso),
+                    bytes: 10 * (u64::from(workspace) + u64::from(iso)),
+                },
+                problem: None,
+                record: BuildRecord {
+                    id: "test".into(),
+                    job,
+                    workspace: root.clone(),
+                    source: root.join("source.iso"),
+                    output,
+                    partial: None,
+                    connection_log: None,
+                    model: "a1706".into(),
+                    editions: vec!["Pro".into()],
+                    created: 0,
+                    state: BuildState::Complete,
+                    published: Some(Fingerprint {
+                        size: 10,
+                        modified: 0,
+                        identity: "test".into(),
+                    }),
+                },
+            }],
+            ..Default::default()
+        }
+    }
+    fn request() -> CleanupRequest {
+        CleanupRequest::Builds {
+            ids: vec!["test".into()],
+            protected: vec![],
+        }
+    }
+    #[test]
+    fn new_confirmation_requires_scan_and_matches_only_current_paths() {
+        let mut settings = StorageSettings {
+            inventory: Some(inventory(true, true)),
+            confirmation: Some(request()),
+            ..Default::default()
+        };
+        assert!(!settings.confirmation_ready);
+        settings.apply_inventory(inventory(true, false));
+        assert!(settings.confirmation_ready && settings.ready_cleanup.is_none());
+        let manifest = confirmation_manifest(
+            settings.inventory.as_ref().unwrap(),
+            settings.confirmation.as_ref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest.len(), 1);
+        assert!(manifest[0].0.ends_with("build-test"));
+    }
+    #[test]
+    fn disappearing_iso_cancels_iso_confirmation() {
+        let mut settings = StorageSettings {
+            inventory: Some(inventory(true, true)),
+            confirmation: Some(CleanupRequest::Isos {
+                ids: vec!["test".into()],
+                protected: vec![],
+            }),
+            execute_after_scan: true,
+            ..Default::default()
+        };
+        settings.apply_inventory(inventory(true, false));
+        assert!(settings.confirmation.is_none() && settings.ready_cleanup.is_none());
+        assert!(settings.notice.is_some());
+    }
+    #[test]
+    fn changed_manifest_requires_another_confirmation() {
+        let mut settings = StorageSettings {
+            inventory: Some(inventory(true, true)),
+            confirmation: Some(request()),
+            execute_after_scan: true,
+            ..Default::default()
+        };
+        settings.apply_inventory(inventory(false, true));
+        assert!(settings.confirmation_ready && settings.confirmation.is_some());
+        assert!(
+            settings.ready_cleanup.is_none()
+                && settings.notice.as_ref().unwrap().contains("Files changed")
+        );
+    }
+    #[test]
+    fn unchanged_fresh_scan_allows_confirmed_cleanup() {
+        let mut settings = StorageSettings {
+            inventory: Some(inventory(true, true)),
+            confirmation: Some(request()),
+            execute_after_scan: true,
+            ..Default::default()
+        };
+        settings.apply_inventory(inventory(true, true));
+        assert!(settings.ready_cleanup.is_some());
+        assert!(!settings.execute_after_scan);
+    }
+    #[test]
+    fn refresh_drops_missing_selection_and_cancels_empty_confirmation() {
+        let mut settings = StorageSettings {
+            selected: BTreeSet::from(["test".into()]),
+            inventory: Some(inventory(true, true)),
+            confirmation: Some(request()),
+            ..Default::default()
+        };
+        settings.apply_inventory(Inventory::default());
+        assert!(settings.selected.is_empty() && settings.confirmation.is_none());
+        assert!(settings.ready_cleanup.is_none());
     }
 }

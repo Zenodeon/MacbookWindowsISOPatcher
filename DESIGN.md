@@ -94,6 +94,13 @@ Put Workspace above ISO. Indicate selection with the row highlight; omit
 per-card Select/Deselect controls. Each card has Delete ISO (keep workspace and
 history) and Delete (ISO plus workspace), each with a scoped permanent-deletion
 confirmation. Disable Delete ISO when no verified generated ISO is present.
+Show only existing, accessible paths and hide Delete ISO when its verified file
+is absent. Use the workspace folder name when no ISO exists; missing outputs
+never get green Complete status. Count existing workspace folders and measure
+existing artifacts, retaining empty records internally but hiding their cards.
+Refresh on entering Builds, returning to the app, and before confirmation.
+Recheck before deleting; changed selections require confirmation again. A path
+removed in Explorer produces a short notice and refresh, not a dead link error.
 Keep Close visible while the content scrolls; put cleanup results and copyable
 errors above the list. Confirm permanent deletion with paths and estimated size.
 Cleanup affects recorded generated ISOs and associated workspaces, never original

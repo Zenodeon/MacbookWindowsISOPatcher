@@ -9,6 +9,37 @@ impl PatcherApp {
         let Ok(view) = std::env::var("MACBOOK_PATCHER_PREVIEW") else {
             return;
         };
+        if view.starts_with("settings-live") {
+            self.storage.open = true;
+            self.storage.builds_page = view != "settings-live-summary";
+            self.settings_file = std::env::temp_dir().join("macbook-patcher-preview-settings.json");
+            match macbook_iso_patcher::cleanup::inventory(
+                &PathBuf::from(self.settings.cache.trim()),
+                &PathBuf::from(self.settings.work.trim()),
+            ) {
+                Ok(inventory) => {
+                    self.storage.selected = inventory
+                        .builds
+                        .iter()
+                        .take(1)
+                        .map(|v| v.record.id.clone())
+                        .collect();
+                    if view == "settings-live-confirm" {
+                        self.storage.confirmation =
+                            Some(macbook_iso_patcher::cleanup::CleanupRequest::Builds {
+                                ids: self.storage.selected.iter().cloned().collect(),
+                                protected: vec![],
+                            });
+                    }
+                    self.storage.apply_inventory(inventory);
+                }
+                Err(e) => self.storage.error = Some(format!("{e:#}")),
+            }
+            if std::env::var_os("MACBOOK_PATCHER_PREVIEW_SMALL").is_some() {
+                self.window_fitted = true;
+            }
+            return;
+        }
         if view.starts_with("settings") {
             use macbook_iso_patcher::cleanup::*;
             self.storage.open = true;
@@ -33,12 +64,25 @@ impl PatcherApp {
                     (2, "Windows10_A1707_Pro.iso", BuildState::Failed),
                 ] {
                     let id = uuid::Uuid::new_v4().to_string();
+                    let root = std::path::absolute(
+                        PathBuf::from(".cache").join(format!("storage-preview-{id}")),
+                    )
+                    .unwrap();
+                    let workspace = root.join("workspaces");
+                    let job = workspace.join(format!("build-{id}"));
+                    std::fs::create_dir_all(&job).unwrap();
+                    std::fs::write(job.join("build.log"), b"Disposable screenshot fixture")
+                        .unwrap();
+                    let output = root.join(name);
+                    if state == BuildState::Complete {
+                        std::fs::write(&output, b"Disposable screenshot ISO placeholder").unwrap();
+                    }
                     let record = BuildRecord {
                         id: id.clone(),
-                        job: PathBuf::from(format!(r"C:\Patcher workspace\build-{id}")),
-                        workspace: PathBuf::from(r"C:\Patcher workspace"),
-                        source: PathBuf::from(r"C:\Windows ISO\Win10_22H2_English_x64v1.iso"),
-                        output: PathBuf::from(format!(r"C:\Patched ISOs\{name}")),
+                        job,
+                        workspace,
+                        source: root.join("original.iso"),
+                        output: output.clone(),
                         partial: None,
                         connection_log: None,
                         model: MODEL_PROFILES[index].id.into(),
@@ -46,29 +90,13 @@ impl PatcherApp {
                         created: 1792440000,
                         state: state.clone(),
                         published: if state == BuildState::Complete {
-                            Some(Fingerprint {
-                                size: 6 * GIB,
-                                modified: 0,
-                                identity: "preview".into(),
-                            })
+                            Some(fingerprint(&output).unwrap())
                         } else {
                             None
                         },
                     };
                     self.storage.selected.insert(id);
-                    inventory.builds.push(BuildView {
-                        output_present: state == BuildState::Complete,
-                        record,
-                        size: StorageSize {
-                            files: 14,
-                            bytes: if state == BuildState::Complete {
-                                6 * GIB
-                            } else {
-                                540 * 1024 * 1024
-                            },
-                        },
-                        problem: None,
-                    });
+                    inventory.builds.push(inspect_build(record));
                 }
             }
             if view == "settings-builds" {
@@ -113,8 +141,12 @@ impl PatcherApp {
                     protected: vec![],
                 });
             }
+            self.storage.confirmation_ready = self.storage.confirmation.is_some();
             if view == "settings-error" {
-                self.storage.report=Some(CleanupReport{deleted:vec!["preview build".into()],bytes:512*1024*1024,errors:vec!["The generated ISO changed or was replaced; it has been preserved. C:\\Patched ISOs\\Windows10_A1706_Pro.iso".into()],requires_admin:false});
+                let record = inventory.builds[0].record.clone();
+                std::fs::write(&record.output, b"Changed disposable output").unwrap();
+                inventory.builds[0] = inspect_build(record);
+                self.storage.builds_page = true;
             }
             if view == "settings-busy" {
                 self.storage.deleting = true;
@@ -124,7 +156,7 @@ impl PatcherApp {
                 self.storage.scanning = true;
                 self.close_ready = true;
             } else {
-                self.storage.inventory = Some(inventory);
+                self.storage.apply_inventory(inventory);
             }
             if std::env::var_os("MACBOOK_PATCHER_PREVIEW_SMALL").is_some() {
                 self.window_fitted = true;

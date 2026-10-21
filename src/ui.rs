@@ -228,12 +228,14 @@ impl PatcherApp {
                     self.storage.scanning = false;
                     match result {
                         Ok(inventory) => {
-                            self.storage
-                                .selected
-                                .retain(|id| inventory.builds.iter().any(|v| &v.record.id == id));
-                            self.storage.inventory = Some(inventory);
+                            self.storage.apply_inventory(inventory);
                         }
-                        Err(error) => self.storage.error = Some(error),
+                        Err(error) => {
+                            self.storage.error = Some(error);
+                            self.storage.confirmation = None;
+                            self.storage.execute_after_scan = false;
+                            self.storage.ready_cleanup = None;
+                        }
                     }
                 }
                 Message::StorageCleaned(request, result) => {
@@ -720,6 +722,17 @@ impl PatcherApp {
 impl eframe::App for PatcherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.consume();
+        if let Some(request) = self.storage.ready_cleanup.take() {
+            self.start_cleanup(request, ctx);
+        }
+        let focused = ctx.input(|i| i.focused);
+        let snapshot_preview = cfg!(debug_assertions)
+            && std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some()
+            && std::env::var("MACBOOK_PATCHER_PREVIEW").is_ok_and(|v| v.starts_with("settings"));
+        if self.storage.open && focused && !self.storage.focused && !snapshot_preview {
+            self.storage.needs_scan = true;
+        }
+        self.storage.focused = focused;
         if self.storage.needs_scan && !self.storage.busy() {
             self.storage.needs_scan = false;
             self.scan_storage(ctx);
@@ -1198,7 +1211,13 @@ impl eframe::App for PatcherApp {
         // Optional renderer-level screenshot for release QA; no OS screen scraping.
         if let Some(path) = std::env::var_os("MACBOOK_PATCHER_SCREENSHOT") {
             self.screenshot_frames += 1;
-            if self.screenshot_frames > 3 && !self.screenshot_sent {
+            let scanning_fixture = cfg!(debug_assertions)
+                && std::env::var("MACBOOK_PATCHER_PREVIEW").as_deref() == Ok("settings-scanning");
+            if self.screenshot_frames > 3
+                && !self.screenshot_sent
+                && (!self.storage.scanning || scanning_fixture)
+                && !self.storage.needs_scan
+            {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
                 self.screenshot_sent = true;
             }

@@ -531,17 +531,247 @@ pub fn cache_inventory(root: &Path) -> Result<CacheInventory> {
     Ok(cache)
 }
 #[derive(Debug, Clone)]
+pub struct ArtifactView {
+    pub path: PathBuf,
+    pub present: bool,
+    pub size: StorageSize,
+    pub problem: Option<String>,
+}
+impl ArtifactView {
+    pub fn available(&self) -> bool {
+        self.present && self.problem.is_none()
+    }
+    fn missing(path: PathBuf) -> Self {
+        Self {
+            path,
+            present: false,
+            size: StorageSize::default(),
+            problem: None,
+        }
+    }
+}
+fn scan_artifact(path: &Path, directory: bool) -> ArtifactView {
+    scan_artifact_with(path, directory, &|p| fs::symlink_metadata(p))
+}
+fn scan_artifact_with(
+    path: &Path,
+    directory: bool,
+    metadata: &impl Fn(&Path) -> std::io::Result<fs::Metadata>,
+) -> ArtifactView {
+    let mut view = ArtifactView::missing(path.to_owned());
+    let result = (|| -> Result<()> {
+        safe_path(path)?;
+        let meta = match metadata(path) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        ensure!(
+            if directory {
+                meta.is_dir()
+            } else {
+                meta.is_file()
+            },
+            "Location has the wrong file type: {}",
+            platform::display_path(path)
+        );
+        view.present = true;
+        view.size = if directory {
+            job_size(path)?
+        } else {
+            tree_size(path)?
+        };
+        Ok(())
+    })();
+    view.problem = result
+        .err()
+        .map(|e| format!("{}: {e:#}", platform::display_path(path)));
+    view
+}
+#[derive(Debug, Clone)]
 pub struct BuildView {
-    pub output_present: bool,
+    pub workspace: ArtifactView,
+    pub output: ArtifactView,
+    pub partial: Option<ArtifactView>,
+    pub connection_log: Option<ArtifactView>,
+    pub verified_iso: bool,
     pub record: BuildRecord,
     pub size: StorageSize,
     pub problem: Option<String>,
+}
+impl BuildView {
+    pub fn artifacts(&self) -> impl Iterator<Item = &ArtifactView> {
+        [&self.workspace, &self.output]
+            .into_iter()
+            .chain(self.partial.iter())
+            .chain(self.connection_log.iter())
+    }
+    pub fn visible(&self) -> bool {
+        self.artifacts().any(|a| a.present || a.problem.is_some()) || self.problem.is_some()
+    }
+    pub fn can_delete_iso(&self) -> bool {
+        self.verified_iso && self.output.available() && self.problem.is_none()
+    }
+    pub fn can_delete(&self) -> bool {
+        self.problem.is_none()
+            && (self.workspace.available()
+                || self.can_delete_iso()
+                || self
+                    .partial
+                    .iter()
+                    .chain(self.connection_log.iter())
+                    .any(|a| a.available()))
+    }
+    pub fn title(&self) -> String {
+        let Some(path) = self
+            .artifacts()
+            .find(|a| a.available() && a.path == self.output.path)
+            .or_else(|| self.artifacts().find(|a| a.available()))
+            .map(|a| &a.path)
+        else {
+            return self.record.model.clone();
+        };
+        path.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    }
+    pub fn status(&self) -> String {
+        if self.problem.is_some() {
+            return "Needs attention".into();
+        }
+        let location = match (self.workspace.available(), self.output.available()) {
+            (true, true) => "",
+            (true, false) => "workspace only",
+            (false, true) => "ISO only",
+            (false, false) => "build files only",
+        };
+        let state = if self.output.available() && !self.verified_iso {
+            "Unverified output"
+        } else if self.record.state == BuildState::Complete && !self.verified_iso {
+            "ISO missing"
+        } else {
+            self.record.state.label()
+        };
+        if location.is_empty() {
+            state.into()
+        } else {
+            format!("{state} · {location}")
+        }
+    }
+    pub fn complete(&self) -> bool {
+        self.record.state == BuildState::Complete && self.can_delete_iso()
+    }
+    pub fn deletable_artifacts(&self, iso_only: bool) -> Vec<&ArtifactView> {
+        if iso_only {
+            return if self.can_delete_iso() {
+                vec![&self.output]
+            } else {
+                vec![]
+            };
+        }
+        [&self.workspace]
+            .into_iter()
+            .chain(self.partial.iter())
+            .chain(self.connection_log.iter())
+            .chain(self.verified_iso.then_some(&self.output))
+            .filter(|a| a.available())
+            .collect()
+    }
 }
 #[derive(Debug, Default, Clone)]
 pub struct Inventory {
     pub cache: CacheInventory,
     pub builds: Vec<BuildView>,
     pub warnings: Vec<String>,
+}
+impl Inventory {
+    pub fn space_label(&self) -> &'static str {
+        if !self.warnings.is_empty() || self.builds.iter().any(|v| v.problem.is_some()) {
+            "Known space used"
+        } else {
+            "Total space used"
+        }
+    }
+    pub fn workspace_count(&self) -> usize {
+        self.builds
+            .iter()
+            .filter(|v| v.workspace.present)
+            .map(|v| v.workspace.path.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    }
+    pub fn total_bytes(&self) -> u64 {
+        let artifacts: std::collections::BTreeMap<_, _> = self
+            .builds
+            .iter()
+            .flat_map(BuildView::artifacts)
+            .filter(|a| a.available())
+            .map(|a| (a.path.clone(), a.size.bytes))
+            .collect();
+        artifacts
+            .iter()
+            .filter(|(path, _)| {
+                !artifacts
+                    .keys()
+                    .any(|other| other != *path && path.starts_with(other))
+            })
+            .map(|(_, bytes)| *bytes)
+            .sum()
+    }
+}
+
+pub fn inspect_build(record: BuildRecord) -> BuildView {
+    let workspace = scan_artifact(&record.job, true);
+    let output = scan_artifact(&record.output, false);
+    let partial = record.partial.as_deref().map(|p| scan_artifact(p, false));
+    let connection_log = record
+        .connection_log
+        .as_deref()
+        .map(|p| scan_artifact(p, false));
+    let mut errors = Vec::new();
+    if let Err(e) = validate_record(&record) {
+        errors.push(format!("{e:#}"));
+    }
+    let mut verified_iso = false;
+    if output.available()
+        && let Some(published) = &record.published
+    {
+        match fingerprint(&record.output) {
+            Ok(actual) if &actual == published => verified_iso = true,
+            Ok(_) => errors
+                .push("The generated ISO changed or was replaced; it has been preserved".into()),
+            Err(e) => errors.push(format!("ISO could not be checked: {e:#}")),
+        }
+    }
+    let mut size = StorageSize::default();
+    for artifact in [&workspace, &output]
+        .into_iter()
+        .chain(partial.iter())
+        .chain(connection_log.iter())
+    {
+        if let Some(error) = &artifact.problem {
+            errors.push(error.clone());
+        }
+        // Don't count a file twice if it lives inside the job directory.
+        if artifact.path == workspace.path
+            || !workspace.available()
+            || !artifact.path.starts_with(&workspace.path)
+        {
+            size.bytes += artifact.size.bytes;
+            size.files += artifact.size.files;
+        }
+    }
+    BuildView {
+        workspace,
+        output,
+        partial,
+        connection_log,
+        verified_iso,
+        record,
+        size,
+        problem: (!errors.is_empty()).then(|| errors.join("\n")),
+    }
 }
 
 fn import_jobs(history: &mut History, workspace: &Path) -> Result<()> {
@@ -616,33 +846,12 @@ fn inventory_at(root: &Path, cache_root: &Path, workspace: &Path) -> Result<Inve
             .warnings
             .push(format!("Cache could not be scanned: {e:#}")),
     }
-    for record in history.records {
-        let mut size = StorageSize::default();
-        let measured = (|| -> Result<()> {
-            validate_record(&record)?;
-            for path in [&record.job]
-                .into_iter()
-                .chain(record.partial.iter())
-                .chain(record.connection_log.iter())
-                .chain(record.published.as_ref().map(|_| &record.output))
-            {
-                let s = if path == &record.job {
-                    job_size(path)?
-                } else {
-                    tree_size(path)?
-                };
-                size.files += s.files;
-                size.bytes += s.bytes;
-            }
-            Ok(())
-        })();
-        inventory.builds.push(BuildView {
-            output_present: record.output.is_file(),
-            record,
-            size,
-            problem: measured.err().map(|e| format!("{e:#}")),
-        });
-    }
+    inventory.builds = history
+        .records
+        .into_iter()
+        .map(inspect_build)
+        .filter(BuildView::visible)
+        .collect();
     inventory
         .builds
         .sort_by_key(|v| std::cmp::Reverse(v.record.created));
@@ -1544,6 +1753,142 @@ mod tests {
         assert_eq!(report.errors.len(), 1);
         assert!(r.output.exists());
         assert!(r.job.exists());
+    }
+    #[test]
+    fn inventory_tracks_existing_artifacts_and_keeps_empty_history() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        let scan = || inventory_at(&config, &f.path("cache"), &r.workspace).unwrap();
+        let both = scan();
+        let view = &both.builds[0];
+        assert!(
+            view.workspace.available()
+                && view.output.available()
+                && view.can_delete_iso()
+                && view.complete()
+        );
+        assert_eq!(both.workspace_count(), 1);
+        let mut duplicated = both.clone();
+        duplicated.builds.push(view.clone());
+        assert_eq!(duplicated.workspace_count(), 1);
+        assert_eq!(duplicated.total_bytes(), both.total_bytes());
+        assert_eq!(
+            view.title(),
+            r.output.file_name().unwrap().to_string_lossy()
+        );
+        fs::remove_file(&r.output).unwrap();
+        let workspace_only = scan();
+        let view = &workspace_only.builds[0];
+        assert!(view.workspace.available() && !view.output.available());
+        assert!(!view.can_delete_iso() && view.can_delete() && !view.complete());
+        assert!(view.status().contains("workspace only"));
+        assert_eq!(view.title(), r.job.file_name().unwrap().to_string_lossy());
+        assert_eq!(view.deletable_artifacts(false).len(), 1);
+        remove_owned(&r.job).unwrap();
+        assert!(scan().builds.is_empty());
+        assert_eq!(read_history(&config).unwrap().records.len(), 1);
+    }
+    #[test]
+    fn inventory_iso_only_has_no_workspace_count_or_dead_paths() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        remove_owned(&r.job).unwrap();
+        let inventory = inventory_at(&config, &f.path("cache"), &r.workspace).unwrap();
+        let view = &inventory.builds[0];
+        assert_eq!(inventory.workspace_count(), 0);
+        assert_eq!(
+            inventory.total_bytes(),
+            fs::metadata(&r.output).unwrap().len()
+        );
+        assert!(!view.workspace.available() && view.output.available() && view.can_delete_iso());
+        assert!(view.status().contains("ISO only"));
+        assert_eq!(
+            view.deletable_artifacts(false)
+                .iter()
+                .map(|a| a.path.clone())
+                .collect::<Vec<_>>(),
+            vec![r.output]
+        );
+    }
+    #[test]
+    fn inventory_skips_missing_partial_and_logs_but_counts_remaining_logs() {
+        let f = Fixture::new();
+        let mut r = f.record();
+        r.partial = Some(
+            r.output
+                .parent()
+                .unwrap()
+                .join(format!(".a1706-{}.partial.iso", uuid::Uuid::new_v4())),
+        );
+        r.connection_log = Some(
+            r.workspace
+                .join(format!("worker-connection-{}.log", uuid::Uuid::new_v4())),
+        );
+        let config = f.history(vec![r.clone()]);
+        let view = inspect_build(r.clone());
+        assert!(view.problem.is_none(), "{:?}", view.problem);
+        assert!(!view.partial.as_ref().unwrap().available());
+        assert!(!view.connection_log.as_ref().unwrap().available());
+        assert_eq!(view.deletable_artifacts(false).len(), 2);
+        assert_eq!(read_history(&config).unwrap().records.len(), 1);
+        fs::write(r.connection_log.as_ref().unwrap(), b"connection diagnostic").unwrap();
+        remove_owned(&r.job).unwrap();
+        fs::remove_file(&r.output).unwrap();
+        let view = inspect_build(r);
+        assert!(view.visible() && view.can_delete() && !view.can_delete_iso());
+        assert_eq!(view.size.bytes, 21);
+        assert_eq!(view.deletable_artifacts(false).len(), 1);
+    }
+    #[test]
+    fn inventory_changed_output_is_visible_but_not_deletable_or_complete() {
+        let f = Fixture::new();
+        let r = f.record();
+        fs::write(&r.output, b"replacement output").unwrap();
+        let view = inspect_build(r);
+        assert!(view.output.available());
+        assert!(
+            view.problem
+                .as_ref()
+                .unwrap()
+                .contains("changed or was replaced")
+        );
+        assert!(!view.can_delete_iso() && !view.can_delete() && !view.complete());
+        assert_eq!(view.status(), "Needs attention");
+    }
+    #[test]
+    fn artifact_scan_distinguishes_access_errors_from_missing_files() {
+        let f = Fixture::new();
+        let path = f.path("unreadable");
+        let missing = scan_artifact(&path, true);
+        assert!(!missing.present && missing.problem.is_none());
+        let denied = scan_artifact_with(&path, true, &|_| {
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        });
+        assert!(!denied.available() && denied.problem.is_some());
+        let mut view = inspect_build(f.record());
+        view.workspace = denied;
+        view.problem = view.workspace.problem.clone();
+        assert!(view.visible() && !view.can_delete());
+    }
+    #[test]
+    fn inventory_scans_other_artifacts_even_when_one_has_wrong_type() {
+        let f = Fixture::new();
+        let r = f.record();
+        fs::remove_file(&r.output).unwrap();
+        fs::create_dir(&r.output).unwrap();
+        let view = inspect_build(r);
+        assert!(view.workspace.available());
+        assert!(
+            view.output
+                .problem
+                .as_ref()
+                .unwrap()
+                .contains("wrong file type")
+        );
+        assert!(!view.output.available());
+        assert!(view.size.bytes > 0);
     }
     #[test]
     fn display_helpers_are_stable() {

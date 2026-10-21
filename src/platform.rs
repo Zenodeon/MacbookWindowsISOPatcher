@@ -366,16 +366,28 @@ pub fn now() -> u64 {
         .as_secs()
 }
 
+#[cfg(windows)]
+fn explorer_binary() -> PathBuf {
+    PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()))
+        .join("explorer.exe")
+}
 pub fn reveal_file(path: &Path) -> Result<()> {
+    crate::cleanup::safe_path(path)?;
+    let metadata = std::fs::metadata(path)?;
     ensure!(
-        path.is_file(),
+        metadata.is_file(),
         "ISO file does not exist: {}",
         display_path(path)
     );
     #[cfg(windows)]
     {
-        Command::new(system_binary("explorer.exe"))
-            .arg(format!("/select,{}", display_path(path)))
+        use std::os::windows::process::CommandExt;
+        let path = display_path(path);
+        ensure!(!path.contains('"'), "Invalid quote in file path");
+        // Explorer needs /select,"path", rather than quoting the entire switch
+        // and path as a single standard Command argument. No shell is involved.
+        Command::new(explorer_binary())
+            .raw_arg(format!("/select,\"{path}\""))
             .spawn()?;
     }
     #[cfg(target_os = "macos")]
@@ -390,15 +402,17 @@ pub fn reveal_file(path: &Path) -> Result<()> {
 }
 
 pub fn open_folder(path: &Path) -> Result<()> {
+    crate::cleanup::safe_path(path)?;
+    let metadata = std::fs::metadata(path)?;
     ensure!(
-        path.is_dir(),
+        metadata.is_dir(),
         "Folder does not exist: {}",
         display_path(path)
     );
     #[cfg(windows)]
     {
-        Command::new(system_binary("explorer.exe"))
-            .arg(path)
+        Command::new(explorer_binary())
+            .arg(display_path(path))
             .spawn()?;
     }
     #[cfg(target_os = "macos")]
@@ -439,6 +453,91 @@ pub fn publish_iso(source: &Path, target: &Path) -> Result<()> {
 #[cfg(test)]
 mod path_display_tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn explorer_is_resolved_from_windows_directory_not_system32() {
+        assert_eq!(
+            explorer_binary().parent(),
+            system_binary("cmd.exe").parent().unwrap().parent()
+        );
+        assert!(explorer_binary().is_file());
+    }
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Opens and closes only disposable test folders in File Explorer"]
+    fn windows_open_and_reveal_paths_with_spaces() {
+        let root =
+            std::env::temp_dir().join(format!("patcher explorer test {}", uuid::Uuid::new_v4()));
+        let folder = root.join("workspace with spaces");
+        fs::create_dir_all(&folder).unwrap();
+        let iso = folder.join("Windows test image.iso");
+        fs::write(&iso, b"Disposable Explorer test").unwrap();
+        let folder = folder.canonicalize().unwrap();
+        let iso = iso.canonicalize().unwrap();
+        let verify = |selected: bool| {
+            powershell(
+                r#"
+            $shell=New-Object -ComObject Shell.Application
+            $found=$false; $deadline=[DateTime]::UtcNow.AddSeconds(15)
+            try {
+                while([DateTime]::UtcNow -lt $deadline -and -not $found) {
+                    foreach($window in @($shell.Windows())) {
+                        try {
+                            if($window.Document.Folder.Self.Path -ieq $env:PATCHER_TEST_FOLDER) {
+                                if($env:PATCHER_TEST_SELECT -eq '0') {$found=$true}
+                                else {foreach($item in @($window.Document.SelectedItems())) {if($item.Path -ieq $env:PATCHER_TEST_ISO){$found=$true}}}
+                            }
+                        } catch {}
+                    }
+                    if(-not $found){Start-Sleep -Milliseconds 200}
+                }
+                if(-not $found){throw 'Explorer did not open the expected path or select the expected file'}
+            } finally {
+                if($env:PATCHER_TEST_SELECT -eq '1'){foreach($window in @($shell.Windows())) {try {if($window.Document.Folder.Self.Path -ieq $env:PATCHER_TEST_FOLDER){$window.Quit()}} catch {}}}
+            }
+        "#,
+                &[
+                    (
+                        "PATCHER_TEST_FOLDER",
+                        std::ffi::OsStr::new(&display_path(&folder)),
+                    ),
+                    (
+                        "PATCHER_TEST_ISO",
+                        std::ffi::OsStr::new(&display_path(&iso)),
+                    ),
+                    (
+                        "PATCHER_TEST_SELECT",
+                        std::ffi::OsStr::new(if selected { "1" } else { "0" }),
+                    ),
+                ],
+            )
+        };
+        open_folder(&folder).unwrap();
+        let folder_result = verify(false);
+        reveal_file(&iso).unwrap();
+        let reveal_result = verify(true);
+        // Fixture root is a literal UUID child of Temp, never an app workspace.
+        fs::remove_file(&iso).unwrap();
+        fs::remove_dir(&folder).unwrap();
+        fs::remove_dir(&root).unwrap();
+        folder_result
+            .context("Opening the folder did not work")
+            .unwrap();
+        reveal_result
+            .context("Selecting the ISO did not work")
+            .unwrap();
+    }
+    #[test]
+    fn opening_missing_locations_fails_before_launching_explorer() {
+        let missing =
+            std::env::temp_dir().join(format!("missing-patcher-{}", uuid::Uuid::new_v4()));
+        for result in [open_folder(&missing), reveal_file(&missing)] {
+            assert!(result.unwrap_err().chain().any(|e| {
+                e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+            }));
+        }
+    }
     #[test]
     fn displays_extended_drive_and_network_paths_in_familiar_form() {
         assert_eq!(

@@ -1,5 +1,27 @@
 # Validation
 
+## Storage availability review — 2026-10-21
+
+- 73 automated tests pass; formatting and Clippy with warnings denied pass.
+- Artifact inventory tests cover workspace-only, ISO-only, both/neither present,
+  missing temporary files/logs, permission errors, wrong file types, replaced
+  outputs, retained history, and unique workspace/space counts.
+- Confirmation tests cover a disappeared ISO, changed paths requiring renewed
+  confirmation, fresh unchanged scans, and stale selections being removed.
+- A separate interactive Windows integration test opens a disposable folder with
+  spaces using an extended path, then reveals its file and checks the selection
+  through Shell.Application. It passes and closes only its own test windows.
+  This reproduced and fixed the incorrect System32 Explorer executable path and
+  quoting of the /select argument.
+- Native screenshots inspected with the actual configured history in light/dark
+  themes at 1240 × 700, plus 800 × 520. Both real records are workspace-only;
+  no nonexistent output/temporary ISO paths or Delete ISO buttons are shown.
+  Actual-history confirmation lists only the existing workspace. Disposable
+  fixtures additionally cover a present ISO, a changed output, empty and scanning
+  states. Existing path controls remain separate from row selection/deletion.
+- Debug preview only: no release build, package refresh, ZIP, push, full ISO
+  build or deletion of the user's existing build/cache artifacts was performed.
+
 ## Verified on 2026-10-19
 
 - Windows MSVC release build and compilation of all four WinPE helpers.
