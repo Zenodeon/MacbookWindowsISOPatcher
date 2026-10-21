@@ -102,8 +102,11 @@ existing artifacts, retaining empty records internally but hiding their cards.
 Refresh on entering Builds, returning to the app, and before confirmation.
 Recheck before deleting; changed files require confirmation again. A path
 removed in Explorer produces a short notice and refresh, not a dead link error.
-Use the same bounded dialog size on Settings, Builds and confirmation. Reserve
-body height during checks and keep the footer anchored, with Back/Cancel on the
+Use one exact-size outer dialog on Settings, Builds and every confirmation.
+Allocate its outer rectangle independently of content, with a clipped, scrollable
+body and a separate fixed footer. Long errors, paths and expanded lists must never
+resize the frame. Only the app window getting smaller may reduce the shared size.
+Keep the footer anchored, with Back/Cancel on the
 left and Close on the right. Apply navigation only after the frame is rendered;
 preserve list scroll when cancelling confirmation and reset it on entry from
 Settings. Apply cancellation before dispatching any completed cleanup preflight.

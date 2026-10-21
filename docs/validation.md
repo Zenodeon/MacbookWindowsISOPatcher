@@ -2,15 +2,24 @@
 
 ## Storage navigation review — 2026-10-21
 
+- Follow-up: replaced minimum-height sizing with one exact outer allocation.
+  All routes use the same clipped scrollable body and a separately bounded
+  footer, so child content cannot enlarge the popup. Expanded cache confirmation
+  was captured using the real cache, alongside Settings/Builds/build confirmation
+  in both themes and a smaller-window cache capture. No additional popup is
+  created for any of these views.
 - Removed bulk selection, selection highlights and the selected-count footer.
   ISO-only and full deletion remain available on individual cards.
 - Settings, Builds, confirmation and checking states share one bounded shell
   and an anchored footer. Navigation is applied between frames. Back restores
   the build list's scroll identity; entering from Settings starts at the top.
-- 78 automated tests pass, including production-popup geometry checks at
+- 79 automated tests pass, including production-popup geometry checks at
   1240 × 700, 800 × 520 and 640 × 400, plus Back/Escape cancellation and busy
   navigation checks. Cancellation is handled before a ready preflight can
   dispatch cleanup. Formatting and Clippy with warnings denied pass.
+- Geometry checks also cover cache confirmation, very long cache paths/notices,
+  large errors and unusually long build text. A pointer-click regression verifies
+  Cancel in the fixed footer returns to Builds without changing the popup bounds.
 - Actual-history native screenshots checked in both themes, with separate
   confirmation/checking captures and a smaller-window confirmation capture.
   No release build, package refresh, ZIP or push was performed.

@@ -11,7 +11,8 @@ impl PatcherApp {
         };
         if view.starts_with("settings-live") {
             self.storage.open = true;
-            self.storage.builds_page = view != "settings-live-summary";
+            self.storage.builds_page =
+                view != "settings-live-summary" && view != "settings-live-cache";
             self.settings_file = std::env::temp_dir().join("macbook-patcher-preview-settings.json");
             match macbook_iso_patcher::cleanup::inventory(
                 &PathBuf::from(self.settings.cache.trim()),
@@ -27,6 +28,13 @@ impl PatcherApp {
                                     .take(1)
                                     .map(|v| v.record.id.clone())
                                     .collect(),
+                                protected: vec![],
+                            });
+                    }
+                    if view == "settings-live-cache" {
+                        self.storage.confirmation =
+                            Some(macbook_iso_patcher::cleanup::CleanupRequest::Cache {
+                                root: PathBuf::from(self.settings.cache.trim()),
                                 protected: vec![],
                             });
                     }

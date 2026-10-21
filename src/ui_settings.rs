@@ -393,10 +393,15 @@ impl PatcherApp {
         let modal=egui::Modal::new(egui::Id::new("storage-settings")).frame(frame).show(ctx,|ui|{
             let width=(ctx.content_rect().width()-88.0).clamp(240.0,760.0);
             let height=(ctx.content_rect().height()-100.0).clamp(220.0,560.0);
-            ui.set_width(width);
-            ui.set_min_height(height);
-            ui.allocate_ui_with_layout(egui::vec2(width,height-60.0),egui::Layout::top_down(egui::Align::Min),|ui|{
-            ui.set_min_height(height-60.0);
+            // Only this allocation determines the modal size. Children are
+            // independent bounded UIs: their content cannot enlarge the frame.
+            let (shell_rect,_)=ui.allocate_exact_size(egui::vec2(width,height),egui::Sense::hover());
+            let footer_rect=egui::Rect::from_min_max(egui::pos2(shell_rect.left(),shell_rect.bottom()-38.0),shell_rect.max);
+            let body_rect=egui::Rect::from_min_max(shell_rect.min,egui::pos2(shell_rect.right(),footer_rect.top()-14.0));
+            let mut body=ui.new_child(egui::UiBuilder::new().max_rect(body_rect).layout(egui::Layout::top_down(egui::Align::Min)));
+            body.set_clip_rect(body_rect.intersect(ui.clip_rect()));
+            let confirmation_kind=match self.storage.confirmation {None=>0,Some(CleanupRequest::Cache{..})=>1,Some(CleanupRequest::Builds{..})=>2,Some(CleanupRequest::Isos{..})=>3};
+            egui::ScrollArea::vertical().id_salt(("storage-page",self.storage.builds_page,confirmation_kind,self.storage.navigation_epoch)).max_height(body_rect.height()).auto_shrink([false,false]).show(&mut body,|ui|{
             if let Some(request)=self.storage.confirmation.clone() {
                 let cache=matches!(request,CleanupRequest::Cache{..});
                 let iso_only=matches!(request,CleanupRequest::Isos{..});
@@ -407,8 +412,7 @@ impl PatcherApp {
                     ui.horizontal(|ui|{ui.spinner();ui.label("Checking which files are still available…");});
                     return;
                 }
-                let details_height=ui.available_height().max(30.0);
-                egui::ScrollArea::vertical().id_salt("cleanup-confirm-details").max_height(details_height).auto_shrink([false,false]).show(ui,|ui|{
+                ui.scope(|ui|{
                 if let Some(notice)=&self.storage.notice{ui.label(RichText::new(notice).color(colors.muted));ui.add_space(8.0);}
                 ui.label(if cache {"Cached drivers and setup downloads will need downloading again."}else if iso_only{"Only the generated ISO listed below will be deleted."}else{"Only the listed build files and folders will be deleted. Unverified output files are kept."});
                 ui.label(RichText::new("Deletion is permanent. Original source ISOs are kept.").color(colors.warning));
@@ -424,7 +428,10 @@ impl PatcherApp {
                                     ui.label(RichText::new("Cache location").strong());
                                     ui.add(egui::Label::new(platform::display_path(root)).wrap().selectable(true));
                                     ui.add_space(12.0);
-                                    egui::CollapsingHeader::new(format!("Files to delete ({})",inventory.cache.size.files)).id_salt("cache-confirm-files").show(ui,|ui|{
+                                    let files=egui::CollapsingHeader::new(format!("Files to delete ({})",inventory.cache.size.files)).id_salt("cache-confirm-files");
+                                    #[cfg(debug_assertions)]
+                                    let files=files.default_open(std::env::var("MACBOOK_PATCHER_PREVIEW").as_deref()==Ok("settings-live-cache"));
+                                    files.show(ui,|ui|{
                                         for path in &inventory.cache.paths {
                                             ui.add(egui::Label::new(platform::display_path(path)).wrap().selectable(true));
                                             ui.add_space(6.0);
@@ -455,8 +462,7 @@ impl PatcherApp {
             ui.label(RichText::new(if self.storage.builds_page{"Open build locations or delete files from each card."}else{"Manage cached downloads and generated ISOs."}).size(13.0).color(colors.muted));
             ui.add_space(14.0);
             self.storage_status(ui,ctx,blocked,&mut retry,&mut refresh);
-            let content_height=ui.available_height().max(30.0);
-            egui::ScrollArea::vertical().id_salt(("storage-content",self.storage.builds_page,self.storage.navigation_epoch)).max_height(content_height).auto_shrink([false,false]).show(ui,|ui|{
+            ui.scope(|ui|{
                 if !self.storage.builds_page {
                 egui::Frame::new().fill(colors.source).corner_radius(12).inner_margin(16.0).show(ui,|ui|{
                     ui.set_min_width(ui.available_width());
@@ -533,8 +539,9 @@ impl PatcherApp {
                 }
             });
             });
-            ui.add_space(14.0);
-            let footer=ui.horizontal(|ui|{
+            let mut footer_ui=ui.new_child(egui::UiBuilder::new().max_rect(footer_rect).layout(egui::Layout::top_down(egui::Align::Min)));
+            footer_ui.set_clip_rect(footer_rect.intersect(ui.clip_rect()));
+            let footer=footer_ui.horizontal(|ui|{
                 if self.storage.confirmation.is_some(){cancel_confirmation=ui.add_enabled(!self.storage.deleting,egui::Button::new("Cancel")).clicked();}
                 else if self.storage.builds_page && ui.add_enabled(!self.storage.deleting,egui::Button::new("Back to settings")).clicked(){navigate=Some(false);}
                 if self.storage.deleting{ui.spinner();ui.label("Cleaning storage…");}else if self.storage.scanning && self.storage.confirmation.is_none(){ui.spinner();ui.label("Checking files…");}
@@ -790,7 +797,7 @@ mod availability_tests {
             let baseline = app.storage.modal_rect.unwrap();
             let footer = app.storage.footer_rect.unwrap();
             app.storage.navigate_builds(true);
-            for phase in 0..5 {
+            for phase in 0..9 {
                 match phase {
                     0 => {}
                     1 => {
@@ -807,6 +814,31 @@ mod availability_tests {
                     }
                     4 => {
                         app.storage.back();
+                    }
+                    5 => {
+                        app.storage.confirmation = Some(CleanupRequest::Cache {
+                            root: std::env::temp_dir().join("Long cache directory ".repeat(100)),
+                            protected: vec![],
+                        });
+                        app.storage.confirmation_ready = false;
+                        app.storage.scanning = true;
+                    }
+                    6 => {
+                        app.storage.scanning = false;
+                        app.storage.confirmation_ready = true;
+                        app.storage.notice = Some("The available cache files changed. ".repeat(30));
+                    }
+                    7 => {
+                        app.storage.back();
+                        app.storage.notice = None;
+                        app.storage.error = Some("A directory could not be read. ".repeat(300));
+                    }
+                    8 => {
+                        app.storage.error = None;
+                        app.storage.navigate_builds(true);
+                        app.storage.inventory.as_mut().unwrap().builds[0]
+                            .record
+                            .editions = vec!["An unusually long edition name ".repeat(100)];
                     }
                     _ => unreachable!(),
                 }
@@ -858,5 +890,44 @@ mod availability_tests {
         );
         assert!(app.storage.open && app.storage.builds_page);
         assert!(app.storage.confirmation.is_none() && app.storage.ready_cleanup.is_none());
+    }
+    #[test]
+    fn cancel_click_in_fixed_footer_returns_to_same_popup() {
+        let ctx = egui::Context::default();
+        let mut app = PatcherApp::new_with_context(&ctx);
+        app.storage = StorageSettings {
+            open: true,
+            builds_page: true,
+            inventory: Some(inventory(true, true)),
+            confirmation: Some(request()),
+            confirmation_ready: true,
+            ..Default::default()
+        };
+        let size = egui::vec2(1240.0, 700.0);
+        render_popup(&mut app, &ctx, size);
+        render_popup(&mut app, &ctx, size);
+        let before = app.storage.modal_rect.unwrap();
+        let position = app.storage.footer_rect.unwrap().left_center() + egui::vec2(24.0, 0.0);
+        for pressed in [true, false] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                    events: vec![
+                        egui::Event::PointerMoved(position),
+                        egui::Event::PointerButton {
+                            pos: position,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                    ..Default::default()
+                },
+                |ctx| app.storage_popup(ctx),
+            );
+        }
+        assert!(app.storage.open && app.storage.builds_page && app.storage.confirmation.is_none());
+        render_popup(&mut app, &ctx, size);
+        assert_eq!(app.storage.modal_rect.unwrap(), before);
     }
 }
