@@ -423,7 +423,7 @@ fn find_any_inf(root: &Path) -> bool {
 /// Intel's signed EXE is a WiX Burn bundle: 7-Zip opens only its UX cabinet.
 /// Recover the attached cabinet using the manifest's size/hash, then restore
 /// original payload paths from that same manifest, without running the installer.
-fn extract_intel(
+pub(crate) fn extract_intel(
     tool: &Path,
     exe: &Path,
     output: &Path,

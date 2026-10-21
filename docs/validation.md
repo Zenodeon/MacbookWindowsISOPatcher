@@ -1,5 +1,37 @@
 # Validation
 
+## A1706 fresh-image graphics preparation — 2026-10-21
+
+- The working project's earlier scripts explicitly prepared the offline `igfx`
+  service and kernel binary. The fresh-ISO path previously imported the signed
+  package and only checked for that service. A successful DISM import in the
+  user's log was followed by a missing `igfx` registry key.
+- A1706 boot.wim index 2 now copies `igdkmd64.sys` from the validated signed
+  driver store, checks it against the Intel package, and prepares the offline
+  service with Type=1, Start=3, ErrorControl=0, Group=Video, and its image-relative
+  System32 driver path. The INF/catalog remain unchanged. Other model paths do
+  not perform this preparation.
+- Resolve Current/Default/LastKnownGood control sets through the image's Select
+  key. Validate all referenced sets before writing; refuse disabled/missing
+  BasicDisplay or unsafe StartOverride values. Explicitly dispose registry
+  handles before unloading the hive; unload errors stop image publication.
+- 82 normal automated tests pass; formatting and Clippy with warnings denied
+  pass. Disposable HKCU fixtures exercise the production registry functions for
+  missing/existing services, idempotence, non-001 control sets, inherited
+  boot-start correction, invalid selectors, unsafe BasicDisplay/overrides, and
+  invalid binary paths. A separate test rejects a changed kernel binary before
+  writing to the image.
+- The elevated opt-in DISM test mounts a disposable stock boot.wim copy, imports
+  the pinned signed driver, reproduces the missing-service check, prepares it,
+  commits, remounts, and verifies persistence. On this host the attempted run
+  stopped before preparation: DISM /Add-Driver returned initialization error 87.
+  A separate untouched-hive load also failed ("filename or extension is too
+  long"). The disposable WIM mount was successfully discarded. Image-level
+  persistence and an end-to-end ISO build therefore remain unverified here.
+- The original v17 ISO is absent from the reference project; comparison used
+  its retained scripts, REPRODUCE.md and WorkingReport.md. No release build,
+  package refresh, ZIP, push, hardware boot test, or full ISO build was performed.
+
 ## Storage navigation review — 2026-10-21
 
 - Follow-up: replaced minimum-height sizing with one exact outer allocation.

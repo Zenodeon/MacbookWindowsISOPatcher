@@ -544,7 +544,7 @@ fn run_job(
             "DisplaySwitch.exe missing from Windows image"
         );
         validate_signed_store(&mount.mount, intel, &req.model)?;
-        check_registry(&mount.mount)?;
+        prepare_a1706_boot_graphics(&mount.mount, intel, emit)?;
         mount.commit(cancel)?;
     }
     stage(
@@ -745,11 +745,11 @@ fn supports_generic_gpu(compact_inf: &str, device_id: &str) -> bool {
             key.starts_with('%') && value.split(',').skip(1).any(|id| id.trim() == hardware)
         })
 }
-fn validate_signed_store(mount: &Path, intel: &Path, model: &str) -> Result<()> {
+fn validate_signed_store(mount: &Path, intel: &Path, model: &str) -> Result<PathBuf> {
     let profile = crate::driver_prefetch::intel_graphics(model)?;
     let store = mount.join("Windows/System32/DriverStore/FileRepository");
     let expected = fs::read(intel.join(profile.inf))?;
-    let mut found = false;
+    let mut found = None;
     for entry in WalkDir::new(&store).into_iter().filter_map(Result::ok) {
         if !entry.file_type().is_file() {
             continue;
@@ -790,14 +790,10 @@ fn validate_signed_store(mount: &Path, intel: &Path, model: &str) -> Result<()> 
                 fs::read(catalog)? == fs::read(intel.join(profile.catalog))?,
                 "Intel catalog changed"
             );
-            found = true;
+            found = Some(entry.path().parent().unwrap().to_owned());
         }
     }
-    ensure!(
-        found,
-        "Signed Intel package is missing from the driver store"
-    );
-    Ok(())
+    found.context("Signed Intel package is missing from the driver store")
 }
 pub fn validate_boot_drivers(root: &Path) -> Result<()> {
     validate_model_boot_drivers(root, MODEL_ID)
@@ -824,21 +820,67 @@ fn validate_model_boot_drivers(root: &Path, model: &str) -> Result<()> {
     }
     Ok(())
 }
-fn check_registry(mount: &Path) -> Result<()> {
-    platform::powershell(
+fn prepare_a1706_boot_graphics(mount: &Path, intel: &Path, emit: &Emit) -> Result<()> {
+    emit(Event::Log(
+        "Preparing A1706 offline graphics startup (BasicDisplay enabled, Intel demand-start)"
+            .into(),
+    ));
+    let store = validate_signed_store(mount, intel, MODEL_ID)?;
+    // DISM stages this non-boot-start package without necessarily creating its
+    // service. The original, iterated image already had this binary/service.
+    // Recreate that end state from the unmodified, signed package on fresh ISOs.
+    let binary = fs::read(store.join("igdkmd64.sys"))
+        .context("Signed A1706 driver store is missing igdkmd64.sys")?;
+    ensure!(
+        !binary.is_empty() && binary == fs::read(intel.join("igdkmd64.sys"))?,
+        "A1706 graphics kernel binary differs from the signed Intel package"
+    );
+    let target = mount.join("Windows/System32/drivers/igdkmd64.sys");
+    fs::write(&target, &binary).context("Could not prepare the A1706 graphics kernel binary")?;
+    let report = a1706_boot_registry(mount, false)?;
+    ensure!(
+        fs::read(&target)? == binary,
+        "A1706 graphics kernel binary changed during preparation"
+    );
+    for line in report.lines() {
+        emit(Event::Log(line.to_owned()));
+    }
+    Ok(())
+}
+
+fn a1706_boot_registry(mount: &Path, validate_only: bool) -> Result<String> {
+    let script = format!(
+        "{}\n{}",
+        include_str!("../payloads/a1706/boot-graphics.ps1"),
         r#"
         $name='A1706_'+[Guid]::NewGuid().ToString('N')
-        & "$env:SystemRoot\System32\reg.exe" load "HKLM\$name" "$env:PATCHER_MOUNT\Windows\System32\config\SYSTEM" | Out-Null
-        if($LASTEXITCODE -ne 0){throw 'Cannot load offline SYSTEM hive'}
+        $reg="$env:SystemRoot\System32\reg.exe"
+        & $reg load "HKLM\$name" "$env:PATCHER_MOUNT\Windows\System32\config\SYSTEM" | Out-Null
+        if($LASTEXITCODE -ne 0){throw "Cannot load offline A1706 SYSTEM hive (code $LASTEXITCODE)"}
+        $root=$null
         try {
-          $basic=Get-ItemPropertyValue "Registry::HKEY_LOCAL_MACHINE\$name\ControlSet001\Services\BasicDisplay" Start
-          $iris=Get-ItemPropertyValue "Registry::HKEY_LOCAL_MACHINE\$name\ControlSet001\Services\igfx" Start
-          if($basic -ne 1 -or $iris -ne 3){throw 'Unsafe BasicDisplay/igfx service startup settings'}
-        } finally { [GC]::Collect(); [GC]::WaitForPendingFinalizers(); & "$env:SystemRoot\System32\reg.exe" unload "HKLM\$name" | Out-Null }
-    "#,
-        &[("PATCHER_MOUNT", mount.as_os_str())],
-    )?;
-    Ok(())
+          $root=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($name,$true)
+          if($null -eq $root){throw 'Cannot open loaded A1706 SYSTEM hive'}
+          if($env:PATCHER_GRAPHICS_VALIDATE_ONLY -ne '1'){Set-A1706BootGraphics $root | Out-Null}
+          Set-A1706BootGraphics $root -ValidateOnly
+        } finally {
+          if($null -ne $root){$root.Dispose()}
+          & $reg unload "HKLM\$name" | Out-Null
+          if($LASTEXITCODE -ne 0){throw "Cannot unload offline A1706 SYSTEM hive (code $LASTEXITCODE); workspace retained"}
+        }
+    "#
+    );
+    platform::powershell(
+        &script,
+        &[
+            ("PATCHER_MOUNT", mount.as_os_str()),
+            (
+                "PATCHER_GRAPHICS_VALIDATE_ONLY",
+                std::ffi::OsStr::new(if validate_only { "1" } else { "0" }),
+            ),
+        ],
+    )
+    .context("A1706 Windows Setup graphics preparation failed")
 }
 fn write_boot_payload(mount: &Path) -> Result<()> {
     let dir = mount.join("Windows/System32");
@@ -978,6 +1020,105 @@ pub const INSTALL_GUIDE: &str = "MacBook Pro A1706 — installation\r\n\r\n1. In
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Elevated DISM test on a disposable copy of boot.wim; requires explicit fixture paths"]
+    fn a1706_fresh_boot_image_prepares_and_persists_graphics_service() {
+        assert!(
+            platform::is_admin(),
+            "Run this integration test as administrator"
+        );
+        let source = PathBuf::from(
+            std::env::var_os("MACBOOK_A1706_TEST_BOOT_WIM").expect("Provide a stock boot.wim"),
+        );
+        let archive = PathBuf::from(
+            std::env::var_os("MACBOOK_A1706_TEST_INTEL_EXE")
+                .expect("Provide the pinned Intel archive"),
+        );
+        let root = PathBuf::from(
+            std::env::var_os("MACBOOK_A1706_TEST_ROOT")
+                .expect("Provide a new disposable test directory"),
+        );
+        assert!(!root.exists(), "Test directory must be new");
+        fs::create_dir_all(&root).unwrap();
+        let emit: Emit = Arc::new(|event| println!("{event:?}"));
+        let cancel = Cancellation::default();
+        let original_hash = download::sha256(&source, &cancel).unwrap();
+        let package = crate::driver_prefetch::packages_for_model(MODEL_ID).unwrap();
+        download::verify(&archive, package[0].hash, &cancel).unwrap();
+        let copied_wim = root.join("boot.wim");
+        fs::copy(&source, &copied_wim).unwrap();
+        download::extract_intel(
+            Path::new("C:/Program Files/7-Zip/7z.exe"),
+            &archive,
+            &root.join("intel"),
+            &emit,
+            &cancel,
+        )
+        .unwrap();
+        let inf = download::find_file(&root.join("intel"), "igdlh64.inf").unwrap();
+        let intel = inf.parent().unwrap();
+        validate_intel_for_model(intel, MODEL_ID).unwrap();
+        let mount_path = root.join("mount-boot");
+        let mounted = ImageMount::open(&copied_wim, 2, &mount_path, &emit, &cancel).unwrap();
+        inject_signed_driver(&mounted.mount, intel, MODEL_ID, &emit, &cancel).unwrap();
+        // Reproduce the reported failure after a successful signed DISM import.
+        let before = a1706_boot_registry(&mounted.mount, true).unwrap_err();
+        assert!(
+            format!("{before:#}").contains("igfx service is missing"),
+            "Unexpected pre-fix error: {before:#}"
+        );
+        prepare_a1706_boot_graphics(&mounted.mount, intel, &emit).unwrap();
+        mounted.commit(&cancel).unwrap();
+        let mounted = ImageMount::open(&copied_wim, 2, &mount_path, &emit, &cancel).unwrap();
+        let report = a1706_boot_registry(&mounted.mount, true).unwrap();
+        assert!(report.contains("BasicDisplay Start=1; igfx Start=3"));
+        let store = validate_signed_store(&mounted.mount, intel, MODEL_ID).unwrap();
+        assert_eq!(
+            fs::read(store.join("igdkmd64.sys")).unwrap(),
+            fs::read(mounted.mount.join("Windows/System32/drivers/igdkmd64.sys")).unwrap()
+        );
+        // A second run must preserve the same validated end state.
+        prepare_a1706_boot_graphics(&mounted.mount, intel, &emit).unwrap();
+        mounted.commit(&cancel).unwrap();
+        assert_eq!(download::sha256(&source, &cancel).unwrap(), original_hash);
+        println!(
+            "Disposable A1706 image passed; retained at {}",
+            root.display()
+        );
+    }
+
+    #[test]
+    fn a1706_rejects_changed_kernel_binary_before_writing_image() {
+        let temp = std::env::temp_dir().canonicalize().unwrap();
+        let root = temp.join(format!("a1706-kernel-test-{}", uuid::Uuid::new_v4()));
+        let intel = root.join("intel");
+        let mount = root.join("image");
+        let store = mount.join("Windows/System32/DriverStore/FileRepository/igdlh64.inf_test");
+        fs::create_dir_all(&intel).unwrap();
+        fs::create_dir_all(&store).unwrap();
+        for dir in [&intel, &store] {
+            fs::write(
+                dir.join("igdlh64.inf"),
+                b"[Version]\nCatalogFile=igdlh.cat\n; DEV_1927\n",
+            )
+            .unwrap();
+            fs::write(dir.join("igdlh.cat"), b"fixture catalog").unwrap();
+        }
+        fs::write(intel.join("igdkmd64.sys"), b"expected kernel").unwrap();
+        fs::write(store.join("igdkmd64.sys"), b"changed kernel").unwrap();
+        let emit: Emit = Arc::new(|_| {});
+        let error = prepare_a1706_boot_graphics(&mount, &intel, &emit).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("differs from the signed Intel package")
+        );
+        assert!(!mount.join("Windows/System32/drivers/igdkmd64.sys").exists());
+        assert_eq!(root.parent(), Some(temp.as_path()));
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn gpu_matching_requires_a_generic_device_mapping_not_an_oem_only_or_comment_match() {
         assert!(supports_generic_gpu(
