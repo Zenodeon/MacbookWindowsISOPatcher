@@ -15,4 +15,4 @@ pub mod transfer;
 pub mod wim;
 
 pub mod setup_recipe;
-pub const APP_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "v");
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");

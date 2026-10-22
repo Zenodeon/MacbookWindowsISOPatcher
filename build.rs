@@ -71,8 +71,7 @@ fn main() {
     let mut res = winresource::WindowsResource::new();
     res.set_manifest_file("app.manifest");
     res.set("ProductName", "MacBook ISO Patcher");
-    let display_version = format!("{}v", env!("CARGO_PKG_VERSION"));
-    res.set("ProductVersion", &display_version);
-    res.set("FileVersion", &display_version);
+    res.set("ProductVersion", env!("CARGO_PKG_VERSION"));
+    res.set("FileVersion", env!("CARGO_PKG_VERSION"));
     res.compile().expect("Windows resource compilation failed");
 }
