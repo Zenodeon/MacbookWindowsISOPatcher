@@ -102,3 +102,56 @@ integrity test, or custom executable behavioral equivalence test was performed.
 Neither source ISO nor the app's patching behavior was changed. A controlled
 hardware test using the same Windows source revision is needed to attribute a
 boot/display failure to any of these differences.
+
+## Follow-up: compatibility recommendation
+
+The user confirms that the manual ISO works. It remains the hardware-verified
+baseline; the app ISO has not earned the same status from this inspection.
+
+Reading the manual project's `REPRODUCE.md`, especially its boot-path allow
+list and "Do not repeat these" section, resolves two apparent omissions:
+
+- **Thunderbolt is an incomplete leftover, not a proven missing fix.** The
+  extracted manual `tbt81x.inf` references `setup.msi` in SourceDisksFiles and
+  its copy section. That file is absent from the four-file package. The
+  reproduction notes record import error `0x80070002`, explicitly exclude it
+  from WinPE, and say it remained uninstalled on the working system. Do not
+  add this incomplete package to improve HDMI compatibility. A future complete
+  Thunderbolt package would require a separate device/function test.
+- **Test-signing is an inherited experiment.** The notes explicitly say the
+  iterated ISO already had it enabled, to preserve an existing BCD, and that a
+  fresh stock ISO using the signed catalog does not need disabled signature
+  checks. All four inspected images contain the same Intel catalog (SHA-1
+  `89df517cda83a04fa664eaab4062e8e0af9ea3c2`). Its presence, matching INF/kernel,
+  and the notes support preserving the source BCD rather than enabling bypasses
+  by default. Whether those flags affect this exact Mac is still an A/B-test
+  question, not established by their mere presence in a working ISO.
+
+For portability across **2016 A1706 machines with Iris 550**, keep dynamic device
+instance lookup. The manual guide explicitly recommends finding the device
+whose ID contains `PCI\VEN_8086&DEV_1927&SUBSYS_015D106B` when the patcher knows
+the hardware ID rather than one particular machine's instance ID. The app uses
+the documented [present-device enumeration API](https://learn.microsoft.com/en-us/windows/win32/api/cfgmgr32/nf-cfgmgr32-cm_get_device_id_lista)
+and then the same [pnputil restart operation](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax).
+Both inspected Windows sources support that command.
+
+The present lookup implementation needs more explicit failure handling before
+calling it robust: enumeration failure/no match emits no ID, yet the batch file
+still calls `pnputil /restart-device ""`. It also takes the first match and has
+no retry when the device list changes between sizing and reading it. Recommended
+hardening: bounded enumeration retry, explicit zero/ambiguous-match diagnostics,
+log the resolved instance, and restart only a validated matching instance once.
+Do not fall back to the original machine's hardcoded instance on other Macs.
+
+The source for the other three C helpers (`a1706iris`, `a1706dlg`, `a1706cue`)
+matches the manual staging source byte-for-byte. Their rebuilt executable bytes
+alone are not evidence of changed logic. The Iris readiness parser still checks
+English "Iris" and "Started" text; the app currently restricts input to en-US.
+Supporting more languages would need a structured device-status check.
+
+Recommended order: reproduce the working v17 sequence with the same original
+Windows source revision (3803), Intel 21.20.16.5174, and existing boot driver
+allow list; retain and harden dynamic instance resolution; then hardware-test
+that controlled output before expanding accepted source revisions or models.
+The manual remains the practical fallback until this succeeds. No patching
+code, ISO, or build has been changed for this investigation.
