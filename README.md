@@ -4,6 +4,20 @@ Patch your Windows ISO to boot Windows Setup on a **headless MacBook** and send
 the display output to an **external screen**, so you can continue installation
 without an internal display.
 
+![MacBook ISO Patcher model selection in dark mode](assets/readme/model-selection-dark.png)
+
+## Tested on a headless MacBook
+
+Photos from the working Windows 10 setup on a **headless MacBook Pro 13-inch
+A1706 (2016)**, using an external screen. This is the setup the patcher's 2016
+A1706 recipe is based on.
+
+| Windows Setup on the external screen | Windows finishing setup |
+| --- | --- |
+| <img src="assets/readme/headless-a1706-setup-1.jpg" alt="Windows Setup language selection on an external screen above a headless MacBook" width="360"> | <img src="assets/readme/headless-a1706-setup-2.jpg" alt="Windows finishing setup on an external screen above a headless MacBook" width="360"> |
+
+[Original photos and setup report on Reddit](https://www.reddit.com/r/bootcamp/comments/1ws9wzm/i_installed_windows_10_on_my_headless_macbook/)
+
 ## Supported Macs
 
 The goal is to support **Intel-based Macs first**, then explore support for
