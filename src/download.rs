@@ -123,7 +123,9 @@ fn fetch_checked(
         f.sync_all()?;
         drop(f);
         emit(Event::Download {
-            name: name.into(), received, total,
+            name: name.into(),
+            received,
+            total,
             bytes_per_second: rate.sample(started.elapsed(), received),
         });
         stage(emit, "Verifying drivers", name);

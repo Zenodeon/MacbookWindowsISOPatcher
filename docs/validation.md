@@ -1,5 +1,43 @@
 # Validation
 
+## A1706 compatibility and USB Setup diagnostics — 2026-10-22
+
+- Preserve the v17 GPU/Setup ordering, Intel 21.20.16.5174, BasicDisplay and
+  igfx settings, boot allowlist, source BCD, and existing driver-only
+  SetupComplete. Other model patching is unchanged. No persistent collector.
+- GPU production-loop tests inject immediate/delayed discovery, a changing
+  enumeration buffer, API failure, no match, ambiguous matches and a wrong
+  hardware-ID prefix. Startup rejects empty IDs and has one restart command.
+- A native C collector starts before wpeinit and records bounded timestamped
+  events, dialog labels, device state/version, storage space and separate
+  Panther/SetupAPI/rollback snapshots. It deliberately skips edit controls.
+  USB copying is asynchronous relative to the startup script. Collection errors,
+  tail truncation, log limits and running/interrupted sessions are explicit.
+- Native disposable fixture tests exercise the real watcher and copy routines:
+  marked/unmarked destinations, multiple USB destinations, marker removal and
+  reattachment, fixed-disk eligibility abstraction, read-only and simulated-full
+  destinations, locked sources, partial failures, 16 MB tails, spool limits,
+  path escapes, junctions, separate sessions, context reopening and recovery
+  isolation. Tests do not read host Windows Setup logs or launch Setup.
+- The production read-only USB check recognized the attached Ventoy D: volume,
+  matching Windows' USB bus classification, and rejected C:. No marker or log
+  was written to the user's USB. Physical USB marker creation/removal during
+  a real WinPE installation remains to be tested on hardware.
+- Packaging tests verify native executable headers, boot payload contents,
+  model/build manifests, the copyable marker and collector launcher. Manifests
+  omit source directory paths, retain image revisions, and identify dirty code
+  builds. Older saved image/inventory JSON remains readable.
+- Completion now has a separate Prepare USB for setup logs card after Ventoy
+  instructions. Review/completion show source-reference differences while
+  keeping supported inputs buildable. Matching revision is not ISO verification.
+- Full tests: **127 passed, 5 ignored**. Formatting and Clippy pass. Debug preview
+  only. Actual app screenshots cover dark/light 1240 × 700 and a smaller
+  800 × 520 window; sidebar/page content remains scrollable. Explorer inspection
+  shows generated Support tools and a clearly labelled disposable log session.
+- The working manual ISO is untouched. No ISO rebuild, release build, ZIP,
+  push, actual Windows installation or A1706 hardware test was performed.
+  Hardware validation against the verified manual ISO remains pending.
+
 ## WorkingSpace naming and setup-stage moves — 2026-10-22
 
 - Renamed the configured folder to WorkingSpace in Review, Settings, space

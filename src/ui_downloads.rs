@@ -82,7 +82,12 @@ impl PatcherApp {
             return Some(("Driver download failed".into(), colors.error));
         }
         let status = if let Some(progress) = &self.drivers.progress {
-            let DownloadProgress { name, received, total, .. } = progress;
+            let DownloadProgress {
+                name,
+                received,
+                total,
+                ..
+            } = progress;
             let package = if name.ends_with(".pkg") {
                 "Boot Camp"
             } else {
@@ -90,7 +95,10 @@ impl PatcherApp {
             };
             format!(
                 "{package} download · {} · {}",
-                total.filter(|n| *n > 0).map_or_else(|| format!("{:.1} MB", *received as f64 / 1_000_000.0), |n| format!("{:.0}%", *received as f64 / n as f64 * 100.0)),
+                total.filter(|n| *n > 0).map_or_else(
+                    || format!("{:.1} MB", *received as f64 / 1_000_000.0),
+                    |n| format!("{:.0}%", *received as f64 / n as f64 * 100.0)
+                ),
                 progress.rate_label()
             )
         } else {
@@ -289,9 +297,17 @@ impl PatcherApp {
                     egui::vec2(area.width(), 17.0),
                 ),
                 egui::Label::new(
-                    RichText::new(format!("{}{} · {}", self.build_progress.label(), self.download.as_ref().map(|p| format!(" · {}", p.rate_label())).unwrap_or_default(), self.stage))
-                        .size(11.0)
-                        .color(colors.muted),
+                    RichText::new(format!(
+                        "{}{} · {}",
+                        self.build_progress.label(),
+                        self.download
+                            .as_ref()
+                            .map(|p| format!(" · {}", p.rate_label()))
+                            .unwrap_or_default(),
+                        self.stage
+                    ))
+                    .size(11.0)
+                    .color(colors.muted),
                 )
                 .truncate(),
             )
@@ -410,7 +426,12 @@ impl PatcherApp {
         };
         let mut fraction = None;
         let (text, detail) = if let Some(progress) = progress {
-            let DownloadProgress { name, received, total, .. } = progress;
+            let DownloadProgress {
+                name,
+                received,
+                total,
+                ..
+            } = progress;
             let package = if name.ends_with(".pkg") {
                 "Boot Camp"
             } else {

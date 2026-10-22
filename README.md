@@ -157,6 +157,40 @@ Other compatible editions are allowed and explicitly labeled unverified.
 
 ## Install on the Mac
 
+### A1706 Setup support logs
+
+After creating the ISO, use **Prepare USB for setup logs** on the completion
+page and select the USB root. Alternatively, copy
+`Support\MacBookPatcher-Logging.enabled` from inside the ISO to the USB root.
+Preparation adds a marker; it does not format the USB or change its ISO files.
+Only explicitly marked USB storage receives logs, including USB drives reported
+as fixed disks. Multiple marked USBs each receive a copy.
+
+Logs are organized as
+`MacBookPatcher-Logs\A1706\<UTC timestamp>-<session ID>`. Each session includes
+build/model metadata, a stage timeline, display-device status and driver version,
+storage space, Setup dialog labels, and available Panther/SetupAPI/rollback logs.
+Collection runs in the booted installer and ends at reboot. It does not install
+a service or an automatic first-boot collector. Without a writable marked USB,
+the local WinPE spool is lost on reboot. Logs are bounded; limits, missing files,
+copy errors and interrupted sessions are identified explicitly.
+
+For later recovery, run `Support\Collect setup logs.cmd` as administrator from
+the ISO or `C:\MacBookPatcher\Support`. It gathers available saved Setup logs
+into a separate recovery session. Attach the session folder and the patcher's
+saved build log to a GitHub issue, describing the Mac model, display connection,
+failure and last visible screen. Review native Windows logs before sharing;
+they can contain account names and file paths. Nothing is uploaded automatically.
+Older ISOs may use `A1706Logs` instead.
+
+The hardware-verified manual reference uses Windows 10 Pro **19045.3803** and
+Setup **19041.3803**. Other supported sources remain buildable with a compatibility
+notice; matching versions alone do not verify a generated ISO. The app preserves
+source BCD settings and does not enable signature-check bypasses. Its A1706 GPU
+lookup requires one present matching Iris 550 device before attempting one restart.
+
+### Installation steps
+
 1. Prepare a Windows partition using Boot Camp Assistant or another method.
 2. Set up a USB drive with [Ventoy](https://www.ventoy.net/),
    then copy the generated ISO onto it.

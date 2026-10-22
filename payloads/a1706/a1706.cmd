@@ -2,15 +2,15 @@
 setlocal EnableDelayedExpansion
 if exist X:\a1706.ran goto :eof
 echo ran>X:\a1706.ran
-set LOGX=X:\a1706-setup-log.txt
-set LOGS=
-for %%L in (C D E F G H I J K L M N O P Q R S T U V W Y Z) do if exist %%L:\ call :try %%L
+set "LOGGER=%SystemRoot%\System32\MacBookSetupLogger.exe"
+"%LOGGER%" --start
+set "PHASE=initialization"
 set "MSG=A1706 setup log v17 %DATE% %TIME%"
 call :note
-set "MSG=writable drives:!LOGS!"
+set "MSG=USB logs: MacBookPatcher-Logs on explicitly marked USB storage; RAM-only logs are lost at reboot"
 call :note
-set "MSG=logs appended to \A1706Logs on each writable drive"
-call :note
+set "PHASE=wpeinit"
+"%LOGGER%" --event wpeinit-start
 wpeinit
 set RC=!ERRORLEVEL!
 set "MSG=wpeinit finished errorlevel=!RC!"
@@ -23,8 +23,17 @@ call :note
 call :dump pnputil /enum-devices /class Display
 call :dump pnputil /enum-devices /problem
 call :copysapi
+set "PHASE=gpu-discovery"
 set "GPU="
-for /f "delims=" %%G in ('%SystemRoot%\System32\a1706gpu.exe') do set "GPU=%%G"
+"%LOGGER%" --event gpu-discovery-start
+%SystemRoot%\System32\a1706gpu.exe >X:\a1706-gpu-id.txt 2>X:\a1706-gpu-error.txt
+set "GPU_RC=!ERRORLEVEL!"
+call :addfile X:\a1706-gpu-error.txt
+if not "!GPU_RC!"=="0" goto :gpufailed
+set /p GPU=<X:\a1706-gpu-id.txt
+if not defined GPU goto :gpufailed
+set "MSG=GPU detected !GPU!"
+call :note
 call :gpurestart
 set DRV=
 for %%L in (C D E F G H I J K L M N O P Q R S T U V W Y Z) do if exist %%L:\ call :finddrv %%L
@@ -47,19 +56,13 @@ set "TAG=touchbar"
 set "ONE=!DRV!\AppleDFR64\AppleDFR.inf"
 call :loadone
 :afterdrv
-call :dump pnputil /enum-devices /connected
+rem Limit device diagnostics to display, monitor and problem devices.
 call :dump pnputil /enum-devices /problem
 call :dump pnputil /enum-devices /class Display
 call :dump pnputil /enum-devices /class Monitor
 call :dump pnputil /enum-drivers
 call :dump reg query HKLM\SYSTEM\CurrentControlSet\Enum\DISPLAY /s
 call :dump reg query HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers /s
-set "MSG=----- volumes -----"
-call :note
-for %%L in (C D E F G H I J K L M N O P Q R S T U V W X Y Z) do if exist %%L:\ (
-  vol %%L: >X:\a1706-cmd-out.txt 2>&1
-  call :addfile X:\a1706-cmd-out.txt
-)
 dir %SystemRoot%\System32\DisplaySwitch.exe >X:\a1706-cmd-out.txt 2>&1
 call :addfile X:\a1706-cmd-out.txt
 if exist %SystemRoot%\System32\DisplaySwitch.exe (
@@ -71,6 +74,7 @@ if exist %SystemRoot%\System32\DisplaySwitch.exe (
 )
 call :copysapi
 if exist %SystemRoot%\System32\Narrator.exe start "" %SystemRoot%\System32\Narrator.exe
+set "PHASE=iris-readiness"
 set "N=0"
 set "IRISOK=0"
 :waitiris
@@ -96,12 +100,18 @@ ping -n 3 127.0.0.1 >nul
 goto :waitiris
 :irisdone
 if not "!IRISOK!"=="1" (
+  "%LOGGER%" --event iris-readiness-failed "Iris did not reach Started"
   set "MSG=ERROR iris not started"
   call :note
+  echo Iris did not reach Started. Setup has not been launched.
+  echo Keep the marked logging USB connected and save the support folder.
+  pause
   goto :eof
 )
 if exist %SystemRoot%\System32\DisplaySwitch.exe (
+  "%LOGGER%" --event display-switch-start
   %SystemRoot%\System32\DisplaySwitch.exe /external
+  "%LOGGER%" --event display-switch-return "!ERRORLEVEL!"
 )
 set "SRC="
 for %%L in (C D E F G H I J K L M N O P Q R S T U V W Y Z) do (
@@ -116,14 +126,9 @@ if not defined SRC (
   set "MSG=installfrom !SRC!\sources\install.wim"
   call :note
 )
-set "MSG=after-setup log a1706-after-setup.txt"
+set "MSG=Setup dialog and Panther collection running"
 call :note
-if exist %SystemRoot%\System32\a1706dlg.exe (
-  start "" %SystemRoot%\System32\a1706dlg.exe
-) else (
-  set "MSG=ERROR missing a1706dlg.exe"
-  call :note
-)
+set "PHASE=windows-setup"
 set "MSG=launching setup %TIME%"
 call :note
 if exist X:\sources\setup.exe (
@@ -139,22 +144,15 @@ if exist X:\sources\setup.exe (
     %SYSTEMDRIVE%\sources\setup.exe
   )
 )
+set "SETUP_RC=!ERRORLEVEL!"
+"%LOGGER%" --event setup-exit "!SETUP_RC!"
+"%LOGGER%" --stop
 goto :eof
-:try
-echo probe>"%~1:\a1706-write.test"
-if not exist "%~1:\a1706-write.test" goto :tryfolder
-del "%~1:\a1706-write.test"
-if exist "%~1:\a1706-write.test" goto :eof
-set LOGS=!LOGS! %~1
-if not exist "%~1:\A1706Logs\" mkdir "%~1:\A1706Logs"
-goto :eof
-:tryfolder
-if not exist "%~1:\A1706Logs\" goto :eof
-echo probe>"%~1:\A1706Logs\a1706-write.test"
-if not exist "%~1:\A1706Logs\a1706-write.test" goto :eof
-del "%~1:\A1706Logs\a1706-write.test"
-if exist "%~1:\A1706Logs\a1706-write.test" goto :eof
-set LOGS=!LOGS! %~1
+:gpufailed
+"%LOGGER%" --event gpu-discovery-failed "!GPU_RC!"
+echo No unique A1706 Iris 550 device was detected. Setup has not been launched.
+echo Keep the marked logging USB connected and save MacBookPatcher-Logs.
+pause
 goto :eof
 :finddrv
 set "MSG=check %~1"
@@ -166,6 +164,7 @@ if exist "%~1:\$WinPEDriver$\AppleSPIKeyboard\AppleSPIKeyboard.inf" (
 )
 goto :eof
 :loadone
+set "PHASE=driver-load-!TAG!"
 set "MSG=step load !TAG!"
 call :note
 if not exist "!ONE!" (
@@ -187,6 +186,7 @@ call :note
 call :copysapi
 goto :eof
 :gpurestart
+set "PHASE=gpu-restart"
 set "MSG=pnputil restart-device"
 call :note
 pnputil /restart-device "!GPU!" >X:\a1706-cmd-out.txt 2>&1
@@ -217,14 +217,14 @@ if not exist "%SystemRoot%\inf\setupapi.dev.log" (
   call :note
   goto :eof
 )
-for %%D in (!LOGS!) do copy /y "%SystemRoot%\inf\setupapi.dev.log" "%%D:\A1706Logs\a1706-setupapi.dev.log" >nul
+rem The background collector snapshots SetupAPI and Panther independently.
 set "MSG=copied setupapi.dev.log !TAG!"
 call :note
 goto :eof
 :addfile
 if not exist "%~1" goto :eof
-type "%~1" >>"%LOGX%"
-for %%D in (!LOGS!) do type "%~1" >>"%%D:\A1706Logs\a1706-setup-log.txt"
+copy /y "%~1" "%SystemRoot%\Temp\MacBookPatcher-command.txt" >nul
+"%LOGGER%" --capture
 goto :eof
 :cue
 if not exist %SystemRoot%\System32\a1706cue.exe (
@@ -238,6 +238,5 @@ set "MSG=cue %~1 errorlevel=!RC!"
 call :note
 goto :eof
 :note
->>"%LOGX%" echo(!MSG!
-for %%D in (!LOGS!) do >>"%%D:\A1706Logs\a1706-setup-log.txt" echo(!MSG!
+"%LOGGER%" --event "!PHASE!" "!MSG!"
 goto :eof

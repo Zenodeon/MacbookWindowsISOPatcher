@@ -226,6 +226,7 @@ pub fn scan_root(iso: &Path, root: &Path) -> Result<Inventory> {
         iso_size: fs::metadata(iso)?.len(),
         iso_modified: modified(iso)?,
         install_file: install_file.into(),
+        setup_image: Some(setup.clone()),
         images: wim::read_images(&root.join("sources").join(install_file))?,
     })
 }

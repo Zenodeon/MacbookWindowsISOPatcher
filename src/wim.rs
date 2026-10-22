@@ -46,6 +46,8 @@ struct Version {
     minor: u32,
     #[serde(rename = "BUILD", default)]
     build: u32,
+    #[serde(rename = "SPBUILD", default)]
+    revision: Option<u32>,
 }
 #[derive(Debug, Deserialize, Default)]
 struct Languages {
@@ -76,6 +78,7 @@ pub fn parse_xml(xml: &str) -> Result<Vec<Image>> {
             },
             arch: w.arch,
             build: w.version.build,
+            revision: w.version.revision,
             major: w.version.major,
             minor: w.version.minor,
             language: w.languages.default,

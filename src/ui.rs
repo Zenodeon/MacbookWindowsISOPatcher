@@ -70,6 +70,7 @@ enum Page {
 }
 
 enum Message {
+    UsbPrepared(Result<PathBuf, String>),
     Scanned(Result<(Inventory, platform::MountedIso), String>),
     Dismounted(Result<bool, String>, Option<platform::MountedIso>),
     AdkStatus(String),
@@ -79,7 +80,10 @@ enum Message {
     Build(Event),
     StorageScanned(Result<macbook_iso_patcher::cleanup::Inventory, String>),
     StorageMoveProgress(macbook_iso_patcher::relocation::Progress),
-    StorageMoved(macbook_iso_patcher::relocation::Kind, Result<macbook_iso_patcher::relocation::Outcome, String>),
+    StorageMoved(
+        macbook_iso_patcher::relocation::Kind,
+        Result<macbook_iso_patcher::relocation::Outcome, String>,
+    ),
     StorageCleaned(
         macbook_iso_patcher::cleanup::CleanupRequest,
         Result<macbook_iso_patcher::cleanup::CleanupReport, String>,
@@ -129,6 +133,7 @@ pub struct PatcherApp {
     dismounting: bool,
     confirm_dismount: bool,
     installing_adk: bool,
+    preparing_usb: bool,
     adk_status: String,
     window_fitted: bool,
     notice: Option<String>,
@@ -163,16 +168,27 @@ impl PatcherApp {
         let mut recovery_failed = recovery.is_err();
         let mut startup_notice = match recovery {
             Ok(notice) => notice,
-            Err(error) => Some(format!("Storage recovery failed. Restart after resolving this error: {error:#}")),
+            Err(error) => Some(format!(
+                "Storage recovery failed. Restart after resolving this error: {error:#}"
+            )),
         };
-        let loaded = macbook_iso_patcher::relocation::load_settings(&settings_file, &dirs.config_dir().join("settings.json"));
-        let mut settings: Settings = match loaded.and_then(|bytes| bytes.map(|bytes| serde_json::from_slice(&bytes).map_err(anyhow::Error::from)).transpose()) {
+        let loaded = macbook_iso_patcher::relocation::load_settings(
+            &settings_file,
+            &dirs.config_dir().join("settings.json"),
+        );
+        let mut settings: Settings = match loaded.and_then(|bytes| {
+            bytes
+                .map(|bytes| serde_json::from_slice(&bytes).map_err(anyhow::Error::from))
+                .transpose()
+        }) {
             Ok(settings) => settings.unwrap_or_default(),
             Err(error) => {
                 recovery_failed = true;
-                startup_notice = Some(format!("Could not load settings. The saved file was preserved: {error:#}"));
+                startup_notice = Some(format!(
+                    "Could not load settings. The saved file was preserved: {error:#}"
+                ));
                 Settings::default()
-            },
+            }
         };
         if settings.work.is_empty() {
             settings.work = dirs.data_local_dir().join("builds").display().to_string();
@@ -218,6 +234,7 @@ impl PatcherApp {
             dismounting: false,
             confirm_dismount: false,
             installing_adk: false,
+            preparing_usb: false,
             adk_status: String::new(),
             window_fitted: false,
             notice: startup_notice,
@@ -248,8 +265,12 @@ impl PatcherApp {
         app
     }
     fn persist_settings(&mut self) {
-        if self.storage.moving || self.storage.recovery_failed { return; }
-        if let Err(error) = macbook_iso_patcher::relocation::save_settings(&self.settings_file, &self.settings) {
+        if self.storage.moving || self.storage.recovery_failed {
+            return;
+        }
+        if let Err(error) =
+            macbook_iso_patcher::relocation::save_settings(&self.settings_file, &self.settings)
+        {
             self.notice = Some(format!("Could not save settings: {error:#}"));
         }
     }
@@ -267,26 +288,47 @@ impl PatcherApp {
     fn consume(&mut self) {
         while let Ok(message) = self.receiver.try_recv() {
             match message {
-                Message::StorageMoveProgress(progress) => self.storage.move_progress = Some(progress),
+                Message::UsbPrepared(result) => {
+                    self.preparing_usb = false;
+                    match result {
+                        Ok(path) => {
+                            self.notice = Some(format!(
+                                "USB logging enabled on {}. Keep the USB connected during Setup. Logs will be in MacBookPatcher-Logs\\A1706.",
+                                platform::display_path(&path)
+                            ))
+                        }
+                        Err(error) => self.show_error(error),
+                    }
+                }
+                Message::StorageMoveProgress(progress) => {
+                    self.storage.move_progress = Some(progress)
+                }
                 Message::StorageMoved(kind, result) => {
                     self.storage.moving = false;
                     self.storage.move_progress = None;
                     match result {
-                        Ok(outcome) => match serde_json::from_value::<Settings>(outcome.settings) {
-                            Ok(settings) => {
-                                self.settings = settings;
-                                if kind == macbook_iso_patcher::relocation::Kind::Cache {
-                                    self.drivers.reset_after_cleanup();
-                                } else {
-                                    self.last_build_workspace = None;
+                        Ok(outcome) => {
+                            match serde_json::from_value::<Settings>(outcome.settings) {
+                                Ok(settings) => {
+                                    self.settings = settings;
+                                    if kind == macbook_iso_patcher::relocation::Kind::Cache {
+                                        self.drivers.reset_after_cleanup();
+                                    } else {
+                                        self.last_build_workspace = None;
+                                    }
+                                    self.storage.notice = Some(outcome.warning.unwrap_or_else(|| "Folder moved. The new location is saved for future builds.".into()));
                                 }
-                                self.storage.notice = Some(outcome.warning.unwrap_or_else(|| "Folder moved. The new location is saved for future builds.".into()));
-                            },
-                            Err(error) => self.storage.error = Some(format!("Reload the app to read the moved storage settings: {error}")),
-                        },
+                                Err(error) => {
+                                    self.storage.error = Some(format!(
+                                        "Reload the app to read the moved storage settings: {error}"
+                                    ))
+                                }
+                            }
+                        }
                         Err(error) => self.storage.error = Some(error),
                     }
-                    self.storage.recovery_failed = macbook_iso_patcher::relocation::recovery_pending(&self.settings_file);
+                    self.storage.recovery_failed =
+                        macbook_iso_patcher::relocation::recovery_pending(&self.settings_file);
                     self.storage.inventory = None;
                     self.storage.needs_scan = true;
                 }
@@ -331,7 +373,14 @@ impl PatcherApp {
                         received,
                         total,
                         bytes_per_second,
-                    } => self.drivers.progress = Some(DownloadProgress::new(name, received, total, bytes_per_second)),
+                    } => {
+                        self.drivers.progress = Some(DownloadProgress::new(
+                            name,
+                            received,
+                            total,
+                            bytes_per_second,
+                        ))
+                    }
                     _ => (),
                 },
                 Message::DriversDone(id, result) => self.drivers.finish(id, result),
@@ -432,7 +481,14 @@ impl PatcherApp {
                             received,
                             total,
                             bytes_per_second,
-                        } => self.download = Some(DownloadProgress::new(name, received, total, bytes_per_second)),
+                        } => {
+                            self.download = Some(DownloadProgress::new(
+                                name,
+                                received,
+                                total,
+                                bytes_per_second,
+                            ))
+                        }
                         Event::Log(text) => {
                             if self.logs.len() >= 4000 {
                                 self.logs.drain(..500);
@@ -470,7 +526,9 @@ impl PatcherApp {
         }
     }
     fn scan(&mut self, ctx: &egui::Context) {
-        if self.storage.moving || self.storage.recovery_failed { return; }
+        if self.storage.moving || self.storage.recovery_failed {
+            return;
+        }
         if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
             return;
         }
@@ -495,7 +553,9 @@ impl PatcherApp {
         });
     }
     fn dismount(&mut self, ctx: &egui::Context, only_owned: bool) {
-        if self.storage.moving { return; }
+        if self.storage.moving {
+            return;
+        }
         if self.busy || self.scanning || self.dismounting || (!only_owned && self.installing_adk) {
             return;
         }
@@ -520,7 +580,9 @@ impl PatcherApp {
         });
     }
     fn install_adk(&mut self, ctx: &egui::Context) {
-        if self.storage.moving || self.storage.recovery_failed { return; }
+        if self.storage.moving || self.storage.recovery_failed {
+            return;
+        }
         if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
             return;
         }
@@ -579,7 +641,9 @@ impl PatcherApp {
         });
     }
     fn review_build(&mut self, ctx: &egui::Context) {
-        if self.storage.busy() || self.storage.recovery_failed { return; }
+        if self.storage.busy() || self.storage.recovery_failed {
+            return;
+        }
         match self.request().and_then(|req| engine::preflight(&req)) {
             Ok(()) => {
                 self.error = None;
@@ -966,6 +1030,7 @@ impl eframe::App for PatcherApp {
             || self.dismounting
             || self.installing_adk
             || self.drivers.running
+            || self.preparing_usb
             || self.storage.busy()
         {
             ctx.request_repaint_after(Duration::from_millis(150));

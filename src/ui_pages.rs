@@ -400,6 +400,14 @@ impl PatcherApp {
         }
         Self::section(ui, "Included editions", colors.source, |ui| {
             if let Some(inv) = &self.inventory {
+                if self.model().is_some_and(|m| m.id == MODEL_ID) {
+                    let selected: Vec<_> = self.selected.iter().copied().collect();
+                    if let Some(notice) =
+                        macbook_iso_patcher::diagnostics::reference_notice(inv, &selected)
+                    {
+                        ui.colored_label(colors.warning, notice);
+                    }
+                }
                 for image in &inv.images {
                     if self.selected.contains(&image.index) {
                         ui.label(&image.name);
@@ -519,7 +527,11 @@ impl PatcherApp {
                         self.settings.oscdimg = platform::find_oscdimg().display().to_string();
                         self.settings.seven_zip = platform::find_seven_zip().display().to_string();
                     }
-                    ui.add_enabled_ui(false, |ui| Self::folder_field(ui, "Driver download cache", &mut self.settings.cache)).response.on_disabled_hover_text(macbook_iso_patcher::relocation::LOCKED_REASON);
+                    ui.add_enabled_ui(false, |ui| {
+                        Self::folder_field(ui, "Driver download cache", &mut self.settings.cache)
+                    })
+                    .response
+                    .on_disabled_hover_text(macbook_iso_patcher::relocation::LOCKED_REASON);
                 });
             egui::CollapsingHeader::new("What happens during the build?").show(ui, |ui| {
                 ui.label("Downloads about 610 MB of verified Intel and Apple drivers once, then reuses the cache.");

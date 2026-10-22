@@ -17,7 +17,10 @@ impl Drop for ActivityLock {
 }
 pub fn activity(root: &Path, name: &str, exclusive: bool) -> Result<ActivityLock> {
     safe_path(root)?;
-    ensure!(!root.join(".storage-moved.json").exists(), "This folder was moved by another app instance. Restart the app to use the new location");
+    ensure!(
+        !root.join(".storage-moved.json").exists(),
+        "This folder was moved by another app instance. Restart the app to use the new location"
+    );
     fs::create_dir_all(root)?;
     let path = root.join(name);
     safe_path(&path)?;
@@ -43,9 +46,7 @@ pub(crate) fn history_lock(root: &Path) -> Result<ActivityLock> {
     loop {
         match activity(root, ".history.lock", true) {
             Ok(lock) => return Ok(lock),
-            Err(e)
-                if lock_busy(&e) && std::time::Instant::now() < deadline =>
-            {
+            Err(e) if lock_busy(&e) && std::time::Instant::now() < deadline => {
                 std::thread::sleep(std::time::Duration::from_millis(20))
             }
             Err(e) => return Err(e),
@@ -54,8 +55,12 @@ pub(crate) fn history_lock(root: &Path) -> Result<ActivityLock> {
 }
 
 pub(crate) fn lock_busy(error: &anyhow::Error) -> bool {
-    error.chain().any(|e| e.downcast_ref::<std::io::Error>().is_some_and(|e|
-        e.kind() == std::io::ErrorKind::WouldBlock || (cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33)))))
+    error.chain().any(|e| {
+        e.downcast_ref::<std::io::Error>().is_some_and(|e| {
+            e.kind() == std::io::ErrorKind::WouldBlock
+                || (cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33)))
+        })
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -172,7 +177,10 @@ pub(crate) fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
     {
         use std::io::Write;
-        let mut file = OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp)?;
         file.write_all(&serde_json::to_vec_pretty(value)?)?;
         file.sync_all()?;
     }
@@ -794,7 +802,10 @@ pub(crate) fn import_jobs(history: &mut History, workspace: &Path) -> Result<()>
             .and_then(|v| v.to_str())
             .and_then(|s| s.strip_prefix("build-"))
             .is_some_and(|s| uuid::Uuid::parse_str(s).is_ok())
-            || history.records.iter().any(|r| same_path(&r.job, &path).unwrap_or(false))
+            || history
+                .records
+                .iter()
+                .any(|r| same_path(&r.job, &path).unwrap_or(false))
         {
             continue;
         }
@@ -1354,12 +1365,14 @@ mod tests {
                     iso_size: 15,
                     iso_modified: 0,
                     install_file: "install.wim".into(),
+                    setup_image: None,
                     images: vec![Image {
                         index: 1,
                         name: "Windows 10 Pro".into(),
                         edition: "Professional".into(),
                         arch: 9,
                         build: 19041,
+                        revision: None,
                         major: 10,
                         minor: 0,
                         language: "en-US".into(),
@@ -1916,7 +1929,8 @@ mod tests {
         fs::rename(&record.output, &new_output).unwrap();
         record.output = new_output;
         record.published = Some(fingerprint(&record.output).unwrap());
-        let mut req: BuildRequest = serde_json::from_slice(&fs::read(record.job.join("job.json")).unwrap()).unwrap();
+        let mut req: BuildRequest =
+            serde_json::from_slice(&fs::read(record.job.join("job.json")).unwrap()).unwrap();
         req.output = record.output.clone();
         write_json(&record.job.join("job.json"), &req).unwrap();
         write_json(&record.job.join("build-state.json"), &record).unwrap();
@@ -1925,12 +1939,31 @@ mod tests {
         let settings_path = f.path("local/settings.json");
         relocation::save_settings(&settings_path, &settings).unwrap();
         let destination = f.path("moved-builds");
-        relocation::execute(Request { kind: Kind::Workspace, source: record.workspace, destination: destination.clone(), other_root: f.path("cache"), protected_sources: vec![record.source.clone()], settings_path, settings, history_root: history.clone(), gate: Gate { model_selection: true, before_build: true, idle: true } }, &|_| {}).unwrap();
+        relocation::execute(
+            Request {
+                kind: Kind::Workspace,
+                source: record.workspace,
+                destination: destination.clone(),
+                other_root: f.path("cache"),
+                protected_sources: vec![record.source.clone()],
+                settings_path,
+                settings,
+                history_root: history.clone(),
+                gate: Gate {
+                    model_selection: true,
+                    before_build: true,
+                    idle: true,
+                },
+            },
+            &|_| {},
+        )
+        .unwrap();
         let inventory = inventory_at(&history, &f.path("cache"), &destination).unwrap();
         assert_eq!(inventory.builds.len(), 1);
         assert!(inventory.builds[0].complete());
         assert!(inventory.builds[0].can_delete());
-        let report = delete_builds_at(&history, &[record.id], &[], &|_| Ok(()), &|_| Ok(())).unwrap();
+        let report =
+            delete_builds_at(&history, &[record.id], &[], &|_| Ok(()), &|_| Ok(())).unwrap();
         assert!(report.errors.is_empty(), "{:?}", report.errors);
         assert!(record.source.exists());
         assert!(!destination.join("generated.iso").exists());

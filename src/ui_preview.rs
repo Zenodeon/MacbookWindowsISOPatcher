@@ -170,14 +170,31 @@ impl PatcherApp {
                 self.storage.moving = true;
                 self.close_ready = true;
                 self.storage.move_progress = Some(macbook_iso_patcher::relocation::Progress {
-                    files: 8, total_files: 20, bytes: 350_000_000, total_bytes: 800_000_000,
+                    files: 8,
+                    total_files: 20,
+                    bytes: 350_000_000,
+                    total_bytes: 800_000_000,
                     phase: "Copying files".into(),
                 });
             }
-            if view == "settings-limited" { self.page = Page::Iso; self.model_selected = Some(0); }
-            if view == "settings-workingspace" { self.page = Page::Review; self.model_selected = Some(0); }
-            if view == "settings-workingspace-donation" { self.page = Page::Review; self.model_selected = Some(0); self.donation = true; }
-            if view == "settings-build-locked" { self.page = Page::Build; self.busy = true; self.close_ready = true; }
+            if view == "settings-limited" {
+                self.page = Page::Iso;
+                self.model_selected = Some(0);
+            }
+            if view == "settings-workingspace" {
+                self.page = Page::Review;
+                self.model_selected = Some(0);
+            }
+            if view == "settings-workingspace-donation" {
+                self.page = Page::Review;
+                self.model_selected = Some(0);
+                self.donation = true;
+            }
+            if view == "settings-build-locked" {
+                self.page = Page::Build;
+                self.busy = true;
+                self.close_ready = true;
+            }
             if view == "settings-scanning" {
                 self.storage.scanning = true;
                 self.close_ready = true;
@@ -199,8 +216,8 @@ impl PatcherApp {
             "review-unverified" => ("review-ready", 1),
             "workspace-error" | "generic-error" | "worker-error" => ("review-ready", 0),
             "build-active"
-                | "build-download"
-                | "build-download-unknown"
+            | "build-download"
+            | "build-download-unknown"
             | "build-preparing"
             | "build-log"
             | "build-failed"
@@ -271,6 +288,7 @@ impl PatcherApp {
             iso_size: 5 * GIB,
             iso_modified: 0,
             install_file: "sources/install.wim".into(),
+            setup_image: None,
             images: [
                 ("Windows 10 Pro", "Professional"),
                 ("Windows 10 Home", "Core"),
@@ -284,6 +302,7 @@ impl PatcherApp {
                 edition: edition.into(),
                 arch: 9,
                 build: 19045,
+                revision: Some(2965),
                 major: 10,
                 minor: 0,
                 language: "en-US".into(),
@@ -292,6 +311,13 @@ impl PatcherApp {
             })
             .collect(),
         });
+        if let Some(inv) = &mut self.inventory {
+            inv.setup_image = inv.images.first().cloned().map(|mut image| {
+                image.index = 2;
+                image.build = 19041;
+                image
+            });
+        }
         self.selected.insert(1);
         self.page = if view.starts_with("review") {
             Page::Review
@@ -346,8 +372,12 @@ impl PatcherApp {
                 self.build_progress.operation = None;
                 self.stage = "Downloading drivers".into();
                 self.detail = "BootCampESD-041-88734.pkg".into();
-                self.download = Some(DownloadProgress::new(self.detail.clone(), 106_000_000,
-                    (driver_preview != "build-download-unknown").then_some(353_187_226), Some(12_300_000)));
+                self.download = Some(DownloadProgress::new(
+                    self.detail.clone(),
+                    106_000_000,
+                    (driver_preview != "build-download-unknown").then_some(353_187_226),
+                    Some(12_300_000),
+                ));
             }
             if matches!(
                 driver_preview.as_str(),

@@ -48,6 +48,8 @@ pub struct Image {
     pub edition: String,
     pub arch: u32,
     pub build: u32,
+    #[serde(default)]
+    pub revision: Option<u32>,
     pub major: u32,
     pub minor: u32,
     pub language: String,
@@ -87,6 +89,8 @@ pub struct Inventory {
     pub iso_modified: u64,
     pub install_file: String,
     pub images: Vec<Image>,
+    #[serde(default)]
+    pub setup_image: Option<Image>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildRequest {
@@ -197,9 +201,26 @@ mod tests {
     #[test]
     fn download_events_accept_old_messages_and_round_trip_speed() {
         let old = r#"{"kind":"Download","data":{"name":"package","received":10,"total":null}}"#;
-        assert!(matches!(serde_json::from_str::<Event>(old).unwrap(), Event::Download { bytes_per_second: None, .. }));
-        let event = Event::Download { name: "package".into(), received: 100, total: Some(200), bytes_per_second: Some(12_300_000) };
-        assert!(matches!(serde_json::from_str::<Event>(&serde_json::to_string(&event).unwrap()).unwrap(), Event::Download { bytes_per_second: Some(12_300_000), .. }));
+        assert!(matches!(
+            serde_json::from_str::<Event>(old).unwrap(),
+            Event::Download {
+                bytes_per_second: None,
+                ..
+            }
+        ));
+        let event = Event::Download {
+            name: "package".into(),
+            received: 100,
+            total: Some(200),
+            bytes_per_second: Some(12_300_000),
+        };
+        assert!(matches!(
+            serde_json::from_str::<Event>(&serde_json::to_string(&event).unwrap()).unwrap(),
+            Event::Download {
+                bytes_per_second: Some(12_300_000),
+                ..
+            }
+        ));
     }
     fn pro() -> Image {
         Image {
@@ -208,6 +229,7 @@ mod tests {
             edition: "Professional".into(),
             arch: 9,
             build: 19041,
+            revision: None,
             major: 10,
             minor: 0,
             language: "en-US".into(),
@@ -242,6 +264,7 @@ mod tests {
                 iso_size: 5 * GIB,
                 iso_modified: 0,
                 install_file: "install.esd".into(),
+                setup_image: None,
                 images: vec![pro()],
             },
             selected: vec![6],

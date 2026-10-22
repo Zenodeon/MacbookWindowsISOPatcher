@@ -104,9 +104,14 @@ pub fn download_adk(cache: &Path, status: &dyn Fn(String)) -> Result<PathBuf> {
 }
 
 fn adk_progress(received: u64, total: Option<u64>, rate: Option<u64>) -> String {
-    format!("Downloading ADK installer: {:.1} MB{} · {}", received as f64 / 1_000_000.0,
-        total.map(|n| format!(" / {:.1} MB", n as f64 / 1_000_000.0)).unwrap_or_default(),
-        crate::transfer::label(rate))
+    format!(
+        "Downloading ADK installer: {:.1} MB{} · {}",
+        received as f64 / 1_000_000.0,
+        total
+            .map(|n| format!(" / {:.1} MB", n as f64 / 1_000_000.0))
+            .unwrap_or_default(),
+        crate::transfer::label(rate)
+    )
 }
 
 pub fn install_adk(cache: &Path, status: &dyn Fn(String)) -> Result<(PathBuf, bool)> {

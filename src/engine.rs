@@ -96,7 +96,11 @@ fn validate_paths(req: &BuildRequest) -> Result<()> {
         "Install Windows ADK Deployment Tools, or select oscdimg.exe"
     );
     for path in [&req.workspace, &req.cache] {
-        ensure!(!path.join(".storage-moved.json").exists(), "Storage at {} was moved. Restart the app to load its new location", path.display());
+        ensure!(
+            !path.join(".storage-moved.json").exists(),
+            "Storage at {} was moved. Restart the app to load its new location",
+            path.display()
+        );
         fs::create_dir_all(path)?;
     }
     let output_parent = req.output.parent().context("Output parent is missing")?;
@@ -111,17 +115,25 @@ fn validate_paths(req: &BuildRequest) -> Result<()> {
     let required = req.required_space()?;
     require_space(&cache, 8 * GIB, "Driver cache (downloads and extraction)")?;
     require_space(&work, required, "WorkingSpace")?;
-    require_space(&output_parent, req.inventory.iso_size.saturating_add(8 * GIB), "Output ISO folder")?;
+    require_space(
+        &output_parent,
+        req.inventory.iso_size.saturating_add(8 * GIB),
+        "Output ISO folder",
+    )?;
     Ok(())
 }
 
 fn require_space(path: &Path, required: u64, purpose: &str) -> Result<()> {
     let available = fs2::available_space(path)?;
     let drive = path.ancestors().last().unwrap_or(path);
-    ensure!(available >= required,
+    ensure!(
+        available >= required,
         "{purpose}: {}\nDrive: {}\nAvailable: {} · Required: {}",
-        crate::platform::display_path(path), crate::platform::display_path(drive),
-        crate::cleanup::format_bytes(available), crate::cleanup::format_bytes(required));
+        crate::platform::display_path(path),
+        crate::platform::display_path(drive),
+        crate::cleanup::format_bytes(available),
+        crate::cleanup::format_bytes(required)
+    );
     Ok(())
 }
 
@@ -399,6 +411,10 @@ fn run_job(
         fresh.images == req.inventory.images && fresh.install_file == req.inventory.install_file,
         "Windows image metadata changed. Scan again"
     );
+    ensure!(
+        req.inventory.setup_image.is_none() || fresh.setup_image == req.inventory.setup_image,
+        "Windows Setup metadata changed. Scan again"
+    );
     steps.advance(emit);
     let root = job.join("iso-root");
     stage(
@@ -497,6 +513,9 @@ fn run_job(
         "[Channel]\r\nRetail\r\n[VL]\r\n0\r\n".into()
     };
     fs::write(root.join("sources/ei.cfg"), edition_cfg)?;
+    if req.model == MODEL_ID {
+        crate::diagnostics::write_support(&root.join("Support"), req, job)?;
+    }
     steps.advance(emit);
     for (n, image) in selected.iter().enumerate() {
         stage(
@@ -528,6 +547,13 @@ fn run_job(
         }
         copy_tree(&assets.drivers, &mount.mount.join("Drivers"), cancel)?;
         copy_tree(&assets.bootcamp, &mount.mount.join("BootCamp"), cancel)?;
+        if req.model == MODEL_ID {
+            copy_tree(
+                &root.join("Support"),
+                &mount.mount.join("MacBookPatcher/Support"),
+                cancel,
+            )?;
+        }
         fs::create_dir_all(mount.mount.join("Windows/Setup/Scripts"))?;
         fs::write(
             mount.mount.join("Windows/Setup/Scripts/SetupComplete.cmd"),
@@ -562,7 +588,7 @@ fn run_job(
         let boot = root.join("sources/boot.wim");
         let mount = ImageMount::open(&boot, 2, &job.join("mount-boot"), emit, cancel)?;
         inject_signed_driver(&mount.mount, intel, &req.model, emit, cancel)?;
-        write_boot_payload(&mount.mount)?;
+        write_boot_payload(&mount.mount, &root.join("Support"))?;
         for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
             let source = job.join("boot-support").join(rel);
             if source.is_file() {
@@ -920,8 +946,12 @@ fn a1706_boot_registry(mount: &Path, validate_only: bool) -> Result<String> {
     )
     .context("A1706 Windows Setup graphics preparation failed")
 }
-fn write_boot_payload(mount: &Path) -> Result<()> {
+fn write_boot_payload(mount: &Path, support: &Path) -> Result<()> {
     let dir = mount.join("Windows/System32");
+    fs::copy(
+        support.join("build-manifest.json"),
+        dir.join("build-manifest.json"),
+    )?;
     let script = include_bytes!("../payloads/a1706/a1706.cmd");
     ensure!(
         script.is_ascii() && !script.contains(&0),
@@ -936,12 +966,12 @@ fn write_boot_payload(mount: &Path) -> Result<()> {
     {
         for (name, bytes) in [
             (
-                "a1706iris.exe",
-                include_bytes!(concat!(env!("OUT_DIR"), "/a1706iris.exe")).as_slice(),
+                "MacBookSetupLogger.exe",
+                include_bytes!(concat!(env!("OUT_DIR"), "/MacBookSetupLogger.exe")).as_slice(),
             ),
             (
-                "a1706dlg.exe",
-                include_bytes!(concat!(env!("OUT_DIR"), "/a1706dlg.exe")).as_slice(),
+                "a1706iris.exe",
+                include_bytes!(concat!(env!("OUT_DIR"), "/a1706iris.exe")).as_slice(),
             ),
             (
                 "a1706cue.exe",
@@ -1057,6 +1087,42 @@ pub const ANSWER_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn a1706_boot_payload_packages_native_diagnostics_and_manifest() {
+        let root =
+            std::env::temp_dir().join(format!("macbook-diagnostics-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("Windows/System32")).unwrap();
+        fs::create_dir(root.join("Support")).unwrap();
+        fs::write(
+            root.join("Support/build-manifest.json"),
+            br#"{"schema_version":1,"model_profile":"a1706"}"#,
+        )
+        .unwrap();
+        write_boot_payload(&root, &root.join("Support")).unwrap();
+        for name in [
+            "MacBookSetupLogger.exe",
+            "a1706gpu.exe",
+            "a1706iris.exe",
+            "a1706cue.exe",
+        ] {
+            assert!(
+                fs::read(root.join("Windows/System32").join(name))
+                    .unwrap()
+                    .starts_with(b"MZ")
+            );
+        }
+        assert!(
+            fs::read_to_string(root.join("Windows/System32/build-manifest.json"))
+                .unwrap()
+                .contains("a1706")
+        );
+        assert!(!root.join("Windows/System32/a1706dlg.exe").exists());
+        let script = fs::read(root.join("Windows/System32/a1706.cmd")).unwrap();
+        assert!(script.is_ascii() && !script.contains(&0));
+        assert!(root.starts_with(std::env::temp_dir()));
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn retry_preflight_refuses_a_surviving_worker_lock() {
         let temp = std::env::temp_dir().canonicalize().unwrap();

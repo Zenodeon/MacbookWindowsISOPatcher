@@ -28,7 +28,7 @@ pub fn installation_guide(model: &str) -> String {
     }
     text.push_str(&format!("Ventoy: {VENTOY_URL}\r\nDesktop iTunes: {ITUNES_URL}\r\nApple update guidance: {APPLE_UPDATE_URL}\r\n\r\n"));
     if model == MODEL_ID {
-        text.push_str("A1706: keep the included signed Intel Iris 550 graphics driver 21.20.16.5174. Do not run the old IntelHDGraphics64 installer. For boot/setup failures, attach the A1706Logs folder from the USB when available.\r\n\r\n");
+        text.push_str("A1706: keep the included signed Intel Iris 550 graphics driver 21.20.16.5174. Do not run the old IntelHDGraphics64 installer. For boot/setup failures, attach the session folder from MacBookPatcher-Logs on the marked USB and your saved build log. Prepare USB logging using the app or copy MacBookPatcher-Logging.enabled from Support to the USB root. Automatic collection ends at reboot; run Support/Collect setup logs.cmd to recover saved logs later. Older ISOs use A1706Logs.\r\n\r\n");
     }
     text.push_str("Support varies by model and Windows edition. If Setup or any MacBook feature fails, describe what happened and include the Mac model number/identifier, Windows edition/build, build log, and any setup/startup logs.\r\nReport an issue: https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues\r\n");
     text
@@ -37,7 +37,13 @@ pub fn installation_guide(model: &str) -> String {
 pub fn issue_draft(model: &ModelProfile, images: &[&Image]) -> String {
     let editions = images
         .iter()
-        .map(|image| format!("{} (build {})", image.name, image.build))
+        .map(|image| {
+            format!(
+                "{} (build {})",
+                image.name,
+                crate::diagnostics::version(image)
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let graphics = crate::driver_prefetch::intel_graphics(model.id)
@@ -54,7 +60,7 @@ pub fn issue_draft(model: &ModelProfile, images: &[&Image]) -> String {
     );
     if model.id == MODEL_ID {
         body.push_str(
-            "For A1706 boot/setup problems, attach the USB's A1706Logs folder when available.\n",
+            "For A1706 boot/setup problems, attach the session folder from the USB's MacBookPatcher-Logs/A1706 directory and the saved build log. For older ISOs, attach A1706Logs when available.\n",
         );
     }
     let mut url = reqwest::Url::parse(ISSUES_URL).expect("Static GitHub URL");
@@ -155,6 +161,7 @@ mod tests {
             edition: "Professional".into(),
             arch: 9,
             build: 19041,
+            revision: None,
             major: 10,
             minor: 0,
             language: "en-US".into(),
@@ -168,7 +175,9 @@ mod tests {
             .collect::<std::collections::HashMap<_, _>>();
         let body = &query["body"];
         assert_eq!(query.len(), 2);
-        assert!(body.contains("Windows 10 Pro & Education + test (build 19041)"));
+        assert!(
+            body.contains("Windows 10 Pro & Education + test (build 19041 (revision unknown))")
+        );
         assert!(
             body.contains("MacBookPro13,2")
                 && body.contains("21.20.16.5174")

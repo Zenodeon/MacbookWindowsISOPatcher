@@ -110,7 +110,10 @@ pub(super) struct StorageSettings {
 }
 impl StorageSettings {
     pub fn with_recovery_failure(recovery_failed: bool) -> Self {
-        Self { recovery_failed, ..Default::default() }
+        Self {
+            recovery_failed,
+            ..Default::default()
+        }
     }
     pub fn navigate_builds(&mut self, builds: bool) {
         if self.deleting || self.moving {
@@ -284,11 +287,18 @@ impl PatcherApp {
     pub(super) fn storage_move_gate(&self) -> macbook_iso_patcher::relocation::Gate {
         macbook_iso_patcher::relocation::Gate {
             model_selection: self.page == Page::Model,
-            before_build: matches!(self.page, Page::Model | Page::Iso | Page::Editions | Page::Review),
+            before_build: matches!(
+                self.page,
+                Page::Model | Page::Iso | Page::Editions | Page::Review
+            ),
             idle: !self.storage_workflow_busy() && !self.storage.busy(),
         }
     }
-    pub(super) fn storage_move_request(&self, kind: macbook_iso_patcher::relocation::Kind, destination: PathBuf) -> anyhow::Result<macbook_iso_patcher::relocation::Request> {
+    pub(super) fn storage_move_request(
+        &self,
+        kind: macbook_iso_patcher::relocation::Kind,
+        destination: PathBuf,
+    ) -> anyhow::Result<macbook_iso_patcher::relocation::Request> {
         use macbook_iso_patcher::relocation::{self, Kind};
         let gate = self.storage_move_gate();
         gate.check(kind)?;
@@ -296,24 +306,48 @@ impl PatcherApp {
             Kind::Cache => (&self.settings.cache, &self.settings.work),
             Kind::Workspace => (&self.settings.work, &self.settings.cache),
         };
-        let mut protected_sources = self.inventory.as_ref().map(|i| vec![i.iso.clone()]).unwrap_or_default();
-        if !self.iso.trim().is_empty() { protected_sources.push(PathBuf::from(self.iso.trim())); }
+        let mut protected_sources = self
+            .inventory
+            .as_ref()
+            .map(|i| vec![i.iso.clone()])
+            .unwrap_or_default();
+        if !self.iso.trim().is_empty() {
+            protected_sources.push(PathBuf::from(self.iso.trim()));
+        }
         Ok(relocation::Request {
-            kind, source: source.trim().into(), destination, other_root: other_root.trim().into(),
-            protected_sources, settings_path: self.settings_file.clone(),
-            settings: serde_json::to_value(&self.settings)?, history_root: cleanup::history_dir(), gate,
+            kind,
+            source: source.trim().into(),
+            destination,
+            other_root: other_root.trim().into(),
+            protected_sources,
+            settings_path: self.settings_file.clone(),
+            settings: serde_json::to_value(&self.settings)?,
+            history_root: cleanup::history_dir(),
+            gate,
         })
     }
-    pub(super) fn start_storage_move(&mut self, kind: macbook_iso_patcher::relocation::Kind, ctx: &egui::Context) {
+    pub(super) fn start_storage_move(
+        &mut self,
+        kind: macbook_iso_patcher::relocation::Kind,
+        ctx: &egui::Context,
+    ) {
         use macbook_iso_patcher::relocation;
         if let Err(error) = self.storage_move_gate().check(kind) {
             self.storage.error = Some(error.to_string());
             return;
         }
-        let Some(destination) = rfd::FileDialog::new().set_title("Choose an empty destination folder").pick_folder() else { return; };
+        let Some(destination) = rfd::FileDialog::new()
+            .set_title("Choose an empty destination folder")
+            .pick_folder()
+        else {
+            return;
+        };
         let request = match self.storage_move_request(kind, destination) {
             Ok(request) => request,
-            Err(error) => { self.storage.error = Some(error.to_string()); return; },
+            Err(error) => {
+                self.storage.error = Some(error.to_string());
+                return;
+            }
         };
         self.storage.open = true;
         self.storage.navigate_builds(false);
@@ -324,39 +358,81 @@ impl PatcherApp {
         self.storage.notice = None;
         self.storage.last_request = None;
         self.storage.report = None;
-        let tx = self.sender.clone(); let ctx = ctx.clone();
+        let tx = self.sender.clone();
+        let ctx = ctx.clone();
         std::thread::spawn(move || {
             let progress = |progress| {
                 let _ = tx.send(Message::StorageMoveProgress(progress));
                 ctx.request_repaint();
             };
             let result = relocation::execute(request, &progress).map_err(|e| format!("{e:#}"));
-            let _ = tx.send(Message::StorageMoved(kind, result)); ctx.request_repaint();
+            let _ = tx.send(Message::StorageMoved(kind, result));
+            ctx.request_repaint();
         });
     }
     pub(super) fn workspace_field(&mut self, ui: &mut egui::Ui) {
         use macbook_iso_patcher::relocation::Kind;
         ui.label("WorkingSpace");
-        ui.add(egui::Label::new(platform::display_path(std::path::Path::new(self.settings.work.trim()))).wrap().selectable(true));
-        if ui.add_enabled(self.storage_move_gate().check(Kind::Workspace).is_ok(), egui::Button::new("Change WorkingSpace"))
-            .on_disabled_hover_text(Kind::Workspace.locked_reason()).clicked() {
+        ui.add(
+            egui::Label::new(platform::display_path(std::path::Path::new(
+                self.settings.work.trim(),
+            )))
+            .wrap()
+            .selectable(true),
+        );
+        if ui
+            .add_enabled(
+                self.storage_move_gate().check(Kind::Workspace).is_ok(),
+                egui::Button::new("Change WorkingSpace"),
+            )
+            .on_disabled_hover_text(Kind::Workspace.locked_reason())
+            .clicked()
+        {
             self.start_storage_move(Kind::Workspace, ui.ctx());
         }
     }
-    fn storage_move_controls(&mut self, ui: &mut egui::Ui, kind: macbook_iso_patcher::relocation::Kind) -> bool {
+    fn storage_move_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        kind: macbook_iso_patcher::relocation::Kind,
+    ) -> bool {
         use macbook_iso_patcher::relocation::Kind;
-        let (path, label) = match kind { Kind::Cache => (&self.settings.cache, "Move cache folder"), Kind::Workspace => (&self.settings.work, "Move WorkingSpace folder") };
+        let (path, label) = match kind {
+            Kind::Cache => (&self.settings.cache, "Move cache folder"),
+            Kind::Workspace => (&self.settings.work, "Move WorkingSpace folder"),
+        };
         let path = PathBuf::from(path);
         if path.is_dir() {
-            if storage_path_link(ui, &path, !self.storage.moving, "Open folder").clicked() { self.open_storage_location(&path, false); }
-        } else { ui.add(egui::Label::new(platform::display_path(&path)).wrap().selectable(true)); }
+            if storage_path_link(ui, &path, !self.storage.moving, "Open folder").clicked() {
+                self.open_storage_location(&path, false);
+            }
+        } else {
+            ui.add(
+                egui::Label::new(platform::display_path(&path))
+                    .wrap()
+                    .selectable(true),
+            );
+        }
         let mut ancestor = path.as_path();
-        while !ancestor.exists() { let Some(parent) = ancestor.parent() else { break; }; ancestor = parent; }
+        while !ancestor.exists() {
+            let Some(parent) = ancestor.parent() else {
+                break;
+            };
+            ancestor = parent;
+        }
         ui.horizontal_wrapped(|ui| {
-            if let Ok(bytes) = fs2::available_space(ancestor) { ui.label(format!("{} free", cleanup::format_bytes(bytes))); ui.add_space(8.0); }
-            ui.add_enabled(self.storage_move_gate().check(kind).is_ok(), egui::Button::new(label))
-                .on_disabled_hover_text(kind.locked_reason()).clicked()
-        }).inner
+            if let Ok(bytes) = fs2::available_space(ancestor) {
+                ui.label(format!("{} free", cleanup::format_bytes(bytes)));
+                ui.add_space(8.0);
+            }
+            ui.add_enabled(
+                self.storage_move_gate().check(kind).is_ok(),
+                egui::Button::new(label),
+            )
+            .on_disabled_hover_text(kind.locked_reason())
+            .clicked()
+        })
+        .inner
     }
     pub(super) fn scan_storage(&mut self, ctx: &egui::Context) {
         if self.storage.busy() || self.storage.recovery_failed {
@@ -673,7 +749,9 @@ impl PatcherApp {
         {
             self.storage.modal_rect = Some(modal.response.rect);
         }
-        if let Some(kind) = move_folder { self.start_storage_move(kind, ctx); }
+        if let Some(kind) = move_folder {
+            self.start_storage_move(kind, ctx);
+        }
         if let Some(builds) = navigate {
             self.storage.navigate_builds(builds);
             ctx.request_repaint();
@@ -691,7 +769,8 @@ impl PatcherApp {
         if cancel_confirmation || (modal.should_close() && self.storage.confirmation.is_some()) {
             self.storage.back();
             ctx.request_repaint();
-        } else if (close || modal.should_close()) && !self.storage.deleting && !self.storage.moving {
+        } else if (close || modal.should_close()) && !self.storage.deleting && !self.storage.moving
+        {
             self.storage.open = false;
             self.storage.cancel_confirmation();
         }
@@ -722,21 +801,43 @@ mod availability_tests {
         use macbook_iso_patcher::relocation::Kind;
         let ctx = egui::Context::default();
         let mut app = PatcherApp::new_with_context(&ctx);
-        for page in [Page::Model, Page::Iso, Page::Editions, Page::Review, Page::Build, Page::Complete] {
+        for page in [
+            Page::Model,
+            Page::Iso,
+            Page::Editions,
+            Page::Review,
+            Page::Build,
+            Page::Complete,
+        ] {
             app.page = page;
-            assert_eq!(app.storage_move_gate().check(Kind::Workspace).is_ok(), !matches!(page, Page::Build | Page::Complete));
-            assert_eq!(app.storage_move_gate().check(Kind::Cache).is_ok(), page == Page::Model);
+            assert_eq!(
+                app.storage_move_gate().check(Kind::Workspace).is_ok(),
+                !matches!(page, Page::Build | Page::Complete)
+            );
+            assert_eq!(
+                app.storage_move_gate().check(Kind::Cache).is_ok(),
+                page == Page::Model
+            );
         }
         app.page = Page::Review;
         app.donation = true;
         assert!(app.storage_move_gate().check(Kind::Workspace).is_ok());
         for state in 0..10 {
-            app.busy = state == 0; app.scanning = state == 1; app.dismounting = state == 2;
-            app.installing_adk = state == 3; app.drivers.running = state == 4;
-            app.storage.scanning = state == 5; app.storage.deleting = state == 6;
-            app.storage.moving = state == 7; app.closing = state == 8; app.storage.recovery_failed = state == 9;
+            app.busy = state == 0;
+            app.scanning = state == 1;
+            app.dismounting = state == 2;
+            app.installing_adk = state == 3;
+            app.drivers.running = state == 4;
+            app.storage.scanning = state == 5;
+            app.storage.deleting = state == 6;
+            app.storage.moving = state == 7;
+            app.closing = state == 8;
+            app.storage.recovery_failed = state == 9;
             assert!(app.storage_move_gate().check(Kind::Workspace).is_err());
-            assert!(app.storage_move_request(Kind::Workspace, "never-used".into()).is_err());
+            assert!(
+                app.storage_move_request(Kind::Workspace, "never-used".into())
+                    .is_err()
+            );
         }
         app.storage.recovery_failed = false;
         app.page = Page::Build;
@@ -754,7 +855,10 @@ mod availability_tests {
         use macbook_iso_patcher::relocation::{self, Kind};
         let ctx = egui::Context::default();
         let mut app = PatcherApp::new_with_context(&ctx);
-        let root = std::env::temp_dir().join(format!("working-space-review-test-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "working-space-review-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(root.join("work")).unwrap();
         std::fs::write(root.join("work/retained.txt"), b"retained working files").unwrap();
         std::fs::write(root.join("source.iso"), b"selected source").unwrap();
@@ -766,7 +870,14 @@ mod availability_tests {
         app.settings_file = root.join("local/settings.json");
         app.iso = root.join("source.iso").display().to_string();
         app.output = root.join("patched.iso").display().to_string();
-        app.inventory = Some(macbook_iso_patcher::domain::Inventory { iso: root.join("source.iso"), iso_size: 15, iso_modified: 0, install_file: "sources/install.wim".into(), images: vec![] });
+        app.inventory = Some(macbook_iso_patcher::domain::Inventory {
+            iso: root.join("source.iso"),
+            iso_size: 15,
+            iso_modified: 0,
+            install_file: "sources/install.wim".into(),
+            setup_image: None,
+            images: vec![],
+        });
         app.selected.insert(6);
         app.drivers.ready = true;
         app.drivers.requested_model = Some(MODEL_PROFILES[0].id);
@@ -774,24 +885,46 @@ mod availability_tests {
         app.drivers.id = 7;
         assert!(app.drivers_ready());
         let inventory = serde_json::to_value(&app.inventory).unwrap();
-        let iso = app.iso.clone(); let output = app.output.clone(); let selected = app.selected.clone();
+        let iso = app.iso.clone();
+        let output = app.output.clone();
+        let selected = app.selected.clone();
         let destination = root.join("new-work");
-        let mut request = app.storage_move_request(Kind::Workspace, destination.clone()).unwrap();
+        let mut request = app
+            .storage_move_request(Kind::Workspace, destination.clone())
+            .unwrap();
         request.history_root = root.join("history");
         app.storage.moving = true;
         let outcome = relocation::execute(request, &|_| {}).unwrap();
-        app.sender.send(Message::StorageMoved(Kind::Workspace, Ok(outcome))).unwrap();
+        app.sender
+            .send(Message::StorageMoved(Kind::Workspace, Ok(outcome)))
+            .unwrap();
         app.consume();
-        assert_eq!(app.page, Page::Review); assert!(app.donation);
+        assert_eq!(app.page, Page::Review);
+        assert!(app.donation);
         assert_eq!(app.model_selected, Some(0));
-        assert_eq!(app.iso, iso); assert_eq!(app.output, output); assert_eq!(app.selected, selected);
+        assert_eq!(app.iso, iso);
+        assert_eq!(app.output, output);
+        assert_eq!(app.selected, selected);
         assert_eq!(serde_json::to_value(&app.inventory).unwrap(), inventory);
-        assert!(app.drivers_ready()); assert_eq!(app.drivers.id, 7);
+        assert!(app.drivers_ready());
+        assert_eq!(app.drivers.id, 7);
         assert!(!app.storage.moving);
-        assert_eq!(app.request().unwrap().workspace.canonicalize().unwrap(), destination.canonicalize().unwrap());
-        assert_eq!(std::fs::read(destination.join("retained.txt")).unwrap(), b"retained working files");
-        let saved: Settings = serde_json::from_slice(&relocation::load_settings(&app.settings_file, &root.join("missing-legacy.json")).unwrap().unwrap()).unwrap();
-        assert_eq!(saved.work, app.settings.work); assert_eq!(saved.cache, app.settings.cache);
+        assert_eq!(
+            app.request().unwrap().workspace.canonicalize().unwrap(),
+            destination.canonicalize().unwrap()
+        );
+        assert_eq!(
+            std::fs::read(destination.join("retained.txt")).unwrap(),
+            b"retained working files"
+        );
+        let saved: Settings = serde_json::from_slice(
+            &relocation::load_settings(&app.settings_file, &root.join("missing-legacy.json"))
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved.work, app.settings.work);
+        assert_eq!(saved.cache, app.settings.cache);
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -826,20 +959,29 @@ mod availability_tests {
         let mut app = PatcherApp::new_with_context(&ctx);
         app.model_selected = Some(0);
         app.storage.moving = true;
-        assert!(app.storage.busy()); assert!(app.storage_blocked());
-        app.scan(&ctx); app.install_adk(&ctx); app.begin(&ctx);
+        assert!(app.storage.busy());
+        assert!(app.storage_blocked());
+        app.scan(&ctx);
+        app.install_adk(&ctx);
+        app.begin(&ctx);
         assert!(!app.scanning && !app.installing_adk && !app.busy);
         app.storage.moving = false;
         for state in 0..7 {
-            app.busy = state == 0; app.scanning = state == 1; app.dismounting = state == 2;
-            app.installing_adk = state == 3; app.drivers.running = state == 4;
-            app.storage.scanning = state == 5; app.storage.deleting = state == 6;
+            app.busy = state == 0;
+            app.scanning = state == 1;
+            app.dismounting = state == 2;
+            app.installing_adk = state == 3;
+            app.drivers.running = state == 4;
+            app.storage.scanning = state == 5;
+            app.storage.deleting = state == 6;
             assert!(app.storage_blocked());
         }
         app.storage.deleting = false;
         assert!(!app.storage_blocked());
-        app.page = Page::Iso; assert!(app.storage_blocked());
-        app.page = Page::Model; assert!(!app.storage_blocked());
+        app.page = Page::Iso;
+        assert!(app.storage_blocked());
+        app.page = Page::Model;
+        assert!(!app.storage_blocked());
     }
     use cleanup::{
         ArtifactView, BuildRecord, BuildState, BuildView, Fingerprint, Inventory, StorageSize,

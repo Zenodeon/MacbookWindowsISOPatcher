@@ -1,5 +1,6 @@
 pub mod cleanup;
 pub mod completion;
+pub mod diagnostics;
 pub mod domain;
 pub mod download;
 pub mod driver_prefetch;
@@ -9,6 +10,6 @@ pub mod models;
 pub mod platform;
 pub mod prerequisites;
 pub mod progress;
-pub mod wim;
-pub mod transfer;
 pub mod relocation;
+pub mod transfer;
+pub mod wim;

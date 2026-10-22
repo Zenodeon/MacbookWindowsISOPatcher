@@ -2,6 +2,23 @@ use super::*;
 use macbook_iso_patcher::completion;
 
 impl PatcherApp {
+    fn prepare_logging_usb(&mut self) {
+        let Some(root) = rfd::FileDialog::new()
+            .set_title("Choose the root of your logging USB")
+            .pick_folder()
+        else {
+            return;
+        };
+        let tx = self.sender.clone();
+        self.preparing_usb = true;
+        self.notice = Some("Checking USB storage and preparing its logging marker…".into());
+        std::thread::spawn(move || {
+            let result = macbook_iso_patcher::diagnostics::prepare_usb(&root)
+                .map(|()| root)
+                .map_err(|e| format!("{e:#}"));
+            let _ = tx.send(Message::UsbPrepared(result));
+        });
+    }
     pub(super) fn save_build_logs(&mut self) {
         let export = completion::log_export(self.build_files.as_ref(), &self.logs);
         let partial = export.partial_reason.is_some();
@@ -82,6 +99,14 @@ impl PatcherApp {
                     .collect::<Vec<_>>()
                     .join(" · ");
                 ui.label(editions);
+                if self.model().is_some_and(|m| m.id == MODEL_ID) {
+                    let selected: Vec<_> = self.selected.iter().copied().collect();
+                    if let Some(notice) =
+                        macbook_iso_patcher::diagnostics::reference_notice(inventory, &selected)
+                    {
+                        ui.colored_label(colors.warning, notice);
+                    }
+                }
             }
         });
         Self::section(ui, "Install Windows", colors.source, |ui| {
@@ -93,6 +118,27 @@ impl PatcherApp {
                 self.completion_link(completion::VENTOY_URL);
             }
         });
+        if self.model().is_some_and(|m| m.id == MODEL_ID) {
+            Self::section(ui, "Prepare USB for setup logs", colors.surface, |ui| {
+                ui.spacing_mut().item_spacing.y = 8.0;
+                ui.label("Setup support logs are saved only to a marked USB. Prepare it here, or copy MacBookPatcher-Logging.enabled from the ISO’s Support folder to the USB root.");
+                if ui
+                    .add_enabled(
+                        !self.preparing_usb,
+                        egui::Button::new(if self.preparing_usb {
+                            "Preparing USB…"
+                        } else {
+                            "Prepare USB for setup logs"
+                        }),
+                    )
+                    .clicked()
+                {
+                    self.prepare_logging_usb();
+                }
+                ui.label("Logs: MacBookPatcher-Logs\\A1706. Automatic collection ends at reboot; use Support\\Collect setup logs.cmd to recover saved Setup logs afterward.");
+            });
+        }
+
         Self::section(ui, "Finish setup in Windows", colors.model, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
             for (index, step) in completion::INSTALL_STEPS[4..].iter().enumerate() {
@@ -105,7 +151,7 @@ impl PatcherApp {
         Self::section(ui, "Something did not work?", colors.surface, |ui| {
             ui.label("Support varies by Mac model and Windows edition. Describe the failure and attach your saved build log and any Windows Setup/startup logs.");
             if self.model().is_some_and(|model| model.id == MODEL_ID) {
-                ui.label("For A1706 boot/setup failures, also attach the USB's A1706Logs folder when available.");
+                ui.label("For A1706 boot/setup failures, attach the session folder in MacBookPatcher-Logs\\A1706 and your saved build log. Older ISOs may use A1706Logs.");
             }
             if self.model().is_some_and(|model| !model.hardware_verified()) {
                 ui.colored_label(

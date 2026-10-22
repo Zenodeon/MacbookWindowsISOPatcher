@@ -1091,6 +1091,7 @@ mod tests {
                 iso_size: 8,
                 iso_modified: 0,
                 install_file: "install.wim".into(),
+                setup_image: None,
                 images: vec![],
             },
             selected: vec![1],
