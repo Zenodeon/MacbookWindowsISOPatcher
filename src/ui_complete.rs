@@ -68,6 +68,23 @@ impl PatcherApp {
             self.show_error(format!("Could not open the link: {error}"));
         }
     }
+    fn report_setup_issue(&mut self) {
+        let Some(model) = self.model() else {
+            return;
+        };
+        let images = self
+            .inventory
+            .as_ref()
+            .map(|inventory| {
+                inventory
+                    .images
+                    .iter()
+                    .filter(|image| self.selected.contains(&image.index))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        self.completion_link(&completion::issue_draft(model, &images));
+    }
     pub(super) fn complete_page(&mut self, ui: &mut egui::Ui) {
         let colors = appearance::palette(ui.ctx());
         Self::heading(
@@ -137,6 +154,11 @@ impl PatcherApp {
                     self.prepare_logging_usb();
                 }
                 ui.label("Logs: MacBookPatcher-Logs\\A1706. Automatic collection ends at reboot; use Support\\Collect setup logs.cmd to recover saved Setup logs afterward.");
+                if ui.button("Share logs / report an issue")
+                    .on_hover_text("Opens a GitHub issue draft with your Mac model and Windows details. Attach your setup logs and saved build log yourself; nothing is uploaded automatically.")
+                    .clicked() {
+                    self.report_setup_issue();
+                }
             });
         }
 
@@ -160,21 +182,8 @@ impl PatcherApp {
                     "This Mac model has not been hardware verified. Please report your results.",
                 );
             }
-            if ui.button("Report an issue").clicked()
-                && let Some(model) = self.model()
-            {
-                let images = self
-                    .inventory
-                    .as_ref()
-                    .map(|inventory| {
-                        inventory
-                            .images
-                            .iter()
-                            .filter(|image| self.selected.contains(&image.index))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                self.completion_link(&completion::issue_draft(model, &images));
+            if ui.button("Report an issue").clicked() {
+                self.report_setup_issue();
             }
         });
         ui.push_id("completion-log", |ui| {
