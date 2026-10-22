@@ -16,8 +16,6 @@ A1706 recipe is based on.
 | --- | --- |
 | <img src="assets/readme/headless-a1706-setup-1.jpg" alt="Windows Setup language selection on an external screen above a headless MacBook" width="360"> | <img src="assets/readme/headless-a1706-setup-2.jpg" alt="Windows finishing setup on an external screen above a headless MacBook" width="360"> |
 
-[Original photos and setup report on Reddit](https://www.reddit.com/r/bootcamp/comments/1ws9wzm/i_installed_windows_10_on_my_headless_macbook/)
-
 ## Supported Macs
 
 The goal is to support **Intel-based Macs first**, then explore support for
