@@ -1,5 +1,39 @@
 # Validation
 
+## DriverStore validation and closing after a missing source — 2026-10-22
+
+- A retained 2017 build log showed Intel DISM import succeeded before validation
+  rejected `igsc.dll`. The checker incorrectly treated all SourceDisksFiles
+  entries as required DriverStore files. The pinned 5927 install section does
+  not reference the OpROM updater copy section containing that DLL.
+- Source extraction still requires the complete declared download contents.
+  DriverStore checks now follow the GPU's actual CopyFiles directives, require
+  the graphics kernel, INF and catalog, and compare every present package file
+  with the pinned extraction. Missing referenced files, altered binaries,
+  undeclared files and unexpected install dependencies still fail validation.
+  The real pinned INF resolves to 115 required store files, excluding the unused
+  OpROM tools. Synthetic regressions cover those differences and malformed INFs.
+- Missing-source dismounting now consults Windows' attached disk-image inventory.
+  An absent mount succeeds without requiring the original file; a matching
+  attached ISO is ejected, and unrelated images remain untouched. Inventory and
+  eject failures remain errors. Close-time cleanup errors offer Retry cleanup,
+  Cancel, Copy error and an explicit Close app action after active work settles.
+- 156 normal automated tests passed, with formatting and Clippy passing. A
+  separate Windows Storage test mounted a disposable data ISO, ejected it,
+  deleted its backing file and verified cleanup succeeds. It also checked a
+  missing parent directory. Script fixtures cover unrelated/ambiguous mounts,
+  inventory errors, failed ejection and a mount remaining attached. UI tests
+  verify the explicit quit action cannot bypass an active build.
+- Debug screenshots at 1240 × 700 and 800 × 520, in both themes, are saved as
+  `.cache/close-cleanup-{dark,light}-{normal,small}.png`.
+- The separate copied boot/install-image servicing probes still fail host DISM
+  provider initialization with Error 87 before driver import. Their mounts were
+  discarded, and `.cache/igsc-final-mounts.log` confirms none remain. This limits
+  real-image validation; these probes do not establish a new recipe failure or
+  successful 2017 hardware compatibility. Retained logs are
+  `.cache/igsc-disposable-image.log` and `.cache/igsc-install-integration.log`.
+- Debug preview only. The published 0.1.0v EXE was not rebuilt or replaced.
+
 ## A1706 2017 external-display recipe — 2026-10-22
 
 - Added a separate MacBookPro14,2/Iris Plus 650 Setup recipe. It uses pinned

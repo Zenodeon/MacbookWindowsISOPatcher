@@ -145,9 +145,24 @@ pub fn modified(path: &Path) -> Result<u64> {
 /// Dismount only the selected ISO, without servicing or discarding any WIM image.
 pub fn dismount_iso(iso: &Path) -> Result<bool> {
     ensure!(cfg!(windows), "ISO dismounting currently requires Windows");
-    let iso = iso
-        .canonicalize()
-        .context("Choose an existing ISO file to dismount")?;
+    let iso = match iso.canonicalize() {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            ensure!(
+                iso.extension()
+                    .is_some_and(|s| s.eq_ignore_ascii_case("iso")),
+                "Select a local .iso file"
+            );
+            let path = std::path::absolute(iso)?;
+            return dismount_result(&powershell(
+                MISSING_ISO_DISMOUNT,
+                &[("PATCHER_ISO", path.as_os_str())],
+            )?);
+        }
+        Err(error) => {
+            return Err(error).context("Could not access the selected ISO for dismounting");
+        }
+    };
     ensure!(
         iso.is_file()
             && iso
@@ -166,6 +181,31 @@ pub fn dismount_iso(iso: &Path) -> Result<bool> {
     "#,
         &[("PATCHER_ISO", iso.as_os_str())],
     )?;
+    dismount_result(&result)
+}
+// A missing backing file does not prove its virtual disk has disappeared.
+// Query Windows' attached-image inventory and eject only the matching ISO.
+const MISSING_ISO_DISMOUNT: &str = r#"
+function Normalize-ImagePath([string]$path) {
+    if($path.StartsWith('\\?\UNC\',[StringComparison]::OrdinalIgnoreCase)){return '\\'+$path.Substring(8)}
+    if($path.StartsWith('\\?\')){return $path.Substring(4)}
+    return $path
+}
+function Matching-Images {
+    @(Get-CimInstance -Namespace root/Microsoft/Windows/Storage -ClassName MSFT_DiskImage -ErrorAction Stop |
+      Where-Object { $_.Attached -and $_.StorageType -eq 1 -and
+        (Normalize-ImagePath $_.ImagePath) -ieq (Normalize-ImagePath $env:PATCHER_ISO) })
+}
+$images=@(Matching-Images)
+if($images.Count -eq 0){'already-dismounted'}
+elseif($images.Count -ne 1){throw 'More than one attached image matches the missing ISO; cleanup was stopped.'}
+else {
+    $images[0] | Dismount-DiskImage -ErrorAction Stop | Out-Null
+    if(@(Matching-Images).Count -ne 0){throw 'The ISO is still mounted. Close programs using it and retry.'}
+    'dismounted'
+}
+"#;
+fn dismount_result(result: &str) -> Result<bool> {
     match result.trim() {
         "dismounted" => Ok(true),
         "already-dismounted" => Ok(false),
@@ -513,6 +553,50 @@ pub fn same_volume(a: &Path, b: &Path) -> Result<bool> {
 #[cfg(test)]
 mod path_display_tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn missing_iso_cleanup_checks_inventory_and_never_ejects_unrelated_images() {
+        let script = format!(
+            r#"
+        function Get-CimInstance {{
+            [CmdletBinding()]param($Namespace,$ClassName)
+            if($script:inventoryError){{throw 'Inventory unavailable'}}
+            $script:images
+        }}
+        function Dismount-DiskImage {{
+            [CmdletBinding()]param([Parameter(ValueFromPipeline)]$InputObject)
+            process {{
+                $script:ejected++
+                if($InputObject.ImagePath -ne '\\?\C:\missing\source.iso'){{throw 'Unrelated image selected'}}
+                if($script:ejectError){{throw 'Device busy'}}
+                if(-not $script:sticky){{$InputObject.Attached=$false}}
+            }}
+        }}
+        function Image($path){{[pscustomobject]@{{ImagePath=$path;Attached=$true;StorageType=1}}}}
+        foreach($case in 'missing','other','matching','inventory-error','eject-error','sticky','ambiguous'){{
+            $script:ejected=0; $script:images=@(); $script:inventoryError=($case -eq 'inventory-error')
+            $script:ejectError=($case -eq 'eject-error'); $script:sticky=($case -eq 'sticky')
+            if($case -eq 'other'){{$script:images=@(Image 'C:\other.iso')}}
+            if($case -in @('matching','eject-error','sticky','ambiguous')){{$script:images=@(Image '\\?\C:\missing\source.iso')}}
+            if($case -eq 'ambiguous'){{$script:images+=Image '\\?\C:\missing\source.iso'}}
+            $failed=$false; $result=$null
+            try {{$result=& {{ {MISSING_ISO_DISMOUNT} }} }}catch{{$failed=$true}}
+            if($case -in @('inventory-error','eject-error','sticky','ambiguous')){{if(-not $failed){{throw "Expected failure: $case"}}}}
+            elseif($case -eq 'matching'){{if($result -ne 'dismounted'){{throw 'Matching image was not ejected'}}}}
+            elseif($result -ne 'already-dismounted'){{throw "Unexpected result: $case"}}
+            $expected=if($case -in @('matching','eject-error','sticky')){{1}}else{{0}}
+            if($script:ejected -ne $expected){{throw "Unexpected ejection count: $case"}}
+        }}
+        'Missing ISO cleanup cases passed'
+        "#
+        );
+        let output = powershell(
+            &script,
+            &[("PATCHER_ISO", OsStr::new(r"C:\missing\source.iso"))],
+        )
+        .unwrap();
+        assert!(output.contains("Missing ISO cleanup cases passed"));
+    }
     #[cfg(windows)]
     #[test]
     fn replacement_credit_uses_resolved_volume_and_publication_never_clobbers() {

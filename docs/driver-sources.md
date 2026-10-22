@@ -45,6 +45,11 @@ Apple Boot Camp 041-89042 provides allowlisted startup drivers; an AppleSSD64
 INF is required, while unavailable optional input/audio/Touch Bar drivers are
 logged and skipped. This recipe remains unverified on hardware.
 
+Required DriverStore files follow the 5927 install section's CopyFiles
+directives. SourceDisksFiles also lists unused OpROM updater inputs such as
+`igsc.dll`; their absence from the installed store is valid for this profile.
+Those source files are still required when validating the downloaded extraction.
+
 Before servicing, validate the exact driver version, catalog signature, and the
 selected GPU's generic INF mapping: 1927 (Iris 550), 1926 (Iris 540),
 or 5927 (Iris Plus 650). Keep original INF and CAT files unchanged. These matches

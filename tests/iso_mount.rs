@@ -76,6 +76,20 @@ fn attached(fixture: &Fixture) -> bool {
 }
 
 #[test]
+#[ignore = "Mounts only a generated disposable ISO through Windows Storage; run explicitly"]
+fn externally_ejected_then_deleted_source_does_not_block_cleanup() {
+    let fixture = data_iso();
+    let mut owned = MountedIso::open(&fixture.0).unwrap();
+    assert!(platform::dismount_iso(&fixture.0).unwrap());
+    fs::remove_file(&fixture.0).unwrap();
+    assert!(!owned.cleanup().unwrap());
+    let missing = std::env::temp_dir()
+        .join(format!("patcher-no-folder-{}", uuid::Uuid::new_v4()))
+        .join("source.iso");
+    assert!(!platform::dismount_iso(&missing).unwrap());
+}
+
+#[test]
 #[ignore = "Mounts a generated 48 KiB ISO through Windows Storage; run explicitly"]
 fn source_mount_ownership_and_cleanup() {
     let fixture = data_iso();

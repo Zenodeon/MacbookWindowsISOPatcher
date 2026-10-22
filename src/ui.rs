@@ -127,6 +127,7 @@ pub struct PatcherApp {
     iso_mount: Option<platform::MountedIso>,
     closing: bool,
     close_ready: bool,
+    close_cleanup_failed: bool,
     selected: BTreeSet<u32>,
     settings: Settings,
     settings_file: PathBuf,
@@ -233,6 +234,7 @@ impl PatcherApp {
             iso_mount: None,
             closing: false,
             close_ready: false,
+            close_cleanup_failed: false,
             selected: BTreeSet::new(),
             settings,
             settings_file,
@@ -462,8 +464,10 @@ impl PatcherApp {
                             };
                         }
                         Err(error) => {
+                            let was_closing = self.closing;
                             self.closing = false;
                             self.show_error(error);
+                            self.close_cleanup_failed = was_closing;
                         }
                     }
                 }
@@ -601,6 +605,7 @@ impl PatcherApp {
             return;
         };
         self.dismounting = true;
+        self.close_cleanup_failed = false;
         self.error = None;
         self.notice = None;
         let tx = self.sender.clone();
@@ -665,11 +670,27 @@ impl PatcherApp {
         })
     }
     fn show_error(&mut self, message: impl Into<String>) {
+        self.close_cleanup_failed = false;
         self.error = Some(ActionError {
             message: message.into(),
             retry: None,
             copied: false,
         });
+    }
+    fn close_after_cleanup_failure(&mut self, ctx: &egui::Context) {
+        if !self.close_cleanup_failed
+            || self.busy
+            || self.scanning
+            || self.dismounting
+            || self.drivers.running
+            || self.storage.busy()
+        {
+            return;
+        }
+        self.error = None;
+        self.closing = false;
+        self.close_ready = true;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
     fn show_build_error(&mut self, message: String, retry: BuildRetry) {
         let message = if let Some(path) = &self.output_deleted {
@@ -1492,6 +1513,8 @@ impl eframe::App for PatcherApp {
             let mut retry_clicked = false;
             let mut close_clicked = false;
             let mut copy_clicked = false;
+            let mut quit_clicked = false;
+            let mut cleanup_retry_clicked = false;
             let modal = egui::Modal::new(egui::Id::new("action-needed"))
                 .frame(egui::Frame::new().fill(colors.surface).corner_radius(16)
                     .stroke(egui::Stroke::new(1.0_f32, ctx.style().visuals.widgets.noninteractive.bg_stroke.color))
@@ -1507,9 +1530,17 @@ impl eframe::App for PatcherApp {
                         ui.add_space(12.0);
                         ui.label(RichText::new(if self.page==Page::Build{"Retry starts from step 1 in a new workspace. Retained build files are kept. Close this popup to return to setup or inspect the log."}else{"Resolve the issue, then retry."}).size(13.0).color(colors.muted));
                     }
+                    if self.close_cleanup_failed {
+                        ui.add_space(12.0);
+                        ui.label("The source ISO could not be released. Retry cleanup, or close the app and eject the ISO in File Explorer if it remains mounted.");
+                    }
                     ui.add_space(20.0);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if retry.is_some() {
+                        if self.close_cleanup_failed {
+                            quit_clicked = Self::primary(ui, "Close app", true);
+                            cleanup_retry_clicked = ui.button("Retry cleanup").clicked();
+                            close_clicked = ui.button("Cancel").clicked();
+                        } else if retry.is_some() {
                             retry_clicked = Self::primary(ui, "Retry", true);
                             close_clicked = ui.button("Close").clicked();
                         } else {
@@ -1526,6 +1557,14 @@ impl eframe::App for PatcherApp {
             }
             if retry_clicked || close_clicked || modal.should_close() {
                 self.error = None;
+                self.close_cleanup_failed = false;
+            }
+            if cleanup_retry_clicked {
+                self.error = None;
+                self.closing = true;
+            }
+            if quit_clicked {
+                self.close_after_cleanup_failure(ctx);
             }
             if retry_clicked {
                 match retry {
@@ -1574,6 +1613,39 @@ impl eframe::App for PatcherApp {
 #[cfg(test)]
 mod drop_tests {
     use super::*;
+    #[test]
+    fn failed_close_cleanup_offers_explicit_quit_without_bypassing_active_work() {
+        let ctx = egui::Context::default();
+        let mut app = PatcherApp::new_with_context(&ctx);
+        app.closing = true;
+        app.dismounting = true;
+        app.sender
+            .send(Message::Dismounted(Err("ISO unavailable".into()), None))
+            .unwrap();
+        app.consume();
+        assert!(!app.closing && !app.dismounting && app.close_cleanup_failed);
+        assert!(app.error.is_some());
+        app.busy = true;
+        app.close_after_cleanup_failure(&ctx);
+        assert!(!app.close_ready);
+        app.busy = false;
+        app.close_after_cleanup_failure(&ctx);
+        assert!(app.close_ready && app.error.is_none());
+        app.show_error("Unrelated failure");
+        assert!(!app.close_cleanup_failed);
+    }
+    #[test]
+    fn ordinary_dismount_failure_does_not_offer_quit() {
+        let ctx = egui::Context::default();
+        let mut app = PatcherApp::new_with_context(&ctx);
+        app.sender
+            .send(Message::Dismounted(Err("ISO in use".into()), None))
+            .unwrap();
+        app.consume();
+        assert!(!app.close_cleanup_failed);
+        app.close_after_cleanup_failure(&ctx);
+        assert!(!app.close_ready);
+    }
     #[test]
     fn manual_retry_resets_to_step_one_and_keeps_the_selection() {
         let ctx = egui::Context::default();

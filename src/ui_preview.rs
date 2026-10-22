@@ -10,6 +10,13 @@ impl PatcherApp {
             return;
         };
         self.window_fitted = true; // Keep the explicitly requested screenshot viewport size.
+        if view == "close-cleanup-error" {
+            self.close_ready = true; // Fixture has no real mount or build worker.
+            self.model_selected = Some(3);
+            self.show_error("The selected ISO could not be released. Windows could not confirm its mount status.");
+            self.close_cleanup_failed = true;
+            return;
+        }
         if view.starts_with("output-conflict") {
             self.close_ready = true;
             self.model_selected = Some(0);

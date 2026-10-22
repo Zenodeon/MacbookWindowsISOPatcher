@@ -929,6 +929,87 @@ fn intel_2017_package_files(inf: &str) -> Result<Vec<PathBuf>> {
     ensure!(files.len() > 2, "2017 Intel package file list is missing");
     Ok(files)
 }
+// SourceDisksFiles describes the download media, including unused firmware
+// tools. The DriverStore must contain the files copied by this GPU's install
+// section, rather than every source-media entry.
+fn intel_2017_store_files(inf: &str) -> Result<Vec<PathBuf>> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let sources = intel_2017_package_files(inf)?;
+    let mut sections: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    let mut current = String::new();
+    let mut install = BTreeSet::new();
+    for line in inf.lines() {
+        let line = line.split(';').next().unwrap_or("").trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            current = line[1..line.len() - 1].to_ascii_lowercase();
+        } else if !line.is_empty() {
+            sections.entry(current.clone()).or_default().push(line);
+            if let Some((key, value)) = line.split_once('=') {
+                let fields: Vec<_> = value.split(',').map(str::trim).collect();
+                if key.trim().starts_with('%')
+                    && fields
+                        .iter()
+                        .skip(1)
+                        .any(|id| id.eq_ignore_ascii_case(r"PCI\VEN_8086&DEV_5927"))
+                {
+                    install.insert(fields[0].to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    ensure!(
+        install.len() == 1,
+        "2017 Intel install section is missing or ambiguous"
+    );
+    let install = sections
+        .get(install.first().unwrap())
+        .context("2017 Intel install section missing")?;
+    let mut names = BTreeSet::new();
+    for line in install {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        ensure!(
+            !key.trim().eq_ignore_ascii_case("Needs")
+                && !key.trim().eq_ignore_ascii_case("Include"),
+            "2017 Intel install dependencies changed"
+        );
+        if !key.trim().eq_ignore_ascii_case("CopyFiles") {
+            continue;
+        }
+        for reference in value.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some(name) = reference.strip_prefix('@') {
+                names.insert(name.to_ascii_lowercase());
+                continue;
+            }
+            let entries = sections
+                .get(&reference.to_ascii_lowercase())
+                .with_context(|| format!("2017 Intel CopyFiles section missing: {reference}"))?;
+            for entry in entries {
+                let fields: Vec<_> = entry.split(',').map(str::trim).collect();
+                let source = fields
+                    .get(1)
+                    .filter(|s| !s.is_empty())
+                    .copied()
+                    .unwrap_or(fields[0]);
+                names.insert(source.trim_matches('"').to_ascii_lowercase());
+            }
+        }
+    }
+    ensure!(
+        names.contains("igdkmd64.sys"),
+        "2017 Intel CopyFiles is missing its graphics kernel"
+    );
+    let mut required = vec![PathBuf::from("iigd_dch.inf"), PathBuf::from("igdlh.cat")];
+    for name in names {
+        let file = sources
+            .iter()
+            .find(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case(&name)))
+            .with_context(|| format!("2017 Intel copied file has no source declaration: {name}"))?;
+        required.push(file.clone());
+    }
+    Ok(required)
+}
 fn supports_generic_gpu(compact_inf: &str, device_id: &str) -> bool {
     let hardware = format!("pci\\ven_8086&dev_{device_id}");
     compact_inf
@@ -989,7 +1070,7 @@ fn validate_signed_store(mount: &Path, intel: &Path, model: &str) -> Result<Path
     }
     let found = found.context("Signed Intel package is missing from the driver store")?;
     if model == "a1706-2017" {
-        for file in intel_2017_package_files(&text_file(&intel.join(profile.inf))?)? {
+        for file in intel_2017_store_files(&text_file(&intel.join(profile.inf))?)? {
             ensure!(
                 found.join(&file).is_file(),
                 "2017 driver store file missing: {}",
@@ -1340,6 +1421,25 @@ mod tests {
         assert!(intel_2017_package_files("[Other]\na=1").is_err());
     }
     #[test]
+    fn intel_2017_store_manifest_follows_selected_copyfiles_and_fails_closed() {
+        let inf = "%GPU%=Iris,PCI\\VEN_8086&DEV_5927\n%Other%=OtherGPU,PCI\\VEN_8086&DEV_1234\n[Iris]\nCopyFiles=Kernel,, @direct.dll, Nested\n[Kernel]\nigdkmd64.sys\n[Nested]\nrenamed.rom,source.rom\n[OtherGPU]\nCopyFiles=Unused\n[Unused]\nigsc.dll\n[SourceDisksFiles]\nigdkmd64.sys=1\ndirect.dll=1\nsource.rom=1,\\oprom\nigsc.dll=1";
+        let files = intel_2017_store_files(inf).unwrap();
+        assert!(files.contains(&PathBuf::from("igdkmd64.sys")));
+        assert!(files.contains(&PathBuf::from("direct.dll")));
+        assert!(files.contains(&Path::new("oprom").join("source.rom")));
+        assert!(!files.contains(&PathBuf::from("igsc.dll")));
+        for broken in [
+            inf.replace("CopyFiles=Kernel", "CopyFiles=Absent"),
+            inf.replace("igdkmd64.sys=1", "unknown.sys=1"),
+            inf.replace("[Iris]", "[Missing]"),
+            inf.replace("[Iris]", "[Iris]\nNeeds=External"),
+            inf.replace("[Iris]", "[Iris]\nInclude=External.inf"),
+            inf.replace("[Iris]", "%GPU2%=OtherGPU,PCI\\VEN_8086&DEV_5927\n[Iris]"),
+        ] {
+            assert!(intel_2017_store_files(&broken).is_err());
+        }
+    }
+    #[test]
     fn intel_2017_store_rejects_missing_changed_and_extra_files() {
         let root = std::env::temp_dir().join(format!("store2017-{}", uuid::Uuid::new_v4()));
         let intel = root.join("intel");
@@ -1351,7 +1451,7 @@ mod tests {
         for (name, bytes) in [
             (
                 "iigd_dch.inf",
-                "CatalogFile=igdlh.cat\nDriverVer=02/18/2021,27.20.100.9316\n%GPU%=install,PCI\\VEN_8086&DEV_5927\n[SourceDisksFiles]\nigdkmd64.sys=1",
+                "CatalogFile=igdlh.cat\nDriverVer=02/18/2021,27.20.100.9316\n%GPU%=install,PCI\\VEN_8086&DEV_5927\n[install]\nCopyFiles=KernelFiles\n[KernelFiles]\nigdkmd64.sys\n[UnusedFirmware]\nigsc.dll\n[SourceDisksFiles]\nigdkmd64.sys=1\nigsc.dll=1",
             ),
             ("igdlh.cat", "fixture catalog"),
             ("igdkmd64.sys", "fixture kernel"),
@@ -1359,6 +1459,8 @@ mod tests {
             fs::write(intel.join(name), bytes).unwrap();
             fs::write(store.join(name), bytes).unwrap();
         }
+        fs::write(intel.join("igsc.dll"), "unused firmware tool").unwrap();
+        // This valid source-only file is deliberately absent from the store.
         assert!(validate_signed_store(&mount, &intel, "a1706-2017").is_ok());
         fs::remove_file(store.join("igdkmd64.sys")).unwrap();
         assert!(validate_signed_store(&mount, &intel, "a1706-2017").is_err());
@@ -1475,6 +1577,64 @@ mod tests {
     }
     #[cfg(windows)]
     #[test]
+    #[ignore = "Administrator test on a disposable install.wim copy; explicit fixture paths required"]
+    fn intel_2017_disposable_install_image_driver_store() {
+        assert!(platform::is_admin());
+        let source = PathBuf::from(
+            std::env::var_os("MACBOOK_SETUP_TEST_INSTALL_WIM").expect("Stock install.wim"),
+        );
+        let archive =
+            PathBuf::from(std::env::var_os("MACBOOK_SETUP_TEST_INTEL_CAB").expect("Pinned CAB"));
+        let root = PathBuf::from(
+            std::env::var_os("MACBOOK_SETUP_TEST_ROOT").expect("New disposable directory"),
+        );
+        assert!(
+            !root.exists()
+                && root.starts_with(Path::new(env!("CARGO_MANIFEST_DIR")).join(".cache"))
+                && root
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("is17-")
+        );
+        fs::create_dir(&root).unwrap();
+        let emit: Emit = Arc::new(|e| println!("{e:?}"));
+        let cancel = Cancellation::default();
+        download::verify(
+            &archive,
+            crate::driver_prefetch::packages_for_model("a1706-2017").unwrap()[0].hash,
+            &cancel,
+        )
+        .unwrap();
+        let intel = root.join("intel");
+        platform::run(
+            Path::new("C:/Program Files/7-Zip/7z.exe"),
+            &[
+                "x".into(),
+                "-y".into(),
+                archive.display().to_string(),
+                format!("-o{}", intel.display()),
+            ],
+            &emit,
+            &cancel,
+            false,
+        )
+        .unwrap();
+        validate_intel_for_model(&intel, "a1706-2017").unwrap();
+        let copied = root.join("install.wim");
+        copy_file(&source, &copied, &cancel).unwrap();
+        let mounted = ImageMount::open(&copied, 1, &root.join("mount"), &emit, &cancel).unwrap();
+        inject_signed_driver(&mounted.mount, &intel, "a1706-2017", &emit, &cancel).unwrap();
+        let store = validate_signed_store(&mounted.mount, &intel, "a1706-2017").unwrap();
+        println!(
+            "Production DriverStore validation passed; igsc.dll present={}",
+            store.join("igsc.dll").exists()
+        );
+        // Discard this test mount; no test image or ISO is published.
+        drop(mounted);
+    }
+    #[cfg(windows)]
+    #[test]
     #[ignore = "Administrator test on a disposable stock boot.wim copy; explicit fixture paths required"]
     fn a1706_2017_boot_recipe_persists_driverstore_service_and_payload() {
         assert!(platform::is_admin(), "Administrator access required");
@@ -1527,6 +1687,14 @@ mod tests {
             .unwrap()
             .to_owned();
         validate_intel_for_model(&intel, "a1706-2017").unwrap();
+        let required =
+            intel_2017_store_files(&text_file(&intel.join("iigd_dch.inf")).unwrap()).unwrap();
+        assert!(!required.contains(&PathBuf::from("igsc.dll")));
+        assert!(!required.contains(&PathBuf::from("OpromUpdateTool.exe")));
+        println!(
+            "2017 selected CopyFiles manifest: {} required files; unused firmware excluded",
+            required.len()
+        );
         let copied = root.join("boot.wim");
         copy_file(&source, &copied, &cancel).unwrap();
         let mount = root.join("mount-boot");
