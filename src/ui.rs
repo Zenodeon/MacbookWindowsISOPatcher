@@ -1189,9 +1189,12 @@ impl eframe::App for PatcherApp {
                             .color(muted(ui)),
                         );
                         ui.label(
-                            RichText::new(format!("v{} · Rust desktop", env!("CARGO_PKG_VERSION")))
-                                .size(12.0)
-                                .color(muted(ui)),
+                            RichText::new(format!(
+                                "{} · Rust desktop",
+                                macbook_iso_patcher::APP_VERSION
+                            ))
+                            .size(12.0)
+                            .color(muted(ui)),
                         );
                         ui.add_space(12.0);
                         if ui.button("Settings").clicked() {

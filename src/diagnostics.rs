@@ -25,7 +25,7 @@ pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
         .context("Model missing")?;
     let metadata = serde_json::json!({
         "schema_version": 1, "build_id": job.file_name().unwrap_or_default().to_string_lossy(),
-        "app_version": env!("CARGO_PKG_VERSION"), "payload_version": recipe.payload_version(),
+        "app_version": crate::APP_VERSION, "payload_version": recipe.payload_version(),
         "code_revision": option_env!("PATCHER_CODE_REVISION").unwrap_or("unknown"),
         "code_dirty": option_env!("PATCHER_CODE_DIRTY").map(|v| v == "true"),
         "model_profile": model.id, "model_identifier": model.identifier, "model_name": model.name,

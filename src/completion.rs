@@ -62,7 +62,7 @@ pub fn issue_draft(model: &ModelProfile, images: &[&Image]) -> String {
         model.id,
         editions,
         graphics,
-        env!("CARGO_PKG_VERSION")
+        crate::APP_VERSION
     );
     if let Some(recipe) = crate::setup_recipe::SetupRecipe::for_model(model.id) {
         body.push_str(&format!("For boot/setup problems, attach the session folder from the USB's MacBookPatcher-Logs/{} directory and the saved build log.\n",recipe.log_folder()));
