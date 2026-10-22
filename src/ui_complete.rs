@@ -121,6 +121,7 @@ impl PatcherApp {
         if self.model().is_some_and(|m| m.id == MODEL_ID) {
             Self::section(ui, "Prepare USB for setup logs", colors.surface, |ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
+                ui.label("If Windows Setup doesn’t work, these logs help us understand why and update the patcher to fix issues affecting your Mac model.");
                 ui.label("Setup support logs are saved only to a marked USB. Prepare it here, or copy MacBookPatcher-Logging.enabled from the ISO’s Support folder to the USB root.");
                 if ui
                     .add_enabled(
