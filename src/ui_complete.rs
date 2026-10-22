@@ -116,14 +116,6 @@ impl PatcherApp {
                     .collect::<Vec<_>>()
                     .join(" · ");
                 ui.label(editions);
-                if self.model().is_some_and(|m| m.id == MODEL_ID) {
-                    let selected: Vec<_> = self.selected.iter().copied().collect();
-                    if let Some(notice) =
-                        macbook_iso_patcher::diagnostics::reference_notice(inventory, &selected)
-                    {
-                        ui.colored_label(colors.warning, notice);
-                    }
-                }
             }
         });
         Self::section(ui, "Install Windows", colors.source, |ui| {

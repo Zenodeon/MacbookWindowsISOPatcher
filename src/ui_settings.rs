@@ -182,18 +182,30 @@ fn confirmation_manifest(
             .iter()
             .map(|p| (p.clone(), inventory.cache.size.bytes))
             .collect::<Vec<_>>(),
-        CleanupRequest::Builds { ids, .. } | CleanupRequest::Isos { ids, .. } => {
+        CleanupRequest::Workspaces { ids, .. }
+        | CleanupRequest::Builds { ids, .. }
+        | CleanupRequest::Isos { ids, .. } => {
             let iso_only = matches!(request, CleanupRequest::Isos { .. });
             let mut entries = Vec::new();
             for id in ids {
                 let view = inventory.builds.iter().find(|v| &v.record.id == id)?;
-                if (iso_only && !view.can_delete_iso()) || (!iso_only && !view.can_delete()) {
+                if (iso_only && !view.can_delete_iso())
+                    || (!iso_only
+                        && (!view.can_delete_workspace()
+                            || inventory.workspace_problem(view).is_some()))
+                {
                     return None;
                 }
                 entries.extend(
-                    view.deletable_artifacts(iso_only)
-                        .into_iter()
-                        .map(|a| (a.path.clone(), a.size.bytes)),
+                    if iso_only {
+                        view.deletable_artifacts(true)
+                    } else {
+                        view.workspace_artifacts()
+                            .filter(|a| a.available())
+                            .collect()
+                    }
+                    .into_iter()
+                    .map(|a| (a.path.clone(), a.size.bytes)),
                 );
             }
             entries
@@ -228,10 +240,12 @@ impl PatcherApp {
             .into_iter()
             .chain(self.storage.report.iter().flat_map(|r| r.errors.clone()))
             .chain(self.storage.inventory.iter().flat_map(|i| {
-                i.warnings
-                    .clone()
-                    .into_iter()
-                    .chain(i.builds.iter().filter_map(|v| v.problem.clone()))
+                i.warnings.clone().into_iter().chain(
+                    i.builds
+                        .iter()
+                        .filter(|v| v.workspace_visible())
+                        .filter_map(|v| i.workspace_problem(v)),
+                )
             }))
             .collect::<Vec<_>>()
             .join("\n\n");
@@ -474,6 +488,15 @@ impl PatcherApp {
         if self.storage_blocked() {
             return;
         }
+        if matches!(
+            request,
+            CleanupRequest::Builds { .. } | CleanupRequest::Isos { .. }
+        ) {
+            self.storage.error = Some(
+                "Settings cleanup only manages workspace files. Finished ISOs are kept.".into(),
+            );
+            return;
+        }
         match &mut request {
             CleanupRequest::Cache { protected, .. } => {
                 if !self.iso.trim().is_empty() {
@@ -483,7 +506,9 @@ impl PatcherApp {
                     );
                 }
             }
-            CleanupRequest::Builds { ids, protected } | CleanupRequest::Isos { ids, protected } => {
+            CleanupRequest::Workspaces { ids, protected }
+            | CleanupRequest::Builds { ids, protected }
+            | CleanupRequest::Isos { ids, protected } => {
                 if let Some(inventory) = &self.inventory {
                     protected.push(inventory.iso.clone());
                 }
@@ -514,7 +539,7 @@ impl PatcherApp {
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let result = match &request {
-                CleanupRequest::Builds { .. } | CleanupRequest::Isos { .. } => ipc::cleanup_elevated(request.clone()),
+                CleanupRequest::Workspaces { .. } | CleanupRequest::Builds { .. } | CleanupRequest::Isos { .. } => ipc::cleanup_elevated(request.clone()),
                 CleanupRequest::Cache { root, protected } => {
                     match cleanup::clear_cache(root, protected) {
                         Ok(first) if first.requires_admin => {
@@ -578,7 +603,7 @@ impl PatcherApp {
             let body_rect=egui::Rect::from_min_max(shell_rect.min,egui::pos2(shell_rect.right(),footer_rect.top()-14.0));
             let mut body=ui.new_child(egui::UiBuilder::new().max_rect(body_rect).layout(egui::Layout::top_down(egui::Align::Min)));
             body.set_clip_rect(storage_paint_clip(body_rect,ui.clip_rect(),ui.visuals()));
-            let confirmation_kind=match self.storage.confirmation {None=>0,Some(CleanupRequest::Cache{..})=>1,Some(CleanupRequest::Builds{..})=>2,Some(CleanupRequest::Isos{..})=>3};
+            let confirmation_kind=match self.storage.confirmation {None=>0,Some(CleanupRequest::Cache{..})=>1,Some(CleanupRequest::Workspaces{..})|Some(CleanupRequest::Builds{..})=>2,Some(CleanupRequest::Isos{..})=>3};
             let scroll=egui::ScrollArea::vertical().id_salt(("storage-page",self.storage.builds_page,confirmation_kind,self.storage.navigation_epoch)).max_height(body_rect.height()).auto_shrink([false,false]);
             #[cfg(debug_assertions)]
             let scroll=if std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some() && self.screenshot_frames==1 {
@@ -588,7 +613,7 @@ impl PatcherApp {
             if let Some(request)=self.storage.confirmation.clone() {
                 let cache=matches!(request,CleanupRequest::Cache{..});
                 let iso_only=matches!(request,CleanupRequest::Isos{..});
-                let multiple=matches!(&request,CleanupRequest::Builds{ids,..} if ids.len()>1);
+                let multiple=matches!(&request,CleanupRequest::Workspaces{ids,..} if ids.len()>1);
                 ui.label(RichText::new(if cache {"Clear cache?"}else if iso_only{"Delete ISO?"}else if multiple{"Delete builds?"}else{"Delete build?"}).size(23.0).strong());
                 ui.add_space(8.0);
                 if !self.storage.confirmation_ready || self.storage.scanning {
@@ -597,7 +622,7 @@ impl PatcherApp {
                 }
                 ui.scope(|ui|{
                 if let Some(notice)=&self.storage.notice{ui.label(RichText::new(notice).color(colors.muted));ui.add_space(8.0);}
-                ui.label(if cache {"Cached drivers and setup downloads will need downloading again."}else if iso_only{"Only the generated ISO listed below will be deleted."}else{"Only the listed build files and folders will be deleted. Unverified output files are kept."});
+                ui.label(if cache {"Cached drivers and setup downloads will need downloading again."}else if iso_only{"Only the generated ISO listed below will be deleted."}else{"Only the listed workspace files and folders will be deleted. Finished ISOs are kept."});
                 ui.label(RichText::new("Deletion is permanent. Original source ISOs are kept.").color(colors.warning));
                 let mut bytes=0;
                 ui.add_space(16.0);
@@ -622,11 +647,11 @@ impl PatcherApp {
                                     });
                                 });
                             },
-                            CleanupRequest::Builds{ids,..} | CleanupRequest::Isos{ids,..}=>{for view in &inventory.builds {if ids.contains(&view.record.id){
+                            CleanupRequest::Workspaces{ids,..} | CleanupRequest::Builds{ids,..} | CleanupRequest::Isos{ids,..}=>{for view in &inventory.builds {if ids.contains(&view.record.id){
                                 egui::Frame::new().fill(colors.source).corner_radius(12).inner_margin(16.0).show(ui,|ui|{
                                     ui.set_min_width(ui.available_width());
-                                    ui.label(RichText::new(view.title()).strong());
-                                    for artifact in view.deletable_artifacts(iso_only) {
+                                    ui.label(RichText::new(view.workspace_title()).strong());
+                                    for artifact in if iso_only {view.deletable_artifacts(true)} else {view.workspace_artifacts().filter(|a|a.available()).collect()} {
                                         if artifact.path==view.workspace.path {ui.label("Workspace");}
                                         else if artifact.path==view.output.path {ui.label("ISO");}
                                         bytes+=if artifact.path!=view.workspace.path && view.workspace.available() && artifact.path.starts_with(&view.workspace.path){0}else{artifact.size.bytes};
@@ -642,7 +667,7 @@ impl PatcherApp {
                 return;
             }
             ui.horizontal(|ui|{ui.label(RichText::new(if self.storage.builds_page{"Builds"}else{"Settings"}).size(25.0).strong());ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{refresh=ui.add_enabled(!self.storage.busy(),egui::Button::new("Refresh")).clicked();});});
-            ui.label(RichText::new(if self.storage.builds_page{"Open build locations or delete files from each card."}else{"Manage cached downloads and generated ISOs."}).size(13.0).color(colors.muted));
+            ui.label(RichText::new(if self.storage.builds_page{"Open build locations or delete files from each card."}else{"Manage cached downloads and workspace files."}).size(13.0).color(colors.muted));
             if self.storage_read_only(){ui.add_space(6.0);ui.label(RichText::new("Cache moves and cleanup require idle model selection. WorkingSpace can be changed while setup is idle.").size(13.0).color(colors.muted));}
             ui.add_space(14.0);
             self.storage_status(ui,ctx,blocked,&mut retry,&mut refresh);
@@ -671,7 +696,7 @@ impl PatcherApp {
                         ui.label(format!("{} workspaces",inventory.workspace_count()));
                         ui.label(format!("{}: {}",inventory.space_label(),cleanup::format_bytes(inventory.total_bytes())));
                     }else{ui.label("Finding saved workspaces…");}
-                    ui.label(RichText::new("Generated ISOs and associated workspaces.").size(13.0).color(colors.muted));
+                    ui.label(RichText::new("Temporary build files and logs. Finished ISOs are kept.").size(13.0).color(colors.muted));
                     ui.add_space(8.0);
                     if ui.button("Manage builds").clicked(){navigate=Some(true);refresh=true;}
                 });
@@ -681,28 +706,27 @@ impl PatcherApp {
                     ui.add_space(8.0);
                 }
                 if let Some(inventory)=&self.storage.inventory {
-                    if inventory.builds.is_empty(){ui.label("No saved builds yet. Failed or interrupted builds will appear here too.");}
-                    for view in &inventory.builds {
+                    if !inventory.builds.iter().any(|v|v.workspace_visible()){ui.label("No saved builds yet. Failed or interrupted builds will appear here too.");}
+                    for view in inventory.builds.iter().filter(|v|v.workspace_visible()) {
                         let r=&view.record;
                         let frame=egui::Frame::new().fill(colors.canvas).corner_radius(12).inner_margin(13.0)
                             .stroke(egui::Stroke::new(1.0_f32,ctx.style().visuals.widgets.noninteractive.bg_stroke.color));
                         frame.show(ui,|ui|{
                             ui.set_min_width(ui.available_width());
                             ui.horizontal_top(|ui|{
-                            let summary_width=(ui.available_width()-190.0).max(100.0);
+                            let summary_width=(ui.available_width()-85.0).max(100.0);
                             ui.allocate_ui_with_layout(egui::vec2(summary_width,0.0),egui::Layout::top_down(egui::Align::Min),|ui|{
-                            ui.label(RichText::new(view.title()).strong());
+                            ui.label(RichText::new(view.workspace_title()).strong());
                             let model=MODEL_PROFILES.iter().find(|m|m.id==r.model).map(|m|m.name).unwrap_or(&r.model);
                             ui.label(RichText::new(format!("{model} · {}",r.editions.join(", "))).size(13.0));
-                            ui.label(RichText::new(format!("{} · {} · {}",cleanup::format_date(r.created),view.status(),cleanup::format_bytes(view.size.bytes))).size(12.0).color(if view.complete(){colors.success}else{colors.warning}));
+                            ui.label(RichText::new(format!("{} · {} · {}",cleanup::format_date(r.created),view.workspace_status(),cleanup::format_bytes(inventory.workspace_bytes(view)))).size(12.0).color(if view.record.state==cleanup::BuildState::Complete{colors.success}else{colors.warning}));
                             });
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min),|ui|{
-                                if ui.add_enabled(!blocked && view.can_delete(),egui::Button::new("Delete")).on_hover_text("Delete the remaining build files, including any verified ISO and workspace").clicked(){confirm=Some(CleanupRequest::Builds{ids:vec![r.id.clone()],protected:vec![]});}
-                                if view.can_delete_iso() && ui.add_enabled(!blocked,egui::Button::new("Delete ISO")).on_hover_text("Delete only the generated ISO; keep the workspace").clicked(){confirm=Some(CleanupRequest::Isos{ids:vec![r.id.clone()],protected:vec![]});}
+                                if ui.add_enabled(!blocked && view.can_delete_workspace() && inventory.workspace_problem(view).is_none(),egui::Button::new("Delete")).on_hover_text("Delete the remaining build files, from this workspace; keep the finished ISO").clicked(){confirm=Some(CleanupRequest::Workspaces{ids:vec![r.id.clone()],protected:vec![]});}
                             });
                             });
-                            if let Some(problem)=&view.problem{ui.label(RichText::new(problem).size(12.0).color(colors.error));}
-                            if view.artifacts().any(|a|a.available()) {
+                            if let Some(problem)=inventory.workspace_problem(view){ui.label(RichText::new(problem).size(12.0).color(colors.error));}
+                            if view.workspace_artifacts().any(|a|a.available()) {
                             let paths=egui::CollapsingHeader::new("Paths").id_salt((&r.id,"paths"));
                             #[cfg(debug_assertions)]
                             let paths=paths.default_open(inventory.builds.first().is_some_and(|v|v.record.id==r.id) && std::env::var("MACBOOK_PATCHER_PREVIEW").is_ok_and(|v|v=="settings-builds" || v.starts_with("settings-live")));
@@ -711,15 +735,11 @@ impl PatcherApp {
                                 ui.add_sized([78.0,36.0],egui::Label::new(RichText::new("Workspace").size(13.0).color(colors.muted)));
                                 if storage_path_link(ui,&r.job,!self.storage.deleting,"Open workspace folder").clicked(){open_location=Some((r.job.clone(),false));}
                                 });}
-                                if view.output.available(){ui.add_space(6.0);ui.horizontal_top(|ui|{
-                                ui.add_sized([78.0,36.0],egui::Label::new(RichText::new("ISO").size(13.0).color(colors.muted)));
-                                if storage_path_link(ui,&r.output,!self.storage.deleting,"Open folder with ISO selected").clicked(){open_location=Some((r.output.clone(),true));}
-                                });}
-                                for artifact in view.partial.iter().chain(view.connection_log.iter()).filter(|a|a.available()) {
+                                for artifact in view.workspace_artifacts().filter(|a|a.available() && a.path!=view.workspace.path) {
                                     ui.add_space(6.0);ui.label(if view.partial.as_ref().is_some_and(|a|a.path==artifact.path){"Temporary ISO"}else{"Connection log"});
                                     if storage_path_link(ui,&artifact.path,!self.storage.deleting,"Open containing folder").clicked(){open_location=Some((artifact.path.clone(),true));}
                                 }
-                                if view.output.available() && !view.verified_iso{ui.label("Unverified output is kept during cleanup.");}
+
                             });
                             }
                         });
@@ -988,7 +1008,7 @@ mod availability_tests {
     };
     fn inventory(workspace: bool, iso: bool) -> Inventory {
         let root = std::env::temp_dir().join("storage-confirmation-state");
-        let job = root.join("build-test");
+        let job = root.join("build-11111111-1111-4111-8111-111111111111");
         let output = root.join("generated.iso");
         let artifact = |path: PathBuf, present| ArtifactView {
             path,
@@ -1012,7 +1032,7 @@ mod availability_tests {
                 },
                 problem: None,
                 record: BuildRecord {
-                    id: "test".into(),
+                    id: "11111111-1111-4111-8111-111111111111".into(),
                     job,
                     workspace: root.clone(),
                     source: root.join("source.iso"),
@@ -1026,7 +1046,7 @@ mod availability_tests {
                     published: Some(Fingerprint {
                         size: 10,
                         modified: 0,
-                        identity: "test".into(),
+                        identity: "11111111-1111-4111-8111-111111111111".into(),
                     }),
                 },
             }],
@@ -1034,8 +1054,8 @@ mod availability_tests {
         }
     }
     fn request() -> CleanupRequest {
-        CleanupRequest::Builds {
-            ids: vec!["test".into()],
+        CleanupRequest::Workspaces {
+            ids: vec!["11111111-1111-4111-8111-111111111111".into()],
             protected: vec![],
         }
     }
@@ -1055,14 +1075,18 @@ mod availability_tests {
         )
         .unwrap();
         assert_eq!(manifest.len(), 1);
-        assert!(manifest[0].0.ends_with("build-test"));
+        assert!(
+            manifest[0]
+                .0
+                .ends_with("build-11111111-1111-4111-8111-111111111111")
+        );
     }
     #[test]
     fn disappearing_iso_cancels_iso_confirmation() {
         let mut settings = StorageSettings {
             inventory: Some(inventory(true, true)),
             confirmation: Some(CleanupRequest::Isos {
-                ids: vec!["test".into()],
+                ids: vec!["11111111-1111-4111-8111-111111111111".into()],
                 protected: vec![],
             }),
             execute_after_scan: true,
@@ -1081,11 +1105,8 @@ mod availability_tests {
             ..Default::default()
         };
         settings.apply_inventory(inventory(false, true));
-        assert!(settings.confirmation_ready && settings.confirmation.is_some());
-        assert!(
-            settings.ready_cleanup.is_none()
-                && settings.notice.as_ref().unwrap().contains("Files changed")
-        );
+        assert!(!settings.confirmation_ready && settings.confirmation.is_none());
+        assert!(settings.ready_cleanup.is_none() && settings.notice.is_some());
     }
     #[test]
     fn unchanged_fresh_scan_allows_confirmed_cleanup() {

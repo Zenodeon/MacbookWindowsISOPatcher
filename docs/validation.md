@@ -1,5 +1,47 @@
 # Validation
 
+## Output choices and workspace-only Settings — 2026-10-22
+
+- Existing destinations return a typed `engine::OutputConflict`. The app checks
+  publication history in the background, presents file details and provides
+  replace, increment, rename and cancel actions. Replacement confirms permanent
+  deletion in the same dialog. Copy error remains available after checking.
+- Replacement checks source metadata, driver readiness, tools, retained worker
+  locks and disk space before requesting the existing authenticated ISO-only
+  worker. Volume identities limit freed-space credit to the ISO's own volume.
+  The worker rechecks recorded identity, source protection, activity locks and
+  mount state. It deletes only the output; normal preflight then starts a fresh
+  build. A subsequent preflight failure explicitly says the old ISO was deleted.
+- Filename tests cover occupied alternatives, numeric suffix continuation and
+  nonnumeric parentheses. Rename cancellation leaves the output and popup intact.
+  UI state tests cover typed versus generic failures, failed/cancelled cleanup,
+  successful cleanup continuation and follow-up preflight failure. Publication
+  collision tests confirm an existing destination is never overwritten.
+- Settings emits only `CleanupRequest::Workspaces` for build deletion. Workspace
+  scans/counts/totals exclude external temporary files and final ISOs, hide
+  ISO-only history, and keep publication history. Tests cover changed outputs,
+  hard links, unknown/missing files, reused output names, active locks and failed
+  unmounts. Generated ISOs inside either their own or another recorded workspace
+  are excluded from sizes and prevent cleanup with a move-first explanation.
+- The reference warning was removed from Review, Complete and its former helper.
+  Revision parsing, backward-compatible image metadata, support manifests and
+  supported-source checks remain intact. Driver and Setup patching are unchanged.
+- Actual debug renderer captures were inspected at 1240 × 700 and 800 × 520 in
+  light/dark themes: output choices, confirmation, busy state, workspace list and
+  workspace confirmation. Disposable files supplied conflict/list fixtures; a
+  separate Settings summary capture scanned the current saved history. Captures
+  are in `.cache/output-*.png`, `.cache/workspaces-*.png`,
+  `.cache/workspace-confirm-small-light.png` and
+  `.cache/workspace-summary-live-light.png`.
+- `cargo fmt --check`, full `cargo test --quiet`,
+  `cargo clippy --all-targets --quiet -- -D warnings`, and a debug build pass.
+  140 tests pass; five existing administrator/live-media integration checks are
+  ignored. Mount/error branches were exercised through disposable fixtures and
+  injected callbacks, not a new live elevated deletion or WIM mount operation.
+  Native save-dialog cancellation is covered at its returned-result boundary.
+- No release package, ISO rebuild, ZIP or push. No user output ISO was deleted,
+  no existing ISO mount was dismounted, and the user's running app was left open.
+
 ## A1706 compatibility and USB Setup diagnostics — 2026-10-22
 
 - Preserve the v17 GPU/Setup ordering, Intel 21.20.16.5174, BasicDisplay and

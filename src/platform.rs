@@ -474,10 +474,63 @@ pub fn publish_iso(source: &Path, target: &Path) -> Result<()> {
     }
 }
 
+/// Resolve volume identities, including mounted folders, for replacement space credit.
+pub fn same_volume(a: &Path, b: &Path) -> Result<bool> {
+    #[cfg(windows)]
+    fn volume(path: &Path) -> Result<Vec<u16>> {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetVolumePathNameW(file: *const u16, root: *mut u16, len: u32) -> i32;
+            fn GetVolumeNameForVolumeMountPointW(root: *const u16, name: *mut u16, len: u32)
+            -> i32;
+        }
+        let input: Vec<_> = path.as_os_str().encode_wide().chain([0]).collect();
+        let mut root = vec![0; 32768];
+        let mut name = vec![0; 32768];
+        if unsafe { GetVolumePathNameW(input.as_ptr(), root.as_mut_ptr(), root.len() as u32) } == 0
+            || unsafe {
+                GetVolumeNameForVolumeMountPointW(
+                    root.as_ptr(),
+                    name.as_mut_ptr(),
+                    name.len() as u32,
+                )
+            } == 0
+        {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        name.truncate(name.iter().position(|c| *c == 0).unwrap_or(name.len()));
+        Ok(name)
+    }
+    #[cfg(unix)]
+    fn volume(path: &Path) -> Result<u64> {
+        use std::os::unix::fs::MetadataExt;
+        Ok(fs::metadata(path)?.dev())
+    }
+    Ok(volume(a)? == volume(b)?)
+}
+
 #[cfg(test)]
 mod path_display_tests {
     use super::*;
     #[cfg(windows)]
+    #[test]
+    fn replacement_credit_uses_resolved_volume_and_publication_never_clobbers() {
+        let root =
+            std::env::temp_dir().join(format!("patcher-output-space-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let file = root.join("output with spaces.iso");
+        let partial = root.join("temporary.iso");
+        fs::write(&file, b"existing").unwrap();
+        fs::write(&partial, b"new").unwrap();
+        assert!(same_volume(&root, &file).unwrap());
+        assert!(publish_iso(&partial, &file).is_err());
+        assert_eq!(fs::read(&file).unwrap(), b"existing");
+        assert!(partial.exists());
+        fs::remove_file(file).unwrap();
+        fs::remove_file(partial).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
     #[test]
     fn explorer_is_resolved_from_windows_directory_not_system32() {
         assert_eq!(

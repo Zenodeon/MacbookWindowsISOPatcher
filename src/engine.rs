@@ -63,7 +63,25 @@ pub fn copy_tree(source: &Path, dest: &Path, cancel: &Cancellation) -> Result<()
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+pub struct OutputConflict(pub PathBuf);
+impl std::fmt::Display for OutputConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "The output already exists: {}",
+            crate::platform::display_path(&self.0)
+        )
+    }
+}
+impl std::error::Error for OutputConflict {}
 fn validate_paths(req: &BuildRequest) -> Result<()> {
+    validate_paths_with_credit(req, None)
+}
+fn validate_paths_with_credit(
+    req: &BuildRequest,
+    replacement: Option<&crate::cleanup::Fingerprint>,
+) -> Result<()> {
     req.selected_images()?;
     ensure!(
         cfg!(windows),
@@ -76,10 +94,15 @@ fn validate_paths(req: &BuildRequest) -> Result<()> {
             && req.cache.is_absolute(),
         "Build paths must be absolute"
     );
-    ensure!(
-        !req.output.exists(),
-        "The output already exists. Choose a new filename"
-    );
+    match fs::symlink_metadata(&req.output) {
+        Ok(_) if replacement.is_none() => return Err(OutputConflict(req.output.clone()).into()),
+        Ok(_) => ensure!(
+            replacement == Some(&crate::cleanup::fingerprint(&req.output)?),
+            "The replacement ISO changed"
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
     ensure!(
         req.output
             .extension()
@@ -113,11 +136,27 @@ fn validate_paths(req: &BuildRequest) -> Result<()> {
         "Save the output outside the download cache"
     );
     let required = req.required_space()?;
-    require_space(&cache, 8 * GIB, "Driver cache (downloads and extraction)")?;
-    require_space(&work, required, "WorkingSpace")?;
+    let credit = |path: &Path| -> u64 {
+        replacement
+            .filter(|_| crate::platform::same_volume(path, &req.output).unwrap_or(false))
+            .map_or(0, |f| f.size)
+    };
+    require_space(
+        &cache,
+        (8 * GIB).saturating_sub(credit(&cache)),
+        "Driver cache (downloads and extraction)",
+    )?;
+    require_space(
+        &work,
+        required.saturating_sub(credit(&work)),
+        "WorkingSpace",
+    )?;
     require_space(
         &output_parent,
-        req.inventory.iso_size.saturating_add(8 * GIB),
+        req.inventory
+            .iso_size
+            .saturating_add(8 * GIB)
+            .saturating_sub(credit(&output_parent)),
         "Output ISO folder",
     )?;
     Ok(())
@@ -140,6 +179,49 @@ fn require_space(path: &Path, required: u64, purpose: &str) -> Result<()> {
 pub fn preflight(req: &BuildRequest) -> Result<()> {
     workspace_available(&req.workspace)?;
     validate_paths(req)
+}
+
+/// Check all normal prerequisites before permanently deleting a verified output.
+pub fn preflight_replacement(req: &BuildRequest) -> Result<()> {
+    workspace_available(&req.workspace)?;
+    ensure!(
+        fs::metadata(&req.inventory.iso)?.len() == req.inventory.iso_size
+            && platform::modified(&req.inventory.iso)? == req.inventory.iso_modified,
+        "The source ISO changed since scanning. Scan it again before replacing the output"
+    );
+    let candidate = crate::cleanup::output_candidate(&req.output, &req.inventory.iso)?;
+    ensure!(
+        candidate.id.is_some(),
+        "{}",
+        candidate.reason.unwrap_or_default()
+    );
+    validate_paths_with_credit(req, Some(&crate::cleanup::fingerprint(&req.output)?))
+}
+
+pub fn increment_output(path: &Path) -> Result<PathBuf> {
+    let stem = path
+        .file_stem()
+        .context("Output filename is missing")?
+        .to_string_lossy();
+    let (base, start) = stem
+        .rsplit_once(" (")
+        .and_then(|(base, suffix)| {
+            suffix
+                .strip_suffix(')')
+                .and_then(|v| v.parse::<u64>().ok())
+                .filter(|n| *n >= 1)
+                .map(|n| (base, n.saturating_add(1)))
+        })
+        .unwrap_or((&stem, 2));
+    for n in start..u64::MAX {
+        let next = path.with_file_name(format!("{base} ({n}).iso"));
+        match fs::symlink_metadata(&next) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(next),
+            Err(e) => return Err(e.into()),
+            Ok(_) => {}
+        }
+    }
+    anyhow::bail!("No unused ISO filename is available")
 }
 
 /// A manual retry must not overlap a worker surviving a connection failure.
@@ -1087,6 +1169,34 @@ pub const ANSWER_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn incremental_filenames_skip_existing_names_and_continue_suffixes() {
+        let root =
+            std::env::temp_dir().join(format!("patcher-output-name-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let first = root.join("Windows.iso");
+        fs::write(&first, b"original").unwrap();
+        fs::write(root.join("Windows (2).iso"), b"existing").unwrap();
+        assert_eq!(
+            increment_output(&first).unwrap(),
+            root.join("Windows (3).iso")
+        );
+        assert_eq!(
+            increment_output(&root.join("Windows (1).iso")).unwrap(),
+            root.join("Windows (3).iso")
+        );
+        assert_eq!(
+            increment_output(&root.join("Windows (7).iso")).unwrap(),
+            root.join("Windows (8).iso")
+        );
+        assert_eq!(
+            increment_output(&root.join("Windows (edition).iso")).unwrap(),
+            root.join("Windows (edition) (2).iso")
+        );
+        fs::remove_file(&first).unwrap();
+        fs::remove_file(root.join("Windows (2).iso")).unwrap();
+        fs::remove_dir(&root).unwrap();
+    }
     #[cfg(windows)]
     #[test]
     fn a1706_boot_payload_packages_native_diagnostics_and_manifest() {

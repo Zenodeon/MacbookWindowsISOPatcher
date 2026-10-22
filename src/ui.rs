@@ -5,6 +5,8 @@ mod build_log;
 mod complete;
 #[path = "ui_downloads.rs"]
 mod downloads;
+#[path = "ui_output.rs"]
+mod output_choices;
 #[path = "ui_pages.rs"]
 mod pages;
 #[path = "ui_settings.rs"]
@@ -70,6 +72,8 @@ enum Page {
 }
 
 enum Message {
+    OutputChecked(Result<macbook_iso_patcher::cleanup::OutputCandidate, String>),
+    OutputDeleted(Result<macbook_iso_patcher::cleanup::CleanupReport, String>),
     UsbPrepared(Result<PathBuf, String>),
     Scanned(Result<(Inventory, platform::MountedIso), String>),
     Dismounted(Result<bool, String>, Option<platform::MountedIso>),
@@ -132,6 +136,9 @@ pub struct PatcherApp {
     scanning: bool,
     dismounting: bool,
     confirm_dismount: bool,
+    output_conflict: Option<output_choices::OutputDialog>,
+    output_resume: Option<BuildRetry>,
+    output_deleted: Option<PathBuf>,
     installing_adk: bool,
     preparing_usb: bool,
     adk_status: String,
@@ -233,6 +240,9 @@ impl PatcherApp {
             scanning: false,
             dismounting: false,
             confirm_dismount: false,
+            output_conflict: None,
+            output_resume: None,
+            output_deleted: None,
             installing_adk: false,
             preparing_usb: false,
             adk_status: String::new(),
@@ -288,6 +298,40 @@ impl PatcherApp {
     fn consume(&mut self) {
         while let Ok(message) = self.receiver.try_recv() {
             match message {
+                Message::OutputChecked(result) => {
+                    if let Some(dialog) = &mut self.output_conflict {
+                        dialog.checking = false;
+                        match result {
+                            Ok(candidate) => dialog.candidate = Some(candidate),
+                            Err(e) => dialog.problem = Some(e),
+                        }
+                    }
+                }
+                Message::OutputDeleted(result) => {
+                    if let Some(dialog) = &mut self.output_conflict {
+                        dialog.checking = false;
+                        match result {
+                            Ok(report)
+                                if report.errors.is_empty() && !report.deleted.is_empty() =>
+                            {
+                                self.output_deleted = Some(dialog.path.clone());
+                                self.output_resume = Some(dialog.retry);
+                                self.output_conflict = None;
+                            }
+                            Ok(report) => {
+                                dialog.problem = Some(if report.errors.is_empty() {
+                                    "The ISO was not deleted. Build has not started.".into()
+                                } else {
+                                    report.errors.join("\n")
+                                })
+                            }
+                            Err(e) => {
+                                dialog.problem =
+                                    Some(format!("ISO deletion failed. Build has not started. {e}"))
+                            }
+                        }
+                    }
+                }
                 Message::UsbPrepared(result) => {
                     self.preparing_usb = false;
                     match result {
@@ -634,6 +678,14 @@ impl PatcherApp {
         });
     }
     fn show_build_error(&mut self, message: String, retry: BuildRetry) {
+        let message = if let Some(path) = &self.output_deleted {
+            format!(
+                "The old ISO was deleted: {}\nThe new build could not start.\n{message}",
+                platform::display_path(path)
+            )
+        } else {
+            message
+        };
         self.error = Some(ActionError {
             message,
             retry: Some(retry),
@@ -654,7 +706,7 @@ impl PatcherApp {
                     self.begin(ctx);
                 }
             }
-            Err(error) => self.show_build_error(format!("{error:#}"), BuildRetry::Review),
+            Err(error) => self.handle_preflight_error(error, BuildRetry::Review, ctx),
         }
     }
     fn can_retry_build(&self) -> bool {
@@ -694,7 +746,7 @@ impl PatcherApp {
         }) {
             Ok(req) => req,
             Err(e) => {
-                self.show_build_error(format!("{e:#}"), BuildRetry::Begin);
+                self.handle_preflight_error(e, BuildRetry::Begin, ctx);
                 return;
             }
         };
@@ -727,6 +779,7 @@ impl PatcherApp {
     fn reset_build_state(&mut self, workspace: &std::path::Path, total: u32) {
         self.last_build_workspace = Some(workspace.to_owned());
         self.last_build_error = None;
+        self.output_deleted = None;
         self.page = Page::Build;
         self.donation = false;
         self.busy = true;
@@ -1042,7 +1095,8 @@ impl eframe::App for PatcherApp {
                 || self.dismounting
                 || self.iso_mount.is_some()
                 || self.drivers.running
-                || self.storage.busy())
+                || self.storage.busy()
+                || self.output_conflict.as_ref().is_some_and(|d| d.checking))
         {
             self.closing = true;
             self.confirm_dismount = false;
@@ -1058,6 +1112,7 @@ impl eframe::App for PatcherApp {
             && !self.dismounting
             && !self.drivers.running
             && !self.storage.busy()
+            && !self.output_conflict.as_ref().is_some_and(|d| d.checking)
         {
             if self.iso_mount.is_some() {
                 self.dismount(ctx, true);
@@ -1422,7 +1477,15 @@ impl eframe::App for PatcherApp {
         if let Some(request) = self.storage.ready_cleanup.take() {
             self.start_cleanup(request, ctx);
         }
-        if let Some(error) = &self.error {
+        if let Some(retry) = self.output_resume.take()
+            && !self.closing
+        {
+            self.resume_output_action(retry, ctx);
+        }
+        self.output_popup(ctx);
+        if self.output_conflict.is_none()
+            && let Some(error) = &self.error
+        {
             let message = error.message.clone();
             let retry = error.retry;
             let copied = error.copied;
@@ -1443,7 +1506,7 @@ impl eframe::App for PatcherApp {
                         .show(ui, |ui| { ui.label(RichText::new(&message).color(colors.error)); });
                     if retry.is_some() {
                         ui.add_space(12.0);
-                        ui.label(RichText::new(if self.page==Page::Build{"Retry starts from step 1 in a new workspace. Retained build files are kept. Close this popup to return to setup or inspect the log."}else{"Resolve the issue, then retry. Close this popup to change your build settings."}).size(13.0).color(colors.muted));
+                        ui.label(RichText::new(if self.page==Page::Build{"Retry starts from step 1 in a new workspace. Retained build files are kept. Close this popup to return to setup or inspect the log."}else{"Resolve the issue, then retry."}).size(13.0).color(colors.muted));
                     }
                     ui.add_space(20.0);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

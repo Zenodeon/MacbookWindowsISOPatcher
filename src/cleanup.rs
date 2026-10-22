@@ -104,11 +104,19 @@ pub fn fingerprint(path: &Path) -> Result<Fingerprint> {
         if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
             return Err(std::io::Error::last_os_error().into());
         }
+        ensure!(
+            info.links == 1,
+            "Files with hard links cannot be automatically deleted"
+        );
         format!("{}:{}:{}", info.volume, info.index_high, info.index_low)
     };
     #[cfg(unix)]
     let identity = {
         use std::os::unix::fs::MetadataExt;
+        ensure!(
+            meta.nlink() == 1,
+            "Files with hard links cannot be automatically deleted"
+        );
         format!("{}:{}", meta.dev(), meta.ino())
     };
     Ok(Fingerprint {
@@ -616,6 +624,75 @@ pub struct BuildView {
     pub problem: Option<String>,
 }
 impl BuildView {
+    pub fn workspace_artifacts(&self) -> impl Iterator<Item = &ArtifactView> {
+        [&self.workspace]
+            .into_iter()
+            .chain(self.partial.iter())
+            .chain(self.connection_log.iter())
+            .filter(|a| a.path.starts_with(&self.record.workspace) && a.path != self.record.output)
+    }
+    pub fn workspace_visible(&self) -> bool {
+        self.workspace_artifacts()
+            .any(|a| a.present || a.problem.is_some())
+    }
+    pub fn workspace_problem(&self) -> Option<String> {
+        if let Err(e) = validate_record(&self.record) {
+            return Some(format!("{e:#}"));
+        }
+        if self.output.present && self.output.path.starts_with(&self.record.job) {
+            return Some(
+                "Move the generated ISO outside this workspace before deleting it.".into(),
+            );
+        }
+        let errors: Vec<_> = self
+            .workspace_artifacts()
+            .filter_map(|a| a.problem.clone())
+            .collect();
+        (!errors.is_empty()).then(|| errors.join("\n"))
+    }
+    pub fn workspace_bytes(&self) -> u64 {
+        self.workspace_artifacts()
+            .filter(|a| {
+                a.available()
+                    && (a.path == self.workspace.path
+                        || !self.workspace.available()
+                        || !a.path.starts_with(&self.workspace.path))
+            })
+            .map(|a| a.size.bytes)
+            .sum::<u64>()
+            .saturating_sub(
+                if self.output.available()
+                    && self.workspace.available()
+                    && self.output.path.starts_with(&self.workspace.path)
+                {
+                    self.output.size.bytes
+                } else {
+                    0
+                },
+            )
+    }
+    pub fn workspace_title(&self) -> String {
+        self.record
+            .job
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    }
+    pub fn workspace_status(&self) -> &str {
+        if self.workspace_problem().is_some() {
+            "Needs attention"
+        } else if !self.workspace.available() {
+            "Workspace logs only"
+        } else if self.record.state == BuildState::Complete {
+            "Workspace retained"
+        } else {
+            self.record.state.label()
+        }
+    }
+    pub fn can_delete_workspace(&self) -> bool {
+        self.workspace_problem().is_none() && self.workspace_artifacts().any(|a| a.available())
+    }
     pub fn artifacts(&self) -> impl Iterator<Item = &ArtifactView> {
         [&self.workspace, &self.output]
             .into_iter()
@@ -702,8 +779,40 @@ pub struct Inventory {
     pub warnings: Vec<String>,
 }
 impl Inventory {
+    pub fn workspace_problem(&self, view: &BuildView) -> Option<String> {
+        if self
+            .builds
+            .iter()
+            .any(|v| v.output.present && v.output.path.starts_with(&view.record.job))
+        {
+            return Some(
+                "Move the generated ISO outside this workspace before deleting it.".into(),
+            );
+        }
+        view.workspace_problem()
+    }
+    pub fn workspace_bytes(&self, view: &BuildView) -> u64 {
+        let others: std::collections::BTreeMap<_, _> = self
+            .builds
+            .iter()
+            .filter(|v| {
+                v.output.available()
+                    && v.output.path != view.output.path
+                    && view.workspace.available()
+                    && v.output.path.starts_with(&view.workspace.path)
+            })
+            .map(|v| (v.output.path.clone(), v.output.size.bytes))
+            .collect();
+        view.workspace_bytes().saturating_sub(others.values().sum())
+    }
     pub fn space_label(&self) -> &'static str {
-        if !self.warnings.is_empty() || self.builds.iter().any(|v| v.problem.is_some()) {
+        if !self.warnings.is_empty()
+            || self
+                .builds
+                .iter()
+                .filter(|v| v.workspace_visible())
+                .any(|v| self.workspace_problem(v).is_some())
+        {
             "Known space used"
         } else {
             "Total space used"
@@ -712,7 +821,7 @@ impl Inventory {
     pub fn workspace_count(&self) -> usize {
         self.builds
             .iter()
-            .filter(|v| v.workspace.present)
+            .filter(|v| v.workspace.available())
             .map(|v| v.workspace.path.clone())
             .collect::<std::collections::BTreeSet<_>>()
             .len()
@@ -721,7 +830,7 @@ impl Inventory {
         let artifacts: std::collections::BTreeMap<_, _> = self
             .builds
             .iter()
-            .flat_map(BuildView::artifacts)
+            .flat_map(BuildView::workspace_artifacts)
             .filter(|a| a.available())
             .map(|a| (a.path.clone(), a.size.bytes))
             .collect();
@@ -733,7 +842,19 @@ impl Inventory {
                     .any(|other| other != *path && path.starts_with(other))
             })
             .map(|(_, bytes)| *bytes)
-            .sum()
+            .sum::<u64>()
+            .saturating_sub(
+                self.builds
+                    .iter()
+                    .filter(|v| {
+                        v.output.available()
+                            && artifacts.keys().any(|p| v.output.path.starts_with(p))
+                    })
+                    .map(|v| (v.output.path.clone(), v.output.size.bytes))
+                    .collect::<std::collections::BTreeMap<_, _>>()
+                    .values()
+                    .sum(),
+            )
     }
 }
 
@@ -881,6 +1002,11 @@ fn inventory_at(root: &Path, cache_root: &Path, workspace: &Path) -> Result<Inve
 pub enum CleanupRequest {
     Cache {
         root: PathBuf,
+        protected: Vec<PathBuf>,
+    },
+    Workspaces {
+        ids: Vec<String>,
+        #[serde(default)]
         protected: Vec<PathBuf>,
     },
     Builds {
@@ -1063,9 +1189,20 @@ fn delete_one(
     mounts: &[MountedImage],
     discard: &impl Fn(&Path) -> Result<()>,
     check_iso: &impl Fn(&Path) -> Result<()>,
+    workspace_only: bool,
 ) -> Result<u64> {
     validate_record(record)?;
     let _lock = activity(&record.workspace, ".build.lock", true)?;
+    if workspace_only {
+        ensure!(
+            !record.output.exists()
+                || !record
+                    .output
+                    .canonicalize()?
+                    .starts_with(record.job.canonicalize().unwrap_or(record.job.clone())),
+            "Move the generated ISO outside this workspace before deleting it"
+        );
+    }
     if record.job.exists() {
         let req: BuildRequest = serde_json::from_slice(&fs::read(record.job.join("job.json"))?)
             .context("Build ownership record is unreadable; workspace retained")?;
@@ -1078,9 +1215,15 @@ fn delete_one(
         );
     }
     let mut paths = vec![record.job.clone()];
-    paths.extend(record.partial.clone());
-    paths.extend(record.connection_log.clone());
-    if record.output.exists() && record.published.is_some() {
+    paths.extend(
+        record
+            .partial
+            .iter()
+            .chain(record.connection_log.iter())
+            .filter(|p| !workspace_only || p.starts_with(&record.workspace))
+            .cloned(),
+    );
+    if !workspace_only && record.output.exists() && record.published.is_some() {
         ensure!(
             Some(fingerprint(&record.output)?) == record.published,
             "The generated ISO changed or was replaced; it has been preserved"
@@ -1133,7 +1276,7 @@ fn delete_one(
         }
     }
     // Refuse output ISOs mounted in Explorer; deleting a build does not eject an unrelated session.
-    if record.output.exists() && record.published.is_some() {
+    if !workspace_only && record.output.exists() && record.published.is_some() {
         check_iso(&record.output)?;
     }
     let mut bytes = 0;
@@ -1206,7 +1349,7 @@ fn delete_builds_at_protected(
                 .push(format!("Build {id} is no longer in history"));
             continue;
         };
-        match delete_one(record, &originals, mounts, discard, check_iso) {
+        match delete_one(record, &originals, mounts, discard, check_iso, false) {
             Ok(bytes) => {
                 report.bytes += bytes;
                 report.deleted.push(id.clone());
@@ -1222,6 +1365,59 @@ fn delete_builds_at_protected(
     }
     Ok(report)
 }
+fn delete_workspaces_at(
+    root: &Path,
+    ids: &[String],
+    protected_sources: &[PathBuf],
+    mounts: &[MountedImage],
+    discard: &impl Fn(&Path) -> Result<()>,
+) -> Result<CleanupReport> {
+    let history = {
+        let _lock = history_lock(root)?;
+        read_history(root)?
+    };
+    // Protect every recorded output, including changed outputs, inside any selected job.
+    let originals: Vec<_> = history
+        .records
+        .iter()
+        .flat_map(|r| [r.source.clone(), r.output.clone()])
+        .chain(protected_sources.iter().cloned())
+        .collect();
+    let mut report = CleanupReport::default();
+    for id in ids {
+        let Some(record) = history.records.iter().find(|r| &r.id == id) else {
+            report
+                .errors
+                .push(format!("Build {id} is no longer in history"));
+            continue;
+        };
+        let contained_output = history.records.iter().any(|r| {
+            r.output.exists()
+                && r.output
+                    .ancestors()
+                    .any(|p| same_path(p, &record.job).unwrap_or(false))
+        });
+        if contained_output {
+            report.errors.push(format!(
+                "{}: Move the generated ISO outside this workspace before deleting it",
+                platform::display_path(&record.job)
+            ));
+            continue;
+        }
+        match delete_one(record, &originals, mounts, discard, &|_| Ok(()), true) {
+            Ok(bytes) => {
+                report.bytes += bytes;
+                report.deleted.push(id.clone());
+            }
+            Err(e) => report
+                .errors
+                .push(format!("{}: {e:#}", platform::display_path(&record.job))),
+        }
+    }
+    // Retain publication identities and sources for future output replacement.
+    Ok(report)
+}
+
 fn delete_isos_at(
     root: &Path,
     ids: &[String],
@@ -1288,9 +1484,87 @@ fn delete_isos_at(
     Ok(report)
 }
 
+#[derive(Debug, Clone)]
+pub struct OutputCandidate {
+    pub path: PathBuf,
+    pub size: u64,
+    pub fingerprint: Option<Fingerprint>,
+    pub id: Option<String>,
+    pub reason: Option<String>,
+}
+pub fn output_candidate(path: &Path, source: &Path) -> Result<OutputCandidate> {
+    output_candidate_at(&history_dir(), path, source)
+}
+fn output_candidate_at(root: &Path, path: &Path, source: &Path) -> Result<OutputCandidate> {
+    let size = fs::symlink_metadata(path)?.len();
+    let mut candidate = OutputCandidate {
+        path: path.to_owned(),
+        size,
+        fingerprint: None,
+        id: None,
+        reason: None,
+    };
+    let check = (|| -> Result<(String, Fingerprint)> {
+        safe_path(path)?;
+        let _lock = history_lock(root)?;
+        let history = read_history(root)?;
+        let originals: Vec<_> = history
+            .records
+            .iter()
+            .map(|r| r.source.clone())
+            .chain([source.to_owned()])
+            .collect();
+        protected(path, &originals)?;
+        let actual = fingerprint(path)?;
+        let matching: Vec<_> = history
+            .records
+            .iter()
+            .filter(|r| same_path(path, &r.output).unwrap_or(false))
+            .collect();
+        ensure!(
+            !matching.is_empty(),
+            "This ISO is not a verified app-generated output. Choose another filename."
+        );
+        let record = matching
+            .into_iter()
+            .filter(|r| r.published.as_ref() == Some(&actual))
+            .max_by_key(|r| r.created)
+            .context("The ISO changed or was replaced; choose another filename")?;
+        validate_record(record)?;
+        let _activity = activity(&record.workspace, ".build.lock", true)?;
+        ensure!(
+            record.published.as_ref() == Some(&fingerprint(path)?),
+            "The ISO changed or was replaced; choose another filename"
+        );
+        Ok((record.id.clone(), actual))
+    })();
+    match check {
+        Ok((id, actual)) => {
+            candidate.id = Some(id);
+            candidate.size = actual.size;
+            candidate.fingerprint = Some(actual);
+        }
+        Err(e) => candidate.reason = Some(format!("{e:#}")),
+    }
+    Ok(candidate)
+}
+
 pub fn execute(request: CleanupRequest) -> Result<CleanupReport> {
     match request {
         CleanupRequest::Cache { root, protected } => clear_cache(&root, &protected),
+        CleanupRequest::Workspaces { ids, protected } => {
+            ensure!(
+                platform::is_admin(),
+                "Workspace cleanup requires administrator access"
+            );
+            delete_workspaces_at(
+                &history_dir(),
+                &ids,
+                &protected,
+                &mounted_paths()?,
+                &discard_mount,
+            )
+        }
         CleanupRequest::Builds { ids, protected } => delete_builds(&ids, &protected),
         CleanupRequest::Isos { ids, protected } => {
             ensure!(
@@ -1418,6 +1692,204 @@ mod tests {
                 let _ = remove_owned(&root);
             }
         }
+    }
+    #[test]
+    fn workspace_cleanup_retains_outputs_and_history_even_when_output_changed() {
+        for changed in [false, true] {
+            let f = Fixture::new();
+            let r = f.record();
+            let config = f.history(vec![r.clone()]);
+            if changed {
+                fs::write(&r.output, b"changed external output").unwrap();
+            }
+            let view = inspect_build(r.clone());
+            assert!(view.can_delete_workspace());
+            let expected = view.workspace_bytes();
+            let report =
+                delete_workspaces_at(&config, std::slice::from_ref(&r.id), &[], &[], &|_| Ok(()))
+                    .unwrap();
+            assert!(report.errors.is_empty(), "{:?}", report.errors);
+            assert_eq!(report.bytes, expected);
+            assert!(!r.job.exists());
+            assert!(r.output.exists());
+            assert!(r.source.exists());
+            assert_eq!(read_history(&config).unwrap().records.len(), 1);
+            assert!(!inspect_build(r).workspace_visible());
+        }
+    }
+    #[test]
+    fn workspace_cleanup_preserves_external_partial_files_and_blocks_nested_iso() {
+        let f = Fixture::new();
+        let mut r = f.record();
+        let partial = r
+            .output
+            .parent()
+            .unwrap()
+            .join(format!(".a1706-{}.partial.iso", uuid::Uuid::new_v4()));
+        fs::write(&partial, b"partial").unwrap();
+        r.partial = Some(partial.clone());
+        let config = f.history(vec![r.clone()]);
+        let view = inspect_build(r.clone());
+        assert!(!view.workspace_artifacts().any(|a| a.path == partial));
+        let report =
+            delete_workspaces_at(&config, std::slice::from_ref(&r.id), &[], &[], &|_| Ok(()))
+                .unwrap();
+        assert!(report.errors.is_empty());
+        assert!(partial.exists());
+        let mut r = f.record();
+        let nested = r.job.join("finished.iso");
+        fs::copy(&r.output, &nested).unwrap();
+        r.output = nested.clone();
+        r.published = Some(fingerprint(&nested).unwrap());
+        let config = f.history(vec![r.clone()]);
+        assert!(!inspect_build(r.clone()).can_delete_workspace());
+        let report =
+            delete_workspaces_at(&config, std::slice::from_ref(&r.id), &[], &[], &|_| Ok(()))
+                .unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert!(nested.exists());
+        assert!(r.job.exists());
+    }
+    #[test]
+    fn another_builds_output_inside_a_workspace_is_excluded_and_protected() {
+        let f = Fixture::new();
+        let a = f.record();
+        let mut b = f.record();
+        b.output = a.job.join("another-output.iso");
+        fs::write(&b.output, b"another generated output").unwrap();
+        b.published = Some(fingerprint(&b.output).unwrap());
+        let config = f.history(vec![a.clone(), b.clone()]);
+        let inventory = inventory_at(&config, &f.path("cache"), &a.workspace).unwrap();
+        let view = inventory
+            .builds
+            .iter()
+            .find(|v| v.record.id == a.id)
+            .unwrap();
+        assert!(
+            inventory
+                .workspace_problem(view)
+                .unwrap()
+                .contains("Move the generated ISO")
+        );
+        assert_eq!(
+            inventory.workspace_bytes(view) + fs::metadata(&b.output).unwrap().len(),
+            view.workspace.size.bytes
+        );
+        let expected: u64 = inventory
+            .builds
+            .iter()
+            .map(|v| inventory.workspace_bytes(v))
+            .sum();
+        assert_eq!(inventory.total_bytes(), expected);
+        let report =
+            delete_workspaces_at(&config, std::slice::from_ref(&a.id), &[], &[], &|_| Ok(()))
+                .unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].contains("Move the generated ISO"));
+        assert!(a.job.exists());
+        assert!(b.output.exists());
+    }
+    #[test]
+    fn workspace_cleanup_respects_active_lock_and_failed_unmount() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        let lock = activity(&r.workspace, ".build.lock", true).unwrap();
+        assert_eq!(
+            delete_workspaces_at(&config, std::slice::from_ref(&r.id), &[], &[], &|_| Ok(()))
+                .unwrap()
+                .errors
+                .len(),
+            1
+        );
+        drop(lock);
+        let mount = r.job.join("mount-install");
+        fs::create_dir_all(&mount).unwrap();
+        let mounts = [MountedImage {
+            path: mount,
+            image: r.job.join("iso-root/sources/install.wim"),
+            index: 1,
+        }];
+        assert_eq!(
+            delete_workspaces_at(
+                &config,
+                std::slice::from_ref(&r.id),
+                &[],
+                &mounts,
+                &|_| bail!("unmount failed")
+            )
+            .unwrap()
+            .errors
+            .len(),
+            1
+        );
+        assert!(r.job.exists());
+        assert!(r.output.exists());
+    }
+    #[test]
+    fn output_choices_only_offer_verified_unchanged_outputs() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        assert_eq!(
+            output_candidate_at(&config, &r.output, &r.source)
+                .unwrap()
+                .id,
+            Some(r.id.clone())
+        );
+        assert!(
+            output_candidate_at(&config, &r.output, &r.output)
+                .unwrap()
+                .id
+                .is_none()
+        );
+        let unknown = f.file("unknown.iso", b"unknown");
+        assert!(
+            output_candidate_at(&config, &unknown, &r.source)
+                .unwrap()
+                .id
+                .is_none()
+        );
+        fs::write(&r.output, b"changed").unwrap();
+        assert!(
+            output_candidate_at(&config, &r.output, &r.source)
+                .unwrap()
+                .id
+                .is_none()
+        );
+        fs::remove_file(&r.output).unwrap();
+        assert!(output_candidate_at(&config, &r.output, &r.source).is_err());
+    }
+    #[test]
+    fn reused_output_names_match_the_current_publication_not_an_older_record() {
+        let f = Fixture::new();
+        let old = f.record();
+        let mut current = f.record();
+        fs::copy(&current.output, &old.output).unwrap();
+        // Content may match, but the publication timestamp/identity must match the current record.
+        current.output = old.output.clone();
+        current.published = Some(fingerprint(&current.output).unwrap());
+        let config = f.history(vec![old.clone(), current.clone()]);
+        let candidate = output_candidate_at(&config, &current.output, &current.source).unwrap();
+        assert_eq!(candidate.id, Some(current.id));
+        assert!(old.job.exists());
+    }
+    #[test]
+    fn output_choices_refuse_hardlinks() {
+        let f = Fixture::new();
+        let r = f.record();
+        let config = f.history(vec![r.clone()]);
+        fs::hard_link(&r.output, f.path("alias.iso")).unwrap();
+        assert!(
+            output_candidate_at(&config, &r.output, &r.source)
+                .unwrap()
+                .id
+                .is_none()
+        );
+        let report =
+            delete_isos_at(&config, std::slice::from_ref(&r.id), &[], &|_| Ok(())).unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert!(r.output.exists());
     }
     #[test]
     fn cache_counts_and_clears_only_known_artifacts() {
@@ -1819,10 +2291,8 @@ mod tests {
         let inventory = inventory_at(&config, &f.path("cache"), &r.workspace).unwrap();
         let view = &inventory.builds[0];
         assert_eq!(inventory.workspace_count(), 0);
-        assert_eq!(
-            inventory.total_bytes(),
-            fs::metadata(&r.output).unwrap().len()
-        );
+        assert_eq!(inventory.total_bytes(), 0);
+        assert!(!view.workspace_visible());
         assert!(!view.workspace.available() && view.output.available() && view.can_delete_iso());
         assert!(view.status().contains("ISO only"));
         assert_eq!(

@@ -73,11 +73,11 @@ Open **Settings** above Appearance to manage storage:
   patcher's downloaded driver packages, partial downloads, extraction folders
   and cached ADK setup downloads. Installed tools and unrelated files are kept.
   Drivers must be downloaded again explicitly before building.
-- **Builds** lists generated ISOs and their workspaces. Click the rounded rows
-  to select them, then **Delete selected** to remove their recorded ISO files,
-  temporary media, workspaces and logs after confirmation. Failed or interrupted
-  jobs can be cleaned even without a generated ISO. Older jobs with an unverified
-  output are labeled workspace-only, and that output is kept.
+- **Builds** manages workspace files and logs only. Each card shows its workspace
+  folder, size and status. **Delete** confirms the workspace artifacts to remove;
+  finished ISOs and build history are retained. Move an ISO out of a workspace
+  before deleting that workspace. Failed image unmounting prevents deletion.
+
 - Original source ISOs, changed/replaced outputs, linked folders and files in use
   are protected. Build cleanup requests Windows administrator permission when
   needed to discard app-owned WIM mounts. A failed unmount retains the build.
@@ -184,8 +184,8 @@ they can contain account names and file paths. Nothing is uploaded automatically
 Older ISOs may use `A1706Logs` instead.
 
 The hardware-verified manual reference uses Windows 10 Pro **19045.3803** and
-Setup **19041.3803**. Other supported sources remain buildable with a compatibility
-notice; matching versions alone do not verify a generated ISO. The app preserves
+Setup **19041.3803**. Other supported Windows 10 sources remain buildable. Windows revisions are retained
+in support manifests; generated ISOs still require hardware testing. The app preserves
 source BCD settings and does not enable signature-check bypasses. Its A1706 GPU
 lookup requires one present matching Iris 550 device before attempting one restart.
 
@@ -241,3 +241,14 @@ through environment variables rather than inserted into script source.
 
 No ISOs or driver packages are committed. See [driver provenance](docs/driver-sources.md)
 and [validation checklist](docs/validation.md).
+
+### Existing output filenames
+
+If an output already exists, choose **Increment filename and build** or **Rename
+and build**. Neither overwrites an existing file. **Delete ISO and build new** is
+available only for an unchanged app-generated output verified against history.
+Its confirmation is permanent: a failed new build cannot restore the old ISO.
+Prerequisites are checked before deletion, then checked again before a fresh
+build starts from step 1. The previous workspace and logs are kept. Source ISOs,
+changed or unrecognized outputs, hard links, redirected paths and mounted ISOs
+are protected. Mounted ISOs must be dismounted separately before replacement.

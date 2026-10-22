@@ -10,6 +10,31 @@ impl PatcherApp {
             return;
         };
         self.window_fitted = true; // Keep the explicitly requested screenshot viewport size.
+        if view.starts_with("output-conflict") {
+            self.close_ready = true;
+            self.model_selected = Some(0);
+            self.page = Page::Review;
+            let path =
+                std::path::absolute(".cache/output-preview/Windows10_A1706_Pro.iso").unwrap();
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, b"Disposable screenshot placeholder").unwrap();
+            self.output_conflict = Some(output_choices::OutputDialog {
+                path: path.clone(),
+                retry: BuildRetry::Review,
+                candidate: Some(macbook_iso_patcher::cleanup::OutputCandidate {
+                    path,
+                    size: 5_200_000_000,
+                    fingerprint: None,
+                    id: Some("preview-only".into()),
+                    reason: None,
+                }),
+                checking: view.ends_with("busy"),
+                confirming: view.ends_with("confirm") || view.ends_with("busy"),
+                problem: None,
+                copied: false,
+            });
+            return;
+        }
         if view.starts_with("settings-live") {
             if view.ends_with("-limited") {
                 self.page = Page::Iso;
@@ -27,7 +52,7 @@ impl PatcherApp {
                 Ok(inventory) => {
                     if view == "settings-live-confirm" || view == "settings-live-checking" {
                         self.storage.confirmation =
-                            Some(macbook_iso_patcher::cleanup::CleanupRequest::Builds {
+                            Some(macbook_iso_patcher::cleanup::CleanupRequest::Workspaces {
                                 ids: inventory
                                     .builds
                                     .iter()
@@ -117,7 +142,7 @@ impl PatcherApp {
                 }
             }
             if view == "settings-confirm" {
-                self.storage.confirmation = Some(CleanupRequest::Builds {
+                self.storage.confirmation = Some(CleanupRequest::Workspaces {
                     ids: inventory
                         .builds
                         .iter()
@@ -128,7 +153,7 @@ impl PatcherApp {
                 });
             }
             if view == "settings-build-confirm" {
-                self.storage.confirmation = Some(CleanupRequest::Builds {
+                self.storage.confirmation = Some(CleanupRequest::Workspaces {
                     ids: inventory
                         .builds
                         .iter()

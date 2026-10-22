@@ -1,5 +1,5 @@
 //! A1706 support payload and source-reference metadata. Never uploads diagnostics.
-use crate::domain::{BuildRequest, Image, Inventory};
+use crate::domain::{BuildRequest, Image};
 use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
 
@@ -14,37 +14,6 @@ pub fn version(image: &Image) -> String {
         Some(revision) => format!("{}.{}", image.build, revision),
         None => format!("{} (revision unknown)", image.build),
     }
-}
-pub fn reference_notice(inventory: &Inventory, selected: &[u32]) -> Option<String> {
-    let images: Vec<_> = inventory
-        .images
-        .iter()
-        .filter(|i| selected.contains(&i.index))
-        .collect();
-    let matches = !images.is_empty()
-        && images
-            .iter()
-            .all(|i| i.edition == "Professional" && i.build == 19045 && i.revision == Some(3803))
-        && inventory
-            .setup_image
-            .as_ref()
-            .is_some_and(|i| i.build == 19041 && i.revision == Some(3803));
-    if matches {
-        return None;
-    }
-    let editions = images
-        .iter()
-        .map(|i| format!("{} {}", i.name, version(i)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let setup = inventory
-        .setup_image
-        .as_ref()
-        .map(version)
-        .unwrap_or_else(|| "unknown; rescan to read Setup metadata".into());
-    Some(format!(
-        "Different from the working A1706 reference. Your source: {editions}; Setup {setup}. Reference: Windows 10 Pro 19045.3803; Setup 19041.3803. You can still build, but this combination needs testing. Matching versions alone do not verify a generated ISO."
-    ))
 }
 pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
     fs::create_dir_all(dir)?;
@@ -123,6 +92,7 @@ pub fn prepare_usb(root: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::Inventory;
     #[test]
     fn revisions_and_old_saved_jobs() {
         let raw = r#"{"index":1,"name":"Windows 10 Pro","edition":"Professional","arch":9,"build":19045,"major":10,"minor":0,"language":"en-US","installation_type":"Client","size":1}"#;
@@ -140,14 +110,14 @@ mod tests {
             images: vec![image],
             setup_image: Some(setup),
         };
-        assert!(reference_notice(&inv, &[1]).is_none());
+        assert_eq!(version(&inv.images[0]), "19045.3803");
         inv.images[0].revision = Some(2965);
-        assert!(reference_notice(&inv, &[1]).unwrap().contains("19045.2965"));
+        assert_eq!(version(&inv.images[0]), "19045.2965");
         let mut json = serde_json::to_value(&inv).unwrap();
         json.as_object_mut().unwrap().remove("setup_image");
         let older: Inventory = serde_json::from_value(json).unwrap();
         assert!(older.setup_image.is_none());
-        assert!(reference_notice(&older, &[1]).unwrap().contains("unknown"));
+        assert_eq!(older.images[0].revision, Some(2965));
     }
     #[test]
     fn wim_revision_parsing() {

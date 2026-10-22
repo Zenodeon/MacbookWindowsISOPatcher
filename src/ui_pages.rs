@@ -400,14 +400,6 @@ impl PatcherApp {
         }
         Self::section(ui, "Included editions", colors.source, |ui| {
             if let Some(inv) = &self.inventory {
-                if self.model().is_some_and(|m| m.id == MODEL_ID) {
-                    let selected: Vec<_> = self.selected.iter().copied().collect();
-                    if let Some(notice) =
-                        macbook_iso_patcher::diagnostics::reference_notice(inv, &selected)
-                    {
-                        ui.colored_label(colors.warning, notice);
-                    }
-                }
                 for image in &inv.images {
                     if self.selected.contains(&image.index) {
                         ui.label(&image.name);
