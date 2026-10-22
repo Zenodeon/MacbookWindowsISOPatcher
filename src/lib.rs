@@ -13,3 +13,5 @@ pub mod progress;
 pub mod relocation;
 pub mod transfer;
 pub mod wim;
+
+pub mod setup_recipe;

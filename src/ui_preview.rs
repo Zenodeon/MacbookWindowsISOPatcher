@@ -248,6 +248,7 @@ impl PatcherApp {
             | "build-failed"
             | "build-failure-popup"
             | "complete" => ("review-ready", 0),
+            "complete-2017" | "complete-2017-usb" | "review-2017" => ("review-ready", 3),
             "complete-unverified" => ("review-ready", 1),
             other if other.starts_with("complete-usb-") => ("review-ready", 0),
             "review-unverified-download" => ("review-ready", 1),
@@ -454,7 +455,8 @@ impl PatcherApp {
             let _ = self.sender.send(Message::Build(Event::Finished(iso)));
             self.consume();
             self.close_ready = true;
-            if driver_preview.starts_with("complete-usb-") {
+            if driver_preview.starts_with("complete-usb-") || driver_preview == "complete-2017-usb"
+            {
                 let status = match driver_preview.as_str() {
                     "complete-usb-preparing" => complete::UsbPreparationStatus::Preparing,
                     "complete-usb-failed" => complete::UsbPreparationStatus::Failed,

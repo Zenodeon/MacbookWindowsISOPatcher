@@ -55,6 +55,21 @@ fn main() -> anyhow::Result<()> {
                 .is_some_and(|n| n.to_string_lossy().starts_with("extract-"))
         })
         .ok_or_else(|| anyhow::anyhow!("Extraction root missing"))?;
+    if model == "a1706-2017" {
+        let boot = extraction.join("boot-check");
+        std::fs::create_dir(&boot)?;
+        for name in macbook_iso_patcher::domain::BOOT_ALLOWLIST {
+            if assets.drivers.join(name).is_dir() {
+                engine::copy_tree(
+                    &assets.drivers.join(name),
+                    &boot.join(name),
+                    &Cancellation::default(),
+                )?;
+            }
+        }
+        engine::validate_model_boot_drivers(&boot, model)?;
+        println!("2017 allowlisted Apple storage/input boot drivers verified");
+    }
     download::remove_extraction(&PathBuf::from(&args[0]), extraction)?;
     println!("Verified driver extraction completed; temporary extraction files removed.");
     Ok(())

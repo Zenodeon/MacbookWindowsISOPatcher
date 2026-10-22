@@ -44,6 +44,14 @@ int wmain(int argc,wchar_t **argv) {
     join(blocked,argv[1],L"blocked");assert(bytes(blocked,"keep",4,0,8));
     {unsigned before=errors;mirror_tree(home,blocked);assert(errors>before);}
     assert(ordinary(a,0));
+    /* The same collector keeps model folders separate and forwards its profile. */
+    {wchar_t command[P*2];wchar_t *args[]={L"logger.exe",L"--profile",L"a1706-2017",L"--collect"};wchar_t **argv_copy=args;int count=4;
+     assert(profile_arguments(&count,&argv_copy)&&count==2&&!wcscmp(argv_copy[1],L"--collect"));
+     assert(profile2017&&!select_profile(L"a1707"));watch_command(L"C:\\Support\\logger.exe",command,P*2);
+     assert(wcsstr(command,L"--profile a1706-2017 --watch"));sync_usb();
+     join(a,usb,L"MacBookPatcher-Logs\\A1706-2017\\test-session\\timeline.jsonl");assert(ordinary(a,0));
+     join(a,usb,L"MacBookPatcher-Logs\\A1706\\test-session\\timeline.jsonl");assert(ordinary(a,0));
+     assert(select_profile(L"a1706"));watch_command(L"logger.exe",command,P*2);assert(!wcsstr(command,L"--profile"));}
     /* Tail bound and budget: sources stay outside the local spool. */
     join(a,argv[1],L"large.log");large=(char*)malloc(CAP+128);assert(large);memset(large,'a',CAP+128);large[CAP+127]='Z';
     assert(bytes(a,large,CAP+128,0,CAP+128));free(large);
@@ -65,6 +73,9 @@ int wmain(int argc,wchar_t **argv) {
      assert(context(1));wcscpy_s(first,96,session);assert(context(0)&&!wcscmp(first,session));
      assert(context(2));wcscpy_s(second,96,session);assert(wcscmp(first,second));
      assert(context(0)&&!wcscmp(first,session));
-     join(a,spool,L"current.txt");assert(bytes(a,L"..\\escape",18,0,128));assert(!context(0));}
+     join(a,spool,L"current.txt");assert(bytes(a,L"..\\escape",18,0,128));assert(!context(0));
+     assert(select_profile(L"a1706-2017"));assert(context(1));wcscpy_s(first,96,session);assert(context(0)&&!wcscmp(first,session));
+     assert(context(2));assert(wcscmp(first,session));assert(context(0)&&!wcscmp(first,session));
+     assert(select_profile(L"a1706"));assert(!context(0));}
     puts("Native collector fixture cases passed");return 0;
 }

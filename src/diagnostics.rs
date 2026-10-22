@@ -16,6 +16,8 @@ pub fn version(image: &Image) -> String {
     }
 }
 pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
+    let recipe = crate::setup_recipe::SetupRecipe::for_model(&req.model)
+        .context("No support recipe for this model")?;
     fs::create_dir_all(dir)?;
     let model = crate::models::MODEL_PROFILES
         .iter()
@@ -23,14 +25,15 @@ pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
         .context("Model missing")?;
     let metadata = serde_json::json!({
         "schema_version": 1, "build_id": job.file_name().unwrap_or_default().to_string_lossy(),
-        "app_version": env!("CARGO_PKG_VERSION"), "payload_version": PAYLOAD_VERSION,
+        "app_version": env!("CARGO_PKG_VERSION"), "payload_version": recipe.payload_version(),
         "code_revision": option_env!("PATCHER_CODE_REVISION").unwrap_or("unknown"),
         "code_dirty": option_env!("PATCHER_CODE_DIRTY").map(|v| v == "true"),
         "model_profile": model.id, "model_identifier": model.identifier, "model_name": model.name,
-        "graphics": model.details, "intel_driver": "21.20.16.5174",
+        "graphics": model.details, "intel_driver": crate::driver_prefetch::intel_graphics(&req.model)?.version,
         "source_iso_filename": req.inventory.iso.file_name().unwrap_or_default().to_string_lossy(),
         "windows_images": req.selected_images()?, "setup_image": req.inventory.setup_image,
-        "reference_windows": "19045.3803 Professional", "reference_setup": "19041.3803",
+        "reference_windows": (req.model==crate::domain::MODEL_ID).then_some("19045.3803 Professional"), "reference_setup": (req.model==crate::domain::MODEL_ID).then_some("19041.3803"),
+        "setup_recipe": recipe.model(), "log_folder": recipe.log_folder(),
         "collection": "WinPE only; manual recovery after reboot; no upload"
     });
     fs::write(
@@ -41,11 +44,23 @@ pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
         dir.join(MARKER),
         include_bytes!("../payloads/a1706/MacBookPatcher-Logging.enabled"),
     )?;
+    let launcher = include_str!("../payloads/a1706/Collect setup logs.cmd");
+    let launcher = if req.model == "a1706-2017" {
+        launcher.replace(
+            "MacBookSetupLogger.exe --collect",
+            "MacBookSetupLogger.exe --profile a1706-2017 --collect",
+        )
+    } else {
+        launcher.into()
+    };
+    fs::write(dir.join("Collect setup logs.cmd"), launcher)?;
     fs::write(
-        dir.join("Collect setup logs.cmd"),
-        include_bytes!("../payloads/a1706/Collect setup logs.cmd"),
+        dir.join("README.txt"),
+        INSTRUCTIONS.replace(
+            "MacBookPatcher-Logs\\A1706\\",
+            &format!("MacBookPatcher-Logs\\{}\\", recipe.log_folder()),
+        ),
     )?;
-    fs::write(dir.join("README.txt"), INSTRUCTIONS)?;
     #[cfg(windows)]
     fs::write(
         dir.join(LOGGER),

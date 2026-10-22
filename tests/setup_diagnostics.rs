@@ -3,6 +3,18 @@ use macbook_iso_patcher::platform;
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
+fn gpu_2017_discovery_and_structured_readiness_cases() {
+    let output = Command::new(concat!(env!("OUT_DIR"), "/gpu2017_test.exe"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+#[test]
 fn gpu_production_loop_handles_delays_errors_and_ambiguity() {
     let output = Command::new(concat!(env!("OUT_DIR"), "/gpu_test.exe"))
         .output()
@@ -142,6 +154,29 @@ fn iso_support_payload_contains_metadata_and_copyable_marker() {
     assert_eq!(
         fs::read(dir.join(macbook_iso_patcher::diagnostics::MARKER)).unwrap(),
         include_bytes!("../payloads/a1706/MacBookPatcher-Logging.enabled")
+    );
+    let mut req2017 = req.clone();
+    req2017.model = "a1706-2017".into();
+    let dir2017 = root.join("Support2017");
+    macbook_iso_patcher::diagnostics::write_support(
+        &dir2017,
+        &req2017,
+        &root.join("build-fixture-2017"),
+    )
+    .unwrap();
+    let manifest2017: serde_json::Value =
+        serde_json::from_slice(&fs::read(dir2017.join("build-manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest2017["model_identifier"], "MacBookPro14,2");
+    assert_eq!(manifest2017["intel_driver"], "27.20.100.9316");
+    assert_eq!(manifest2017["log_folder"], "A1706-2017");
+    assert_eq!(manifest2017["payload_version"], "a1706-2017-external-1");
+    assert!(manifest2017["reference_windows"].is_null());
+    let launcher = fs::read_to_string(dir2017.join("Collect setup logs.cmd")).unwrap();
+    assert!(launcher.contains("--profile a1706-2017 --collect"));
+    assert!(
+        fs::read_to_string(dir2017.join("README.txt"))
+            .unwrap()
+            .contains(r"MacBookPatcher-Logs\A1706-2017\")
     );
     if std::env::var_os("MACBOOK_DIAGNOSTICS_PREVIEW").is_some() {
         let preview =

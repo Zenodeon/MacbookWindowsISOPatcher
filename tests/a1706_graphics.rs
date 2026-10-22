@@ -61,6 +61,16 @@ fn a1706_graphics_preparation_handles_fresh_and_existing_control_sets() {
                 $unrelated=$root.OpenSubKey('ControlSet002\Services\unrelated')
                 try {Assert ($unrelated.GetValue('Start') -eq 2) 'Unrelated service changed'} finally {$unrelated.Dispose()}
             } finally {$root.Dispose()}
+            $root=$fixture.CreateSubKey('2017-driverstore')
+            try {
+                Seed $root
+                $image='\SystemRoot\System32\DriverStore\FileRepository\iigd_dch.inf_amd64_fixture\igdkmd64.sys'
+                Set-A1706BootGraphics $root -ServiceImagePath $image
+                Set-A1706BootGraphics $root -ServiceImagePath $image -ValidateOnly
+                MustFail {Set-A1706BootGraphics $root -ValidateOnly} 'binary path'
+                $service=$root.OpenSubKey('ControlSet001\Services\igfx')
+                try {Assert ($service.GetValue('ImagePath','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -eq $image) '2017 path was not preserved'} finally {$service.Dispose()}
+            } finally {$root.Dispose()}
             $root=$fixture.CreateSubKey('unsafe-basic')
             try {
                 Seed $root 1 2

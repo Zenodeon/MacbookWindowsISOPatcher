@@ -1,5 +1,52 @@
 # Validation
 
+## A1706 2017 external-display recipe — 2026-10-22
+
+- Added a separate MacBookPro14,2/Iris Plus 650 Setup recipe. It uses pinned
+  Intel 27.20.100.9316 and Apple Boot Camp 041-89042; the model remains Unverified.
+  The 2016 startup script remains byte-for-byte unchanged and other models do
+  not receive this startup recipe. Source BCD settings remain untouched.
+- Production-path native tests cover immediate/delayed discovery, enumeration
+  errors, absent/ambiguous devices, rejection of 2016 IDs, structured status,
+  wrong driver/service binding and the 60-second readiness timeout. Script tests
+  protect one restart, readiness before Setup and logging before wpeinit.
+  A real CMD fixture verifies loading nested 2017 INF filenames with spaced paths.
+- The real cached packages passed SHA-256, extraction, catalog-signature, Intel
+  version/device mapping, declared package-file and Apple boot/storage checks.
+  DriverStore fixtures reject missing, changed and unexpected package files.
+  Registry fixtures verify the 2017 INF-defined DriverStore service path,
+  demand start, enabled BasicDisplay and preservation of the 2016 defaults.
+- Collector tests verify explicit profile validation and propagation to the
+  background watcher, separate 2016/2017 USB session destinations and recovery
+  context. Existing marked-USB, retention-limit and collection-failure tests pass.
+  Manifest, guide, issue-draft and progress tests include the 2017 profile.
+- Final checks: 152 tests passed, 6 integration tests ignored by the normal
+  suite; formatting, Clippy with warnings denied and the debug build passed.
+  The administrator servicing test was run separately and failed as detailed below.
+- Actual debug-renderer screenshots cover Review, USB preparation and reporting
+  in both themes at 1240 × 700 and 800 × 520. Files are
+  `.cache/setup2017-review-dark.png`, `.cache/setup2017-complete-{dark,light}.png`,
+  `.cache/setup2017-small-{dark,light}.png` and `.cache/setup2017-report-dark.png`.
+  Screenshot USB paths are fixtures; no user USB was changed.
+- **Disposable-image servicing remains blocked by the host.** The administrator
+  integration test mounted a copied stock boot.wim index 2, but system DISM
+  10.0.26100.9549 failed WinPE/OS-provider initialization with Error 87 before
+  driver import. Retesting in a shorter workspace failed identically. An
+  independent freshly saved registry hive also failed `reg load` with
+  "The filename or extension is too long." This reproduces the existing host
+  offline-registry problem; a restart is a diagnostic next step, not a confirmed
+  repair. Retained logs: `.cache/setup2017-elevated{2,3}.log` and
+  `.cache/setup2017-hive-control.log`. The control confirmed no mounted images
+  remain. No successful real-image service configuration/commit is claimed.
+- The ignored administrator regression test
+  `engine::tests::a1706_2017_boot_recipe_persists_driverstore_service_and_payload`
+  is retained for rerunning after host servicing works. It requires explicit
+  stock-WIM/CAB paths and a fresh `.cache/s17-*` fixture root. It checks import,
+  service configuration, payload placement, commit/remount and source integrity.
+- No full ISO rebuild, release build, ZIP, push or closure of the running app.
+  Hardware acceptance still requires the intended external-display connection
+  on the actual 2017 Mac, Windows installation and post-install device checks.
+
 ## Completion-page USB selection and reporting — 2026-10-22
 
 - The single **Share logs / report an issue** action is now under **Something

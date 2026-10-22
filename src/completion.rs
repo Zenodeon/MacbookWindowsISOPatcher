@@ -27,8 +27,14 @@ pub fn installation_guide(model: &str) -> String {
         text.push_str(&format!("{}. {}\r\n\r\n", index + 1, step));
     }
     text.push_str(&format!("Ventoy: {VENTOY_URL}\r\nDesktop iTunes: {ITUNES_URL}\r\nApple update guidance: {APPLE_UPDATE_URL}\r\n\r\n"));
-    if model == MODEL_ID {
-        text.push_str("A1706: keep the included signed Intel Iris 550 graphics driver 21.20.16.5174. Do not run the old IntelHDGraphics64 installer. For boot/setup failures, attach the session folder from MacBookPatcher-Logs on the marked USB and your saved build log. Prepare USB logging using the app or copy MacBookPatcher-Logging.enabled from Support to the USB root. Automatic collection ends at reboot; run Support/Collect setup logs.cmd to recover saved logs later. Older ISOs use A1706Logs.\r\n\r\n");
+    if let Some(recipe) = crate::setup_recipe::SetupRecipe::for_model(model) {
+        let graphics =
+            crate::driver_prefetch::intel_graphics(model).expect("Setup profile graphics");
+        text.push_str(&format!("A1706: keep the included signed {} graphics driver {}. Do not run the old IntelHDGraphics64 installer. For boot/setup failures, attach the session folder from MacBookPatcher-Logs/{} on the marked USB and your saved build log. Prepare USB logging using the app or copy MacBookPatcher-Logging.enabled from Support to the USB root. Automatic collection ends at reboot; run Support/Collect setup logs.cmd to recover saved logs later.\r\n",recipe.graphics(),graphics.version,recipe.log_folder()));
+        if model == MODEL_ID {
+            text.push_str("Older ISOs use A1706Logs.\r\n");
+        }
+        text.push_str("\r\n");
     }
     text.push_str("Support varies by model and Windows edition. If Setup or any MacBook feature fails, describe what happened and include the Mac model number/identifier, Windows edition/build, build log, and any setup/startup logs.\r\nReport an issue: https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues\r\n");
     text
@@ -58,10 +64,11 @@ pub fn issue_draft(model: &ModelProfile, images: &[&Image]) -> String {
         graphics,
         env!("CARGO_PKG_VERSION")
     );
-    if model.id == MODEL_ID {
-        body.push_str(
-            "For A1706 boot/setup problems, attach the session folder from the USB's MacBookPatcher-Logs/A1706 directory and the saved build log. For older ISOs, attach A1706Logs when available.\n",
-        );
+    if let Some(recipe) = crate::setup_recipe::SetupRecipe::for_model(model.id) {
+        body.push_str(&format!("For boot/setup problems, attach the session folder from the USB's MacBookPatcher-Logs/{} directory and the saved build log.\n",recipe.log_folder()));
+        if model.id == MODEL_ID {
+            body.push_str("For older ISOs, attach A1706Logs when available.\n");
+        }
     }
     let mut url = reqwest::Url::parse(ISSUES_URL).expect("Static GitHub URL");
     url.query_pairs_mut()
@@ -139,6 +146,34 @@ pub fn save_log(path: &Path, export: &LogExport) -> Result<()> {
 mod tests {
     use super::*;
     use crate::models::MODEL_PROFILES;
+    #[test]
+    fn setup_2017_guide_and_issue_use_correct_graphics_and_log_folder() {
+        let guide = installation_guide("a1706-2017");
+        assert!(
+            guide.contains("Iris Plus 650")
+                && guide.contains("27.20.100.9316")
+                && guide.contains("MacBookPatcher-Logs/A1706-2017")
+        );
+        assert!(!guide.contains("21.20.16.5174") && !guide.contains("A1706Logs"));
+        let model = MODEL_PROFILES
+            .iter()
+            .find(|m| m.id == "a1706-2017")
+            .unwrap();
+        assert!(!model.hardware_verified());
+        let url = reqwest::Url::parse(&issue_draft(model, &[])).unwrap();
+        let body = url
+            .query_pairs()
+            .find(|(k, _)| k == "body")
+            .unwrap()
+            .1
+            .into_owned();
+        assert!(
+            body.contains("MacBookPro14,2")
+                && body.contains("27.20.100.9316")
+                && body.contains("MacBookPatcher-Logs/A1706-2017")
+        );
+        assert!(!body.contains("21.20.16.5174"));
+    }
     #[test]
     fn guide_uses_menu_wimboot_and_checks_updater_before_itunes() {
         let guide = installation_guide(MODEL_ID);

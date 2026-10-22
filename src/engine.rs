@@ -595,7 +595,7 @@ fn run_job(
         "[Channel]\r\nRetail\r\n[VL]\r\n0\r\n".into()
     };
     fs::write(root.join("sources/ei.cfg"), edition_cfg)?;
-    if req.model == MODEL_ID {
+    if crate::setup_recipe::SetupRecipe::for_model(&req.model).is_some() {
         crate::diagnostics::write_support(&root.join("Support"), req, job)?;
     }
     steps.advance(emit);
@@ -629,7 +629,7 @@ fn run_job(
         }
         copy_tree(&assets.drivers, &mount.mount.join("Drivers"), cancel)?;
         copy_tree(&assets.bootcamp, &mount.mount.join("BootCamp"), cancel)?;
-        if req.model == MODEL_ID {
+        if crate::setup_recipe::SetupRecipe::for_model(&req.model).is_some() {
             copy_tree(
                 &root.join("Support"),
                 &mount.mount.join("MacBookPatcher/Support"),
@@ -644,7 +644,7 @@ fn run_job(
         if let Some(intel) = &assets.intel {
             validate_signed_store(&mount.mount, intel, &req.model)?;
         }
-        if n == 0 && req.model == MODEL_ID {
+        if n == 0 && crate::setup_recipe::SetupRecipe::for_model(&req.model).is_some() {
             let support = job.join("boot-support");
             fs::create_dir_all(support.join("en-US"))?;
             for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
@@ -657,7 +657,7 @@ fn run_job(
         mount.commit(cancel)?;
         steps.advance(emit);
     }
-    if req.model == MODEL_ID {
+    if crate::setup_recipe::SetupRecipe::for_model(&req.model).is_some() {
         let intel = assets
             .intel
             .as_ref()
@@ -665,12 +665,12 @@ fn run_job(
         stage(
             emit,
             "Patching Windows Setup",
-            "Signed Iris driver and v17 HDMI startup sequence",
+            "Signed Intel driver and model-specific external-display startup",
         );
         let boot = root.join("sources/boot.wim");
         let mount = ImageMount::open(&boot, 2, &job.join("mount-boot"), emit, cancel)?;
         inject_signed_driver(&mount.mount, intel, &req.model, emit, cancel)?;
-        write_boot_payload(&mount.mount, &root.join("Support"))?;
+        write_boot_payload_for_model(&mount.mount, &root.join("Support"), &req.model)?;
         for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
             let source = job.join("boot-support").join(rel);
             if source.is_file() {
@@ -685,7 +685,7 @@ fn run_job(
             "DisplaySwitch.exe missing from Windows image"
         );
         validate_signed_store(&mount.mount, intel, &req.model)?;
-        prepare_a1706_boot_graphics(&mount.mount, intel, emit)?;
+        prepare_setup_boot_graphics(&mount.mount, intel, &req.model, emit)?;
         mount.commit(cancel)?;
         steps.advance(emit);
     }
@@ -710,11 +710,13 @@ fn run_job(
         "Answer file contains disk automation"
     );
     fs::write(
-        root.join(if req.model == MODEL_ID {
-            "README-A1706.txt"
-        } else {
-            "README-MacBook.txt"
-        }),
+        root.join(
+            if crate::setup_recipe::SetupRecipe::for_model(&req.model).is_some() {
+                "README-A1706.txt"
+            } else {
+                "README-MacBook.txt"
+            },
+        ),
         format!(
             "Model: {}\r\n\r\n{}",
             req.model,
@@ -873,6 +875,15 @@ pub fn validate_intel_for_model(dir: &Path, model: &str) -> Result<()> {
         supports_generic_gpu(&compact, profile.device_id),
         "Intel driver does not support this model's graphics hardware"
     );
+    if model == "a1706-2017" {
+        for file in intel_2017_package_files(&inf)? {
+            ensure!(
+                dir.join(&file).is_file(),
+                "2017 Intel package file missing: {}",
+                file.display()
+            );
+        }
+    }
     if cfg!(windows) {
         platform::powershell(
             r#"$s=Get-AuthenticodeSignature -LiteralPath $env:PATCHER_CAT; if($s.Status -ne 'Valid'){throw 'Intel driver catalog signature is invalid'}"#,
@@ -880,6 +891,43 @@ pub fn validate_intel_for_model(dir: &Path, model: &str) -> Result<()> {
         )?;
     }
     Ok(())
+}
+// The pinned 2017 INF uses a single SourceDisksFiles section, including one
+// relative oprom subdirectory. Require every declared file before servicing.
+fn intel_2017_package_files(inf: &str) -> Result<Vec<PathBuf>> {
+    let mut active = false;
+    let mut files = vec![PathBuf::from("iigd_dch.inf"), PathBuf::from("igdlh.cat")];
+    for line in inf.lines() {
+        let line = line.split(';').next().unwrap_or("").trim();
+        if line.starts_with('[') {
+            active = line.eq_ignore_ascii_case("[SourceDisksFiles]");
+            continue;
+        }
+        if !active || line.is_empty() {
+            continue;
+        }
+        let (name, location) = line
+            .split_once('=')
+            .context("Invalid 2017 package file declaration")?;
+        let name = name.trim();
+        ensure!(
+            !name.is_empty() && !name.contains(['/', '\\', ':']),
+            "Invalid 2017 package filename"
+        );
+        let folder = location
+            .split(',')
+            .nth(1)
+            .unwrap_or("")
+            .trim()
+            .trim_start_matches('\\');
+        ensure!(
+            !folder.contains(['/', '\\', ':']) && folder != ".." && folder != ".",
+            "Invalid 2017 package subdirectory"
+        );
+        files.push(Path::new(folder).join(name));
+    }
+    ensure!(files.len() > 2, "2017 Intel package file list is missing");
+    Ok(files)
 }
 fn supports_generic_gpu(compact_inf: &str, device_id: &str) -> bool {
     let hardware = format!("pci\\ven_8086&dev_{device_id}");
@@ -939,13 +987,38 @@ fn validate_signed_store(mount: &Path, intel: &Path, model: &str) -> Result<Path
             found = Some(entry.path().parent().unwrap().to_owned());
         }
     }
-    found.context("Signed Intel package is missing from the driver store")
+    let found = found.context("Signed Intel package is missing from the driver store")?;
+    if model == "a1706-2017" {
+        for file in intel_2017_package_files(&text_file(&intel.join(profile.inf))?)? {
+            ensure!(
+                found.join(&file).is_file(),
+                "2017 driver store file missing: {}",
+                file.display()
+            );
+        }
+        for entry in WalkDir::new(&found) {
+            let entry = entry?;
+            if entry.file_type().is_file() {
+                let relative = entry.path().strip_prefix(&found)?;
+                ensure!(
+                    fs::read(entry.path())?
+                        == fs::read(intel.join(relative)).with_context(|| format!(
+                            "2017 signed package file missing: {}",
+                            relative.display()
+                        ))?,
+                    "2017 driver store differs from the pinned package: {}",
+                    relative.display()
+                );
+            }
+        }
+    }
+    Ok(found)
 }
 pub fn validate_boot_drivers(root: &Path) -> Result<()> {
     validate_model_boot_drivers(root, MODEL_ID)
 }
 
-fn validate_model_boot_drivers(root: &Path, model: &str) -> Result<()> {
+pub fn validate_model_boot_drivers(root: &Path, model: &str) -> Result<()> {
     let mut count = 0;
     for child in fs::read_dir(root)? {
         let child = child?;
@@ -964,6 +1037,61 @@ fn validate_model_boot_drivers(root: &Path, model: &str) -> Result<()> {
     for name in BOOT_ALLOWLIST.iter().filter(|_| model == MODEL_ID) {
         ensure!(root.join(name).is_dir(), "Boot driver {name} missing");
     }
+    if model == "a1706-2017" {
+        ensure!(
+            root.join("AppleSSD64").is_dir()
+                && WalkDir::new(root.join("AppleSSD64"))
+                    .into_iter()
+                    .filter_map(Result::ok)
+                    .any(|e| e.file_type().is_file()
+                        && e.path()
+                            .extension()
+                            .is_some_and(|x| x.eq_ignore_ascii_case("inf"))),
+            "Required 2017 Apple storage boot driver is missing"
+        );
+    }
+    Ok(())
+}
+fn prepare_setup_boot_graphics(mount: &Path, intel: &Path, model: &str, emit: &Emit) -> Result<()> {
+    if model == MODEL_ID {
+        return prepare_a1706_boot_graphics(mount, intel, emit);
+    }
+    ensure!(
+        model == "a1706-2017",
+        "No Setup graphics recipe for this model"
+    );
+    let store = validate_signed_store(mount, intel, model)?;
+    let kernel = store.join("igdkmd64.sys");
+    ensure!(
+        fs::read(&kernel)? == fs::read(intel.join("igdkmd64.sys"))?,
+        "2017 Intel kernel differs from the signed package"
+    );
+    let inf = text_file(&intel.join("iigd_dch.inf"))?;
+    ensure!(
+        inf.contains("[igfx_Service_Inst_DS]")
+            && inf.lines().any(|l| l
+                .trim()
+                .eq_ignore_ascii_case(r"ServiceBinary  = %13%\igdkmd64.sys")),
+        "2017 Intel service location changed"
+    );
+    let relative = kernel.strip_prefix(mount)?;
+    let image_path = format!(
+        r"\SystemRoot\{}",
+        relative
+            .strip_prefix("Windows")?
+            .to_string_lossy()
+            .replace('/', r"\")
+    );
+    emit(Event::Log(format!(
+        "Preparing 2017 Iris Plus 650: demand-start igfx from {image_path}"
+    )));
+    for line in boot_registry_path(mount, false, &image_path)?.lines() {
+        emit(Event::Log(line.to_owned()));
+    }
+    ensure!(
+        fs::read(&kernel)? == fs::read(intel.join("igdkmd64.sys"))?,
+        "2017 graphics kernel changed during preparation"
+    );
     Ok(())
 }
 fn prepare_a1706_boot_graphics(mount: &Path, intel: &Path, emit: &Emit) -> Result<()> {
@@ -995,6 +1123,13 @@ fn prepare_a1706_boot_graphics(mount: &Path, intel: &Path, emit: &Emit) -> Resul
 }
 
 fn a1706_boot_registry(mount: &Path, validate_only: bool) -> Result<String> {
+    boot_registry_path(
+        mount,
+        validate_only,
+        r"\SystemRoot\System32\drivers\igdkmd64.sys",
+    )
+}
+fn boot_registry_path(mount: &Path, validate_only: bool, image_path: &str) -> Result<String> {
     let script = format!(
         "{}\n{}",
         include_str!("../payloads/a1706/boot-graphics.ps1"),
@@ -1007,8 +1142,8 @@ fn a1706_boot_registry(mount: &Path, validate_only: bool) -> Result<String> {
         try {
           $root=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($name,$true)
           if($null -eq $root){throw 'Cannot open loaded A1706 SYSTEM hive'}
-          if($env:PATCHER_GRAPHICS_VALIDATE_ONLY -ne '1'){Set-A1706BootGraphics $root | Out-Null}
-          Set-A1706BootGraphics $root -ValidateOnly
+          if($env:PATCHER_GRAPHICS_VALIDATE_ONLY -ne '1'){Set-A1706BootGraphics $root -ServiceImagePath $env:PATCHER_GRAPHICS_IMAGE_PATH | Out-Null}
+          Set-A1706BootGraphics $root -ValidateOnly -ServiceImagePath $env:PATCHER_GRAPHICS_IMAGE_PATH
         } finally {
           if($null -ne $root){$root.Dispose()}
           & $reg unload "HKLM\$name" | Out-Null
@@ -1021,6 +1156,10 @@ fn a1706_boot_registry(mount: &Path, validate_only: bool) -> Result<String> {
         &[
             ("PATCHER_MOUNT", mount.as_os_str()),
             (
+                "PATCHER_GRAPHICS_IMAGE_PATH",
+                std::ffi::OsStr::new(image_path),
+            ),
+            (
                 "PATCHER_GRAPHICS_VALIDATE_ONLY",
                 std::ffi::OsStr::new(if validate_only { "1" } else { "0" }),
             ),
@@ -1028,13 +1167,20 @@ fn a1706_boot_registry(mount: &Path, validate_only: bool) -> Result<String> {
     )
     .context("A1706 Windows Setup graphics preparation failed")
 }
+#[cfg(test)]
 fn write_boot_payload(mount: &Path, support: &Path) -> Result<()> {
+    write_boot_payload_for_model(mount, support, MODEL_ID)
+}
+fn write_boot_payload_for_model(mount: &Path, support: &Path, model: &str) -> Result<()> {
+    let recipe = crate::setup_recipe::SetupRecipe::for_model(model)
+        .context("No Setup startup recipe for this model")?;
     let dir = mount.join("Windows/System32");
     fs::copy(
         support.join("build-manifest.json"),
         dir.join("build-manifest.json"),
     )?;
-    let script = include_bytes!("../payloads/a1706/a1706.cmd");
+    let script = recipe.startup();
+    let script = script.as_bytes();
     ensure!(
         script.is_ascii() && !script.contains(&0),
         "Startup script must be ASCII with no NULs"
@@ -1064,7 +1210,17 @@ fn write_boot_payload(mount: &Path, support: &Path) -> Result<()> {
                 include_bytes!(concat!(env!("OUT_DIR"), "/a1706gpu.exe")).as_slice(),
             ),
         ] {
-            fs::write(dir.join(name), bytes)?;
+            if recipe == crate::setup_recipe::SetupRecipe::A1706_2016
+                || !matches!(name, "a1706iris.exe" | "a1706gpu.exe")
+            {
+                fs::write(dir.join(name), bytes)?;
+            }
+        }
+        if recipe == crate::setup_recipe::SetupRecipe::A1706_2017 {
+            fs::write(
+                dir.join("a1706gpu2017.exe"),
+                include_bytes!(concat!(env!("OUT_DIR"), "/a1706gpu2017.exe")),
+            )?;
         }
     }
     Ok(())
@@ -1170,6 +1326,50 @@ pub const ANSWER_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 mod tests {
     use super::*;
     #[test]
+    fn intel_2017_manifest_requires_declared_files_and_rejects_path_escapes() {
+        let inf = "[SourceDisksFiles]\nigdkmd64.sys=1\ndg1_oprom.rom=1,\\oprom\n[Other]\nignored=1";
+        let files = intel_2017_package_files(inf).unwrap();
+        assert!(files.contains(&PathBuf::from("igdkmd64.sys")));
+        assert!(files.contains(&Path::new("oprom").join("dg1_oprom.rom")));
+        assert_eq!(files.len(), 4);
+        for declaration in ["../bad=1", "bad=1,\\..", "bad=1,C:", "bad=1,\\one\\two"] {
+            assert!(
+                intel_2017_package_files(&format!("[SourceDisksFiles]\n{declaration}")).is_err()
+            );
+        }
+        assert!(intel_2017_package_files("[Other]\na=1").is_err());
+    }
+    #[test]
+    fn intel_2017_store_rejects_missing_changed_and_extra_files() {
+        let root = std::env::temp_dir().join(format!("store2017-{}", uuid::Uuid::new_v4()));
+        let intel = root.join("intel");
+        let mount = root.join("image");
+        let store =
+            mount.join("Windows/System32/DriverStore/FileRepository/iigd_dch.inf_amd64_fixture");
+        fs::create_dir_all(&intel).unwrap();
+        fs::create_dir_all(&store).unwrap();
+        for (name, bytes) in [
+            (
+                "iigd_dch.inf",
+                "CatalogFile=igdlh.cat\nDriverVer=02/18/2021,27.20.100.9316\n%GPU%=install,PCI\\VEN_8086&DEV_5927\n[SourceDisksFiles]\nigdkmd64.sys=1",
+            ),
+            ("igdlh.cat", "fixture catalog"),
+            ("igdkmd64.sys", "fixture kernel"),
+        ] {
+            fs::write(intel.join(name), bytes).unwrap();
+            fs::write(store.join(name), bytes).unwrap();
+        }
+        assert!(validate_signed_store(&mount, &intel, "a1706-2017").is_ok());
+        fs::remove_file(store.join("igdkmd64.sys")).unwrap();
+        assert!(validate_signed_store(&mount, &intel, "a1706-2017").is_err());
+        fs::write(store.join("igdkmd64.sys"), "changed kernel").unwrap();
+        assert!(validate_signed_store(&mount, &intel, "a1706-2017").is_err());
+        fs::copy(intel.join("igdkmd64.sys"), store.join("igdkmd64.sys")).unwrap();
+        fs::write(store.join("unrecognized.dll"), "extra").unwrap();
+        assert!(validate_signed_store(&mount, &intel, "a1706-2017").is_err());
+        fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
     fn incremental_filenames_skip_existing_names_and_continue_suffixes() {
         let root =
             std::env::temp_dir().join(format!("patcher-output-name-{}", uuid::Uuid::new_v4()));
@@ -1232,6 +1432,146 @@ mod tests {
         assert!(script.is_ascii() && !script.contains(&0));
         assert!(root.starts_with(std::env::temp_dir()));
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn setup_2017_payload_uses_its_own_helper_and_profile() {
+        let root = std::env::temp_dir().join(format!("setup2017-payload-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("Windows/System32")).unwrap();
+        fs::create_dir(root.join("Support")).unwrap();
+        fs::write(
+            root.join("Support/build-manifest.json"),
+            br#"{"model_profile":"a1706-2017"}"#,
+        )
+        .unwrap();
+        write_boot_payload_for_model(&root, &root.join("Support"), "a1706-2017").unwrap();
+        let script = fs::read_to_string(root.join("Windows/System32/a1706.cmd")).unwrap();
+        assert!(script.contains("a1706gpu2017.exe") && script.contains("--profile a1706-2017"));
+        assert!(!script.contains("a1706iris.exe"));
+        assert!(root.join("Windows/System32/a1706gpu2017.exe").is_file());
+        assert!(!root.join("Windows/System32/a1706gpu.exe").exists());
+        assert_eq!(root.parent(), Some(std::env::temp_dir().as_path()));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn setup_2017_requires_storage_inf_and_rejects_2016_graphics() {
+        let root = std::env::temp_dir().join(format!("setup2017-storage-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("AppleSSD64")).unwrap();
+        assert!(validate_model_boot_drivers(&root, "a1706-2017").is_err());
+        fs::write(root.join("AppleSSD64/AppleSSD.inf"), b"fixture").unwrap();
+        assert!(validate_model_boot_drivers(&root, "a1706-2017").is_ok());
+        fs::create_dir(root.join("IntelHDGraphics64")).unwrap();
+        assert!(validate_model_boot_drivers(&root, "a1706-2017").is_err());
+        assert_eq!(root.parent(), Some(std::env::temp_dir().as_path()));
+        let intel = root.join("intel");
+        fs::create_dir(&intel).unwrap();
+        fs::write(intel.join("iigd_dch.inf"),b"[Version]\nDriverVer=11/08/2020,21.20.16.5174\nCatalogFile=igdlh.cat\n%gpu%=install,pci\\ven_8086&dev_1927").unwrap();
+        assert!(
+            validate_intel_for_model(&intel, "a1706-2017")
+                .unwrap_err()
+                .to_string()
+                .contains("Unexpected Intel driver version")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Administrator test on a disposable stock boot.wim copy; explicit fixture paths required"]
+    fn a1706_2017_boot_recipe_persists_driverstore_service_and_payload() {
+        assert!(platform::is_admin(), "Administrator access required");
+        let source = PathBuf::from(
+            std::env::var_os("MACBOOK_SETUP_TEST_BOOT_WIM").expect("Stock boot.wim path"),
+        );
+        let archive = PathBuf::from(
+            std::env::var_os("MACBOOK_SETUP_TEST_INTEL_CAB").expect("Pinned CAB path"),
+        );
+        let root = PathBuf::from(
+            std::env::var_os("MACBOOK_SETUP_TEST_ROOT").expect("New disposable directory"),
+        );
+        assert!(!root.exists() && root.is_absolute());
+        assert!(
+            root.starts_with(Path::new(env!("CARGO_MANIFEST_DIR")).join(".cache"))
+                && root
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("s17-"),
+            "Disposable integration root must be a new app-owned cache fixture"
+        );
+        fs::create_dir_all(&root).unwrap();
+        let emit: Emit = Arc::new(|e| println!("{e:?}"));
+        let cancel = Cancellation::default();
+        let original = download::sha256(&source, &cancel).unwrap();
+        download::verify(
+            &archive,
+            crate::driver_prefetch::packages_for_model("a1706-2017").unwrap()[0].hash,
+            &cancel,
+        )
+        .unwrap();
+        let intel = root.join("intel");
+        platform::run(
+            Path::new("C:/Program Files/7-Zip/7z.exe"),
+            &[
+                "x".into(),
+                "-y".into(),
+                archive.display().to_string(),
+                format!("-o{}", intel.display()),
+            ],
+            &emit,
+            &cancel,
+            false,
+        )
+        .unwrap();
+        let intel = download::find_file(&intel, "iigd_dch.inf")
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_owned();
+        validate_intel_for_model(&intel, "a1706-2017").unwrap();
+        let copied = root.join("boot.wim");
+        copy_file(&source, &copied, &cancel).unwrap();
+        let mount = root.join("mount-boot");
+        let mounted = ImageMount::open(&copied, 2, &mount, &emit, &cancel).unwrap();
+        inject_signed_driver(&mounted.mount, &intel, "a1706-2017", &emit, &cancel).unwrap();
+        prepare_setup_boot_graphics(&mounted.mount, &intel, "a1706-2017", &emit).unwrap();
+        fs::create_dir(root.join("Support")).unwrap();
+        fs::write(
+            root.join("Support/build-manifest.json"),
+            br#"{"model_profile":"a1706-2017"}"#,
+        )
+        .unwrap();
+        write_boot_payload_for_model(&mounted.mount, &root.join("Support"), "a1706-2017").unwrap();
+        mounted.commit(&cancel).unwrap();
+        let mounted = ImageMount::open(&copied, 2, &mount, &emit, &cancel).unwrap();
+        let store = validate_signed_store(&mounted.mount, &intel, "a1706-2017").unwrap();
+        let relative = store
+            .join("igdkmd64.sys")
+            .strip_prefix(&mounted.mount)
+            .unwrap()
+            .strip_prefix("Windows")
+            .unwrap()
+            .to_owned();
+        let expected = format!(
+            r"\SystemRoot\{}",
+            relative.to_string_lossy().replace('/', r"\")
+        );
+        assert!(
+            boot_registry_path(&mounted.mount, true, &expected)
+                .unwrap()
+                .contains("igfx Start=3")
+        );
+        assert!(
+            mounted
+                .mount
+                .join("Windows/System32/a1706gpu2017.exe")
+                .is_file()
+        );
+        prepare_setup_boot_graphics(&mounted.mount, &intel, "a1706-2017", &emit).unwrap();
+        mounted.commit(&cancel).unwrap();
+        assert_eq!(original, download::sha256(&source, &cancel).unwrap());
+        println!(
+            "2017 disposable image verification passed: {}",
+            root.display()
+        );
     }
     #[test]
     fn retry_preflight_refuses_a_surviving_worker_lock() {

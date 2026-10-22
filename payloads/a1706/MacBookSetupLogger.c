@@ -15,6 +15,23 @@
 #define MARKER L"MacBookPatcher-Logging.enabled"
 #define MAGIC "MacBookWindowsISOPatcher setup logging v1"
 #define P 1024
+static int profile2017;
+static int select_profile(const wchar_t *profile) {
+    if(!wcscmp(profile,L"a1706")){profile2017=0;return 1;}
+    if(!wcscmp(profile,L"a1706-2017")){profile2017=1;return 1;}
+    return 0;
+}
+static const wchar_t *profile_prefix(void) {return profile2017?L"--profile a1706-2017 ":L"";}
+static int profile_arguments(int *argc,wchar_t ***argv) {
+    if(*argc>=2&&!wcscmp((*argv)[1],L"--profile")) {
+        if(*argc<3||!select_profile((*argv)[2]))return 0;
+        *argc-=2;*argv+=2;
+    }
+    return 1;
+}
+static void watch_command(const wchar_t *exe,wchar_t *command,size_t capacity) {
+    _snwprintf_s(command,capacity,_TRUNCATE,L"\"%s\" %s--watch",exe,profile_prefix());
+}
 static wchar_t spool[P], session[96], home[P];
 static ULONGLONG started;
 static unsigned errors, truncated, usb_count;
@@ -203,7 +220,7 @@ static void sync_usb(void) {
     wchar_t root[P],p[P],dest[P],targets[26][P];int c;usb_count=0;
     for(c=0;root_at(c,root);++c) {
         if(!marked(root))continue;
-        join(p,root,L"MacBookPatcher-Logs\\A1706");join(dest,p,session);
+        join(p,root,profile2017?L"MacBookPatcher-Logs\\A1706-2017":L"MacBookPatcher-Logs\\A1706");join(dest,p,session);
         if(!directories(dest)){++errors;status(dest,GetLastError(),"usb-unavailable");continue;}
         wcscpy_s(targets[usb_count++],P,dest);
     }
@@ -245,7 +262,7 @@ static void hardware(void) {
         n=sizeof(name);RegQueryValueExA(k,"SystemManufacturer",NULL,NULL,(BYTE*)name,&n);
         n=sizeof(model);RegQueryValueExA(k,"SystemProductName",NULL,NULL,(BYTE*)model,&n);RegCloseKey(k);
     }
-    _snprintf_s(text,sizeof(text),_TRUNCATE,"Detected manufacturer: %s\r\nDetected model: %s\r\nSelected profile: A1706 / MacBookPro13,2 / Iris 550\r\nTick at collector start: %llu\r\n",name[0]?name:"unavailable",model[0]?model:"unavailable",started);
+    _snprintf_s(text,sizeof(text),_TRUNCATE,"Detected manufacturer: %s\r\nDetected model: %s\r\nSelected profile: %s\r\nTick at collector start: %llu\r\n",name[0]?name:"unavailable",model[0]?model:"unavailable",profile2017?"A1706 2017 / MacBookPro14,2 / Iris Plus 650":"A1706 / MacBookPro13,2 / Iris 550",started);
     join(p,home,L"hardware.txt");bytes(p,text,(DWORD)strlen(text),0,8192);
     /* Device API avoids parsing localized pnputil output for diagnostics. */
     {ULONG size=0;char *ids,*v;
@@ -312,7 +329,7 @@ static int context(int fresh) {
 #endif
     GetWindowsDirectoryW(win,P);
     join(spool,win,L"Temp\\MacBookPatcher-SetupLogs");
-    if(!directories(spool))return 0;join(current,spool,L"current.txt");
+    if(!directories(spool))return 0;join(current,spool,profile2017?L"current-a1706-2017.txt":L"current.txt");
     if(fresh) {
         GUID id;SYSTEMTIME t;wchar_t g[40];
         if(tree_size(spool)>=BUDGET-12*1024*1024){fputs("Local support spool limit reached; retained sessions were preserved.\n",stderr);return 0;}
@@ -370,6 +387,7 @@ static int prepare_marker(const wchar_t *root) {
 #ifndef DIAGNOSTICS_TEST
 int wmain(int argc,wchar_t **argv) {
     wchar_t exe[P],cmd[P*2],p[P];char a[1024],b[1024];
+    if(!profile_arguments(&argc,&argv)){fputs("Unknown or missing logging model profile\n",stderr);return 2;}
     if(argc<2)return 2;
     if(!wcscmp(argv[1],L"--check-usb")&&argc==3) {
         int eligible=usb_root(argv[2]);
@@ -381,7 +399,7 @@ int wmain(int argc,wchar_t **argv) {
         STARTUPINFOW si;PROCESS_INFORMATION pi;
         if(!context(1))return 1;
         manifest();session_state(0,"WinPE");event("startup","WinPE logging initialized; waiting for marked USB");
-        GetModuleFileNameW(NULL,exe,P);_snwprintf_s(cmd,P*2,_TRUNCATE,L"\"%s\" --watch",exe);
+        GetModuleFileNameW(NULL,exe,P);watch_command(exe,cmd,P*2);
         ZeroMemory(&si,sizeof(si));si.cb=sizeof(si);
         if(!CreateProcessW(exe,cmd,NULL,NULL,FALSE,CREATE_NO_WINDOW,NULL,NULL,&si,&pi))return 1;
         CloseHandle(pi.hThread);CloseHandle(pi.hProcess);return 0;

@@ -104,7 +104,8 @@ Intel replacement. Its original Radeon INF packages are staged and added to each
 selected Windows image. Other Apple hardware drivers remain included.
 Old `IntelHDGraphics64` and `IntelIrisSetup` folders are excluded from staged Apple
 drivers, including the post-install pass. Other models use available allowlisted
-Apple boot drivers, without the A1706-only Iris/HDMI startup changes.
+Apple boot drivers. The 2016 and 2017 A1706 profiles each have model-specific
+Iris/external-display Setup startup changes; other profiles do not.
 The original signed driver files and Boot Camp software installer stay unmodified. Build
 logs and `job.json` stay in the chosen working folder. Existing output files and
 the original ISO are never overwritten. Cancellation waits for an active DISM
@@ -170,7 +171,8 @@ Only explicitly marked USB storage receives logs, including USB drives reported
 as fixed disks. Multiple marked USBs each receive a copy.
 
 Logs are organized as
-`MacBookPatcher-Logs\A1706\<UTC timestamp>-<session ID>`. Each session includes
+`MacBookPatcher-Logs\A1706\<UTC timestamp>-<session ID>` for 2016, or
+`MacBookPatcher-Logs\A1706-2017\<UTC timestamp>-<session ID>` for 2017. Each session includes
 build/model metadata, a stage timeline, display-device status and driver version,
 storage space, Setup dialog labels, and available Panther/SetupAPI/rollback logs.
 Collection runs in the booted installer and ends at reboot. It does not install
@@ -191,6 +193,16 @@ Setup **19041.3803**. Other supported Windows 10 sources remain buildable. Windo
 in support manifests; generated ISOs still require hardware testing. The app preserves
 source BCD settings and does not enable signature-check bypasses. Its A1706 GPU
 lookup requires one present matching Iris 550 device before attempting one restart.
+
+The **2017 A1706 / MacBookPro14,2** recipe targets Iris Plus 650 (including the
+i7-7567U configuration) and remains **Unverified**. It injects signed Intel
+**27.20.100.9316** into Setup index 2 and each selected Windows image, alongside
+Apple Boot Camp **041-89042**. BasicDisplay remains enabled; igfx uses demand
+start and its INF-defined DriverStore binary. Setup starts only after exactly
+one present `8086:5927` device has been restarted once and reports a started,
+problem-free binding to that Intel driver. Enumeration retries five times;
+readiness waits up to 60 seconds. No 2016 device instance or driver is reused.
+Actual external-display boot and installation testing on the 2017 Mac is pending.
 
 ### Installation steps
 

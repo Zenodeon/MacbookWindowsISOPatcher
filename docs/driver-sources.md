@@ -36,6 +36,15 @@ Update Catalog, update `03a02012-f79c-44bf-8dc7-fa769a1e7ecf`:
 - The unchanged INF has a generic `PCI\VEN_8086&DEV_5927` mapping, so it is not
   limited to the OEM hardware IDs displayed in the catalog listing.
 
+The 2017 A1706 Setup recipe also imports this package into `boot.wim` index 2.
+Its main FileRepository package is checked byte-for-byte against the pinned
+extraction. The igfx demand-start service uses `%13%\igdkmd64.sys` from the
+original INF, resolved to the actual installed DriverStore directory. It does
+not use the 2016 service path. BasicDisplay and source BCD settings are preserved.
+Apple Boot Camp 041-89042 provides allowlisted startup drivers; an AppleSSD64
+INF is required, while unavailable optional input/audio/Touch Bar drivers are
+logged and skipped. This recipe remains unverified on hardware.
+
 Before servicing, validate the exact driver version, catalog signature, and the
 selected GPU's generic INF mapping: 1927 (Iris 550), 1926 (Iris 540),
 or 5927 (Iris Plus 650). Keep original INF and CAT files unchanged. These matches

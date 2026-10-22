@@ -369,6 +369,8 @@ impl PatcherApp {
         let hardware_verified = self.model().is_some_and(|model| model.hardware_verified());
         let description = if hardware_verified {
             "Iris graphics, the HDMI fix, and Boot Camp drivers will be included.".to_owned()
+        } else if self.model().is_some_and(|model| model.id == "a1706-2017") {
+            "Iris Plus 650 graphics 27.20.100.9316, external-display Setup startup, and Apple Boot Camp drivers will be included.".to_owned()
         } else if self.model().is_some_and(|model| model.id == "a1707-2016") {
             "Apple Radeon Pro and Boot Camp drivers will be included.".to_owned()
         } else {

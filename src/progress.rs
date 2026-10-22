@@ -1,8 +1,11 @@
-use crate::domain::{Emit, Event, MODEL_ID};
+#[cfg(test)]
+use crate::domain::MODEL_ID;
+use crate::domain::{Emit, Event};
 use std::io::{self, Read};
 
 pub fn build_steps(editions: usize, model: &str) -> u32 {
-    9 + 2 * editions as u32 + u32::from(model == MODEL_ID)
+    9 + 2 * editions as u32
+        + u32::from(crate::setup_recipe::SetupRecipe::for_model(model).is_some())
 }
 
 #[derive(Default)]
@@ -287,6 +290,8 @@ mod tests {
     #[test]
     fn overall_counts_real_model_and_edition_steps_and_reserves_finished() {
         assert_eq!(build_steps(1, MODEL_ID), 12);
+        assert_eq!(build_steps(1, "a1706-2017"), 12);
+        assert_eq!(build_steps(2, "a1706-2017"), 14);
         assert_eq!(build_steps(2, MODEL_ID), 14);
         assert_eq!(build_steps(1, "a1707-2016"), 11);
         let emit: Emit = Arc::new(|event| {

@@ -40,7 +40,7 @@ function Get-A1706ControlSets([Microsoft.Win32.RegistryKey]$Root) {
     return $sets
 }
 
-function Set-A1706BootGraphics([Microsoft.Win32.RegistryKey]$Root, [switch]$ValidateOnly) {
+function Set-A1706BootGraphics([Microsoft.Win32.RegistryKey]$Root, [switch]$ValidateOnly, [string]$ServiceImagePath = '\SystemRoot\System32\drivers\igdkmd64.sys') {
     # Validate every referenced control set before changing any of them.
     $sets = @(Get-A1706ControlSets $Root)
     foreach ($set in $sets) {
@@ -52,7 +52,7 @@ function Set-A1706BootGraphics([Microsoft.Win32.RegistryKey]$Root, [switch]$Vali
                 $service.SetValue('Start', 3, [Microsoft.Win32.RegistryValueKind]::DWord)
                 $service.SetValue('ErrorControl', 0, [Microsoft.Win32.RegistryValueKind]::DWord)
                 $service.SetValue('Group', 'Video', [Microsoft.Win32.RegistryValueKind]::String)
-                $service.SetValue('ImagePath', '\SystemRoot\System32\drivers\igdkmd64.sys', [Microsoft.Win32.RegistryValueKind]::ExpandString)
+                $service.SetValue('ImagePath', $ServiceImagePath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
             } finally { $service.Dispose() }
         }
         $service = $Root.OpenSubKey($path)
@@ -64,7 +64,7 @@ function Set-A1706BootGraphics([Microsoft.Win32.RegistryKey]$Root, [switch]$Vali
                 }
             }
             $image = $service.GetValue('ImagePath', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-            if ($image -ne '\SystemRoot\System32\drivers\igdkmd64.sys' -or $service.GetValueKind('ImagePath') -ne [Microsoft.Win32.RegistryValueKind]::ExpandString -or $service.GetValue('Group', '') -ne 'Video') {
+            if ($image -ne $ServiceImagePath -or $service.GetValueKind('ImagePath') -ne [Microsoft.Win32.RegistryValueKind]::ExpandString -or $service.GetValue('Group', '') -ne 'Video') {
                 throw "Incorrect offline $set igfx binary path or load group"
             }
         } finally { $service.Dispose() }

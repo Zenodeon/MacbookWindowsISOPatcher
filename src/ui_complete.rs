@@ -136,6 +136,9 @@ impl PatcherApp {
     }
     pub(super) fn complete_page(&mut self, ui: &mut egui::Ui) {
         let colors = appearance::palette(ui.ctx());
+        let recipe = self
+            .model()
+            .and_then(|m| macbook_iso_patcher::setup_recipe::SetupRecipe::for_model(m.id));
         Self::heading(
             ui,
             "Your ISO is ready",
@@ -176,7 +179,7 @@ impl PatcherApp {
                 self.completion_link(completion::VENTOY_URL);
             }
         });
-        if self.model().is_some_and(|m| m.id == MODEL_ID) {
+        if let Some(recipe) = recipe {
             Self::section(ui, "Prepare USB for setup logs", colors.surface, |ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 ui.label("If Windows Setup doesn’t work, these logs help us understand why and update the patcher to fix issues affecting your Mac model.");
@@ -227,7 +230,7 @@ impl PatcherApp {
                         });
                 }
                 ui.label("Keep the prepared USB connected during Windows Setup.");
-                ui.label("Logs: MacBookPatcher-Logs\\A1706. Automatic collection ends at reboot; use Support\\Collect setup logs.cmd to recover saved Setup logs afterward.");
+                ui.label(format!("Logs: MacBookPatcher-Logs\\{}. Automatic collection ends at reboot; use Support\\Collect setup logs.cmd to recover saved Setup logs afterward.",recipe.log_folder()));
             });
         }
 
@@ -236,14 +239,17 @@ impl PatcherApp {
             for (index, step) in completion::INSTALL_STEPS[4..].iter().enumerate() {
                 ui.label(format!("{}. {step}", index + 5));
             }
-            if self.model().is_some_and(|model| model.id == MODEL_ID) {
+            if recipe.is_some() {
                 ui.label(RichText::new("Keep the included Intel graphics driver. Do not run the old IntelHDGraphics64 installer.").size(13.0).color(muted(ui)));
             }
         });
         Self::section(ui, "Something did not work?", colors.surface, |ui| {
             ui.label("Support varies by Mac model and Windows edition. Describe the failure and attach your saved build log and any Windows Setup/startup logs.");
-            if self.model().is_some_and(|model| model.id == MODEL_ID) {
-                ui.label("For A1706 boot/setup failures, attach the session folder in MacBookPatcher-Logs\\A1706 and your saved build log. Older ISOs may use A1706Logs.");
+            if let Some(recipe) = recipe {
+                ui.label(format!("For boot/setup failures, attach the session folder in MacBookPatcher-Logs\\{} and your saved build log.",recipe.log_folder()));
+                if self.model().is_some_and(|model| model.id == MODEL_ID) {
+                    ui.label("Older ISOs may use A1706Logs.");
+                }
             }
             if self.model().is_some_and(|model| !model.hardware_verified()) {
                 ui.colored_label(
