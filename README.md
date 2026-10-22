@@ -1,269 +1,116 @@
 # MacBook ISO Patcher
 
-A native Rust desktop utility for preparing Windows installation media for Intel
-MacBooks. No JavaScript, TypeScript, browser runtime, or payment verification.
+Patch your Windows ISO to boot Windows Setup on a **headless MacBook** and send
+the display output to an **external screen**, so you can continue installation
+without an internal display.
 
-The first profile targets **MacBook Pro 13-inch 2016 A1706 / MacBookPro13,2**, with
-Intel Iris Graphics 550 and T1. It implements the source project's v17 external
-HDMI startup sequence for a Mac whose internal display is disconnected.
+## Supported Macs
 
-## Use
+The goal is to support **Intel-based Macs first**, then explore support for
+**Apple silicon (M-series) Macs**. The only hardware-verified model so
+far is a **headless MacBook Pro 13-inch A1706 (2016)**. Support and testing for
+other models are still in progress.
 
-1. Run `macbook-iso-patcher.exe` on x64 Windows 10 or 11. Open **Settings** to
-   move the driver cache before continuing past model selection. **WorkingSpace**
-   can be changed from any idle setup screen before starting an ISO build.
-2. Choose a model, then press **Start download & continue to Windows ISO**.
-   Every card lists its graphics hardware and verification status. The graphics
-   driver is selected automatically for that model's external display output.
-   Selecting a model alone does not download anything. The button starts downloading
-   that model's files in the background and opens the Windows ISO page.
-   Download bytes, progress, live speed in **MB/s**, completion and Retry stay in the center between the
-   footer buttons. Completion turns green. Switching models cancels the previous transfer cleanly;
-   press the start button again to download the newly selected model's files.
-   Verified shared packages are reused from the cache; failed downloads offer Retry.
-   All listed models can build after their downloads finish. The **2016 A1706 /
-   MacBookPro13,2** uses the hardware-verified recipe; the other models remain
-   **Unverified** and use their own Apple Boot Camp packages.
-3. Drop an original Microsoft Windows 10 ISO onto the app, or click the drop zone
-   to browse. Dropped and browsed files are scanned automatically; pasted paths
-   can be scanned with **Scan ISO**.
-4. Click the rounded edition rows to select or deselect them.
-   Pro has a green **Hardware Verified** label based on the original project's
-   A1706 result; other editions have an orange **Unverified** label. This app's
-   generated ISOs still need hardware validation.
-5. Choose a new output filename. **WorkingSpace** must have enough free space.
-   Use **Change WorkingSpace** in Review or **Move WorkingSpace folder** in
-   Settings to move it before building. Wait for downloads and other operations
-   to finish first; your ISO, edition selections and downloaded driver readiness
-   are retained.
-6. Install missing prerequisites using **Missing downloads**, highlighted above
-   **Build setup**. **Download & install ADK tools** downloads Microsoft's installer,
-   verifies its signature, requests UAC, and installs Deployment Tools only. Its
-   progress appears in the panel; the ISO tool is detected automatically afterward.
-   A manual Microsoft download link is also available. Once both tools are found,
-   the panel stays visible as a green **Build tools ready** section. **Build setup**
-   appears above **Output & WorkingSpace**.
-7. The button says **Downloading**, **Getting ready**, or **Waiting for drivers**
-   while prerequisites are pending. It becomes **Build ISO** once ready, and
-   **Building ISO** during image building. Press **Build ISO** to start. Its progress
-   bar shows download progress, then an animated indicator for build stages that
-   do not report a measurable percentage. The note beside
-   the button links to GitHub issues: report success or problems, including your
-   Mac model and Windows edition. Multiple editions show an optional donation page linking to
-   [Ko-fi](https://ko-fi.com/zenodeon); **Continue without donating** always works.
-8. Approve UAC when the separate image-servicing worker starts.
+| Mac | Identifier | Graphics | Status |
+| --- | --- | --- | --- |
+| MacBook Pro 13-inch 2015 | Pending | Model-dependent | Coming soon |
+| MacBook Pro 15-inch 2015 | Pending | Model-dependent | Coming soon |
+| MacBook Pro 13-inch 2016 · A1706 · Touch Bar | `MacBookPro13,2` | Iris 550 | **Hardware Verified (headless)** |
+| MacBook Pro 13-inch 2016 · A1708 · No Touch Bar | `MacBookPro13,1` | Iris 540 | In progress · Driver profile available · Unverified |
+| MacBook Pro 15-inch 2016 · A1707 · Touch Bar | `MacBookPro13,3` | Intel HD 530 + Radeon Pro | In progress · Driver profile available · Unverified |
+| MacBook Pro 13-inch 2017 · A1706 · Touch Bar | `MacBookPro14,2` | Iris Plus 650 | In progress · Available to test · Unverified |
+| MacBook Pro 13-inch 2017 · No Touch Bar | Pending | Model-dependent | Coming soon |
+| MacBook Pro 15-inch 2017 | Pending | Model-dependent | Coming soon |
+| MacBook Pro 2018-2020 · Intel | Pending | Model-dependent | Coming soon |
+| MacBook Air · Intel | Pending | Model-dependent | Coming soon |
+| MacBook 12-inch · Intel | Pending | Model-dependent | Coming soon |
+| Other Intel Macs · iMac, Mac mini and Mac Pro | Pending | Model-dependent | Planned |
 
-Errors open an **Action needed** popup. Build-check failures, including insufficient
-WorkingSpace space, offer **Retry** to check the requirements again and continue when
-ready. **Close** dismisses the popup so you can change the build settings.
-**Copy error** copies the full message for troubleshooting or a GitHub issue.
-Download failures also have a **Copy** link beside **Retry** in the footer.
+The verified result comes from the working 2016 A1706 Windows 10 Pro recipe.
+Newly generated ISOs still need testing on the target Mac. Coming-soon and planned
+models are a roadmap.
 
-Open **Settings** above Appearance to manage storage:
+Select the year and identifier carefully: **A1706 includes both 2016 and 2017 models**.
+The two A1706 profiles have separate external-display Setup recipes.
 
-- **Move cache folder** and **Move WorkingSpace folder** move existing contents to
-  an empty destination, including between drives. Settings shows both locations
-  and their free space. Cache moves require idle model selection. WorkingSpace
-  moves are available on every idle setup screen, including before continuing
-  from the optional donation page. Both moves wait for downloads and other
-  operations to finish, and neither can run during a build. Copies are
-  verified before the app saves the new location and removes the original.
-  Retained image mounts must be cleaned up before moving WorkingSpace.
-- **Cache** shows reclaimable file count and size. **Clear cache** removes the
-  patcher's downloaded driver packages, partial downloads, extraction folders
-  and cached ADK setup downloads. Installed tools and unrelated files are kept.
-  Drivers must be downloaded again explicitly before building.
-- **Builds** manages workspace files and logs only. Each card shows its workspace
-  folder, size and status. **Delete** confirms the workspace artifacts to remove;
-  finished ISOs and build history are retained. Move an ISO out of a workspace
-  before deleting that workspace. Failed image unmounting prevents deletion.
+## Files you need
 
-- Original source ISOs, changed/replaced outputs, linked folders and files in use
-  are protected. Build cleanup requests Windows administrator permission when
-  needed to discard app-owned WIM mounts. A failed unmount retains the build.
+- **An original Microsoft Windows 10 ISO**.
 
-Cleanup runs in the background, reports partial failures with **Copy error** and
-**Retry**, and never starts a new build. Build history is stored separately from
-settings and remains available when WorkingSpace changes.
-Folder choices and preferences are saved in
-`%LOCALAPPDATA%\Zenodeon\MacBookISOPatcher\settings.json`; existing Roaming
-settings are imported automatically when this file is absent. The folders stay
-at your chosen locations. Disk-space errors identify the checked folder and
-drive, so cache requirements can be distinguished from WorkingSpace requirements.
+The patcher downloads the drivers for your selected model and provides download
+or installation actions for missing build tools. You do not need to collect the
+Mac drivers yourself.
 
-Worker connection failures include the connection phase, elapsed time and the
-retained `worker-connection-<id>.log` path in the workspace. This log includes
-socket timeout settings and worker events, even before `build.log` is created.
+Run the patcher on a **64-bit Windows 10 or 11 PC**, with internet access and
+enough free storage for the build. Your original ISO stays unchanged; the result
+is saved as a separate custom ISO.
 
-The GUI downloads and verifies Intel and Apple drivers before elevation; it does
-not install those drivers on the host. Building waits for the selected model's
-downloads to finish. The 2016 13-inch models use Intel **21.20.16.5174**; the 2017
-Iris Plus 650 model uses **27.20.100.9316** from February 2021. The 15-inch A1707
-uses Apple's bundled Radeon Pro drivers for its external output, with no separate
-Intel replacement. Its original Radeon INF packages are staged and added to each
-selected Windows image. Other Apple hardware drivers remain included.
-Old `IntelHDGraphics64` and `IntelIrisSetup` folders are excluded from staged Apple
-drivers, including the post-install pass. Other models use available allowlisted
-Apple boot drivers. The 2016 and 2017 A1706 profiles each have model-specific
-Iris/external-display Setup startup changes; other profiles do not.
-The original signed driver files and Boot Camp software installer stay unmodified. Build
-logs and `job.json` stay in the chosen working folder. Existing output files and
-the original ISO are never overwritten. Cancellation waits for an active DISM
-operation to reach a safe boundary. Retrying with the same working folder
-recovers identifiable app-owned mounts from interrupted builds.
+## Create your Custom MacBook Windows ISO
 
-After a successful scan, the source ISO stays mounted for the current session.
-The source page puts **Selected Mac** above **Source file**, with compatibility
-details inside Source file. File fields display normal drive or UNC paths rather
-than Windows' internal extended-path prefix. Each page opens scrolled to the top.
-**Dismount ISO** replaces the return/back action and appears only once an ISO has
-been scanned. Confirm in the popup to eject it and return to **Windows ISO**;
-the ISO file stays unchanged. Use **Edit editions** on Review to change editions.
-Dismount is unavailable during scans, builds, ADK installation, and another dismount.
-Normal app closure releases a source mount created by the app. Closing during a
-driver download cancels it and removes its incomplete archive before exit. Closing
-during a scan waits for its result; closing during a build first requests safe cancellation
-and waits for worker cleanup. Pre-existing user mounts are preserved on closure.
-An explicit Dismount action ejects the selected ISO even if it was mounted before
-the app opened. Forced process termination cannot guarantee cleanup.
+1. Open the patcher on your Windows PC.
+2. Choose your MacBook model, then press **Start download & continue to Windows ISO**
+   to start downloading its drivers.
+3. Drag your original Windows ISO into the app, or browse for it. Select the
+   Windows edition or editions you want to include. **Start with one edition**
+   and test it on your Mac first. Once it works, come back and build an ISO with
+   multiple editions if you need them.
+4. Review the output location and WorkingSpace. Finish any missing-tool
+   installation and wait for the model's driver downloads to complete.
+5. Press **Build ISO** and approve the administrator prompt. When it finishes,
+   use **Open ISO location** to find the file and **Save build logs** to keep a copy.
 
-The initial content size is 1240 × 700 logical pixels. On smaller monitors it
-fits proportionally with room for window borders and the taskbar. The window
-remains resizable; compact spacing, wrapping and scrolling keep controls usable
-at smaller sizes. The aspect ratio is a starting proportion, not a resize lock.
+## Install Windows on the Mac
 
-The sidebar includes a persistent Ko-fi button, the GitHub repository link, and
-**by zenodeon** linking to the creator's website. Choose **System**, **Light**, or
-**Dark** under Appearance; the choice is saved between runs. Atomed, Exo 2 and
-Space Mono from zenodeon.com are embedded for offline use.
-
-## Prerequisites
-
-- Windows x64. The UI/core are portable, but other OS servicing backends are not implemented.
-- [7-Zip](https://www.7-zip.org/download.html), installed or selected as `7z.exe`.
-- [Windows ADK Deployment Tools](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install)
-  for `oscdimg.exe`. The WinPE add-on is not needed. The app checks its Microsoft signature.
-- Internet for the first driver download; pinned archives are cached and verified on reuse.
-- A writable local working folder. The app calculates a conservative space allowance
-  from the selected images; servicing several editions can need substantial disk space.
-
-Supported inputs: x64 English (en-US) Windows 10 client images, builds 19041–19045,
-in `install.wim` or `install.esd`, with compatible Setup index 2. The app reads
-actual image indices/edition IDs. Windows 11, ARM, x86, other languages, custom
-answer files, custom boot-path driver trees, and split SWM media are rejected.
-
-**Validation status:** Pro was successfully installed using the source project's
-v17 ISO. This app's output requires its own end-to-end hardware validation.
-Other compatible editions are allowed and explicitly labeled unverified.
-
-## Install on the Mac
-
-### A1706 Setup support logs
-
-After creating the ISO, use **Prepare USB for setup logs** on the completion
-page and select the USB root. The selected path and preparation status remain
-visible in that card for the current build. Use **Share logs / report an issue**
-under **Something did not work?** to open a GitHub issue draft and attach logs
-yourself. Alternatively, copy
-`Support\MacBookPatcher-Logging.enabled` from inside the ISO to the USB root.
-Preparation adds a marker; it does not format the USB or change its ISO files.
-Only explicitly marked USB storage receives logs, including USB drives reported
-as fixed disks. Multiple marked USBs each receive a copy.
-
-Logs are organized as
-`MacBookPatcher-Logs\A1706\<UTC timestamp>-<session ID>` for 2016, or
-`MacBookPatcher-Logs\A1706-2017\<UTC timestamp>-<session ID>` for 2017. Each session includes
-build/model metadata, a stage timeline, display-device status and driver version,
-storage space, Setup dialog labels, and available Panther/SetupAPI/rollback logs.
-Collection runs in the booted installer and ends at reboot. It does not install
-a service or an automatic first-boot collector. Without a writable marked USB,
-the local WinPE spool is lost on reboot. Logs are bounded; limits, missing files,
-copy errors and interrupted sessions are identified explicitly.
-
-For later recovery, run `Support\Collect setup logs.cmd` as administrator from
-the ISO or `C:\MacBookPatcher\Support`. It gathers available saved Setup logs
-into a separate recovery session. Attach the session folder and the patcher's
-saved build log to a GitHub issue, describing the Mac model, display connection,
-failure and last visible screen. Review native Windows logs before sharing;
-they can contain account names and file paths. Nothing is uploaded automatically.
-Older ISOs may use `A1706Logs` instead.
-
-The hardware-verified manual reference uses Windows 10 Pro **19045.3803** and
-Setup **19041.3803**. Other supported Windows 10 sources remain buildable. Windows revisions are retained
-in support manifests; generated ISOs still require hardware testing. The app preserves
-source BCD settings and does not enable signature-check bypasses. Its A1706 GPU
-lookup requires one present matching Iris 550 device before attempting one restart.
-
-The **2017 A1706 / MacBookPro14,2** recipe targets Iris Plus 650 (including the
-i7-7567U configuration) and remains **Unverified**. It injects signed Intel
-**27.20.100.9316** into Setup index 2 and each selected Windows image, alongside
-Apple Boot Camp **041-89042**. BasicDisplay remains enabled; igfx uses demand
-start and its INF-defined DriverStore binary. Setup starts only after exactly
-one present `8086:5927` device has been restarted once and reports a started,
-problem-free binding to that Intel driver. Enumeration retries five times;
-readiness waits up to 60 seconds. No 2016 device instance or driver is reused.
-Actual external-display boot and installation testing on the 2017 Mac is pending.
-
-### Installation steps
-
-1. Prepare a Windows partition using Boot Camp Assistant or another method.
-2. Set up a USB drive with [Ventoy](https://www.ventoy.net/),
-   then copy the generated ISO onto it.
-3. Boot the USB, select the ISO in Ventoy, and choose **WIMBOOT**. Keep the USB connected.
-4. Complete Windows Setup normally using the Windows partition you prepared.
-5. In Windows, run `C:\BootCamp\Setup.exe` as administrator, then restart.
-6. Search Windows for **Apple Software Update**. If missing, install
+1. **Prepare a Windows partition** using Boot Camp Assistant or another method.
+2. **Set up the USB with [Ventoy](https://www.ventoy.net/)** and copy the generated
+   ISO onto it.
+3. **Prepare setup logging**, when the completion page offers it. Click
+   **Prepare USB for setup logs**, select the USB root and wait for **USB prepared**.
+   These logs help troubleshoot failures and improve support for your Mac model.
+4. **Boot the USB**, select your ISO in Ventoy, and choose **WIMBOOT**.
+   Keep the USB connected during Windows Setup.
+5. **Complete Windows Setup** using the partition you prepared.
+6. **Install Boot Camp drivers** in Windows: run `C:\BootCamp\Setup.exe` as
+   administrator, then restart.
+7. **Open Apple Software Update** from Windows search. If it is missing, install
    [Apple's desktop iTunes installer](https://www.apple.com/itunes/download/win64/),
-   then check again. See [Apple's update guidance](https://support.apple.com/en-us/118406).
-7. Install the applicable Apple Software Update updates and restart. Check your
-   MacBook's features and [report any failures](https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues)
-   with your model number/identifier, Windows edition/build, and saved build logs.
-   For A1706 boot/setup failures, also include the USB's **A1706Logs** folder when available.
+   then check again. Install the applicable updates and restart.
+8. **Check the MacBook's features**, including the display, keyboard, trackpad,
+   sound and Wi-Fi. [Report anything that still fails](https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues).
 
-Support varies by model and Windows edition. On A1706, keep the included signed
-Iris 550 driver **21.20.16.5174**; do not run the old IntelHDGraphics64 installer.
+The app creates the ISO; partitioning and preparing a bootable Ventoy USB are
+separate steps. **Prepare USB for setup logs** adds a logging marker and does not
+format the drive or install Ventoy.
 
-The app does not partition disks, write USB sticks, change the host's drivers, or
-disable signature enforcement. The generated answer file only accepts the EULA
-and provides driver paths. The Windows installation license remains your own.
+## Something did not work?
+
+Use **Copy error** to keep the error message and **Save build logs** to export the
+build log.
+
+[Open a GitHub issue](https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues)
+with your Mac model/identifier, Windows edition/build, display connection,
+what happened and the last visible screen. Attach your build log and, for A1706
+Setup failures, the session folder from the prepared USB:
+
+- **2016 A1706:** `MacBookPatcher-Logs\A1706\<session>`
+- **2017 A1706:** `MacBookPatcher-Logs\A1706-2017\<session>`
+
+Review logs before sharing; Windows logs can contain
+account names and paths. The app does not upload them automatically.
 
 ## Build from source
 
-Install Rust stable MSVC and Visual Studio C++ Build Tools with a Windows SDK.
-Run from a developer PowerShell, or ensure the C++ toolchain is installed where
-the Rust `cc` crate can find it:
+Install Rust stable with the MSVC toolchain, Visual Studio C++ Build Tools and a
+Windows SDK. From the repository folder, run:
 
 ```powershell
-cargo test --all-targets
-cargo build --release
+cargo test --locked --all-targets
+cargo build --locked --release
 .\target\release\macbook-iso-patcher.exe
 ```
 
-`build.rs` compiles four statically linked x64 WinPE helpers and embeds them in
-the executable. No C compiler is required on an end user's computer. Runtime
-PowerShell calls are fixed Windows OS integration commands, with paths passed
-through environment variables rather than inserted into script source.
+[Driver sources](docs/driver-sources.md)
 
-## Structure
+## Support development
 
-- `src/ui.rs`: egui workflow, edition picker, donation page, progress and logs.
-- `src/domain.rs`, `wim.rs`: model constraints, build requests, read-only WIM metadata.
-- `src/download.rs`: pinned downloads, cache verification, archive extraction.
-- `src/platform.rs`: Windows integration and subprocess handling.
-- `src/engine.rs`: image export/servicing, validation, recovery, ISO creation.
-- `src/ipc.rs`: per-build authenticated loopback connection to the UAC worker.
-- `payloads/a1706`: source-derived v17 script and reproducible WinPE helpers.
-
-No ISOs or driver packages are committed. See [driver provenance](docs/driver-sources.md)
-and [validation checklist](docs/validation.md).
-
-### Existing output filenames
-
-If an output already exists, choose **Increment filename and build** or **Rename
-and build**. Neither overwrites an existing file. **Delete ISO and build new** is
-available only for an unchanged app-generated output verified against history.
-Its confirmation is permanent: a failed new build cannot restore the old ISO.
-Prerequisites are checked before deletion, then checked again before a fresh
-build starts from step 1. The previous workspace and logs are kept. Source ISOs,
-changed or unrecognized outputs, hard links, redirected paths and mounted ISOs
-are protected. Mounted ISOs must be dismounted separately before replacement.
+If the project helps you, you can [support it on Ko-fi](https://ko-fi.com/zenodeon).
