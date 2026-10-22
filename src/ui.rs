@@ -1189,7 +1189,7 @@ impl eframe::App for PatcherApp {
                             .color(muted(ui)),
                         );
                         ui.label(
-                            RichText::new("v0.1.0 · Rust desktop")
+                            RichText::new(format!("v{} · Rust desktop", env!("CARGO_PKG_VERSION")))
                                 .size(12.0)
                                 .color(muted(ui)),
                         );
