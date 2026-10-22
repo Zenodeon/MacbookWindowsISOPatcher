@@ -249,6 +249,7 @@ impl PatcherApp {
             | "build-failure-popup"
             | "complete" => ("review-ready", 0),
             "complete-unverified" => ("review-ready", 1),
+            other if other.starts_with("complete-usb-") => ("review-ready", 0),
             "review-unverified-download" => ("review-ready", 1),
             other => (other, 0),
         };
@@ -453,6 +454,20 @@ impl PatcherApp {
             let _ = self.sender.send(Message::Build(Event::Finished(iso)));
             self.consume();
             self.close_ready = true;
+            if driver_preview.starts_with("complete-usb-") {
+                let status = match driver_preview.as_str() {
+                    "complete-usb-preparing" => complete::UsbPreparationStatus::Preparing,
+                    "complete-usb-failed" => complete::UsbPreparationStatus::Failed,
+                    _ => complete::UsbPreparationStatus::Prepared,
+                };
+                self.preparing_usb = status == complete::UsbPreparationStatus::Preparing;
+                self.usb_logging = Some(complete::LoggingUsb {
+                    path: PathBuf::from(
+                        r"\\?\D:\Selected USB preview\Windows setup support\Long folder name to check wrapping on smaller windows",
+                    ),
+                    status,
+                });
+            }
         }
         self.confirm_dismount = view == "dismount";
         if driver_preview == "workspace-error" {

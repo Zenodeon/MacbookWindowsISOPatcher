@@ -160,7 +160,10 @@ Other compatible editions are allowed and explicitly labeled unverified.
 ### A1706 Setup support logs
 
 After creating the ISO, use **Prepare USB for setup logs** on the completion
-page and select the USB root. Alternatively, copy
+page and select the USB root. The selected path and preparation status remain
+visible in that card for the current build. Use **Share logs / report an issue**
+under **Something did not work?** to open a GitHub issue draft and attach logs
+yourself. Alternatively, copy
 `Support\MacBookPatcher-Logging.enabled` from inside the ISO to the USB root.
 Preparation adds a marker; it does not format the USB or change its ISO files.
 Only explicitly marked USB storage receives logs, including USB drives reported

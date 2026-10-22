@@ -1,5 +1,25 @@
 # Validation
 
+## Completion-page USB selection and reporting — 2026-10-22
+
+- The single **Share logs / report an issue** action is now under **Something
+  did not work?**, preserving the issue draft and manual-attachment tooltip.
+- USB selection appears immediately in a wrapped, selectable rounded path area.
+  Preparing, prepared and failed states are distinct. Failed preparation keeps
+  its selected path and the existing copyable error popup. Cancellation preserves
+  the previous selection; a new build or workflow reset clears session state.
+  Request IDs prevent late preparation results restoring a cleared selection.
+- All 41 binary/UI tests pass, including four new state-lifecycle tests.
+  Formatting check, Clippy with warnings denied and the debug build pass.
+  USB validation/marker writing and GitHub draft generation are unchanged.
+- Actual renderer screenshots cover both themes at 1240 × 700 and 800 × 520,
+  long paths, preparing/failed states and the reporting section. They are saved
+  as `.cache/usb-selected-*.png`, `.cache/usb-preparing-dark.png`,
+  `.cache/usb-failed-light.png` and `.cache/completion-report-dark.png`.
+  Selected destinations in screenshots are simulated; no user USB was modified.
+- Debug preview only. No release build, ISO rebuild, ZIP, push or closure of
+  the user's running app.
+
 ## Output choices and workspace-only Settings — 2026-10-22
 
 - Existing destinations return a typed `engine::OutputConflict`. The app checks

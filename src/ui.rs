@@ -74,7 +74,7 @@ enum Page {
 enum Message {
     OutputChecked(Result<macbook_iso_patcher::cleanup::OutputCandidate, String>),
     OutputDeleted(Result<macbook_iso_patcher::cleanup::CleanupReport, String>),
-    UsbPrepared(Result<PathBuf, String>),
+    UsbPrepared(u64, Result<PathBuf, String>),
     Scanned(Result<(Inventory, platform::MountedIso), String>),
     Dismounted(Result<bool, String>, Option<platform::MountedIso>),
     AdkStatus(String),
@@ -141,6 +141,8 @@ pub struct PatcherApp {
     output_deleted: Option<PathBuf>,
     installing_adk: bool,
     preparing_usb: bool,
+    usb_logging: Option<complete::LoggingUsb>,
+    usb_logging_id: u64,
     adk_status: String,
     window_fitted: bool,
     notice: Option<String>,
@@ -245,6 +247,8 @@ impl PatcherApp {
             output_deleted: None,
             installing_adk: false,
             preparing_usb: false,
+            usb_logging: None,
+            usb_logging_id: 0,
             adk_status: String::new(),
             window_fitted: false,
             notice: startup_notice,
@@ -332,18 +336,7 @@ impl PatcherApp {
                         }
                     }
                 }
-                Message::UsbPrepared(result) => {
-                    self.preparing_usb = false;
-                    match result {
-                        Ok(path) => {
-                            self.notice = Some(format!(
-                                "USB logging enabled on {}. Keep the USB connected during Setup. Logs will be in MacBookPatcher-Logs\\A1706.",
-                                platform::display_path(&path)
-                            ))
-                        }
-                        Err(error) => self.show_error(error),
-                    }
-                }
+                Message::UsbPrepared(id, result) => self.finish_logging_usb(id, result),
                 Message::StorageMoveProgress(progress) => {
                     self.storage.move_progress = Some(progress)
                 }
@@ -457,6 +450,7 @@ impl PatcherApp {
                             self.selected.clear();
                             self.donation = false;
                             self.finished = None;
+                            self.reset_logging_usb();
                             self.notice = if self.closing {
                                 None
                             } else {
@@ -777,6 +771,7 @@ impl PatcherApp {
         });
     }
     fn reset_build_state(&mut self, workspace: &std::path::Path, total: u32) {
+        self.reset_logging_usb();
         self.last_build_workspace = Some(workspace.to_owned());
         self.last_build_error = None;
         self.output_deleted = None;
@@ -1070,6 +1065,7 @@ impl eframe::App for PatcherApp {
                             self.page = Page::Iso;
                             self.donation = false;
                             self.finished = None;
+                            self.reset_logging_usb();
                             self.scan(ctx);
                         }
                     }
