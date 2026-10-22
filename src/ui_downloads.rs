@@ -9,7 +9,7 @@ pub(super) struct DriverDownloads {
     pub ready: bool,
     pub error: Option<String>,
     pub stage: String,
-    pub progress: Option<(String, u64, Option<u64>)>,
+    pub progress: Option<DownloadProgress>,
     pub cancel: Cancellation,
     pub id: u64,
 }
@@ -54,7 +54,7 @@ impl DriverDownloads {
 }
 
 impl PatcherApp {
-    fn current_driver_transfer(&self) -> Option<&(String, u64, Option<u64>)> {
+    fn current_driver_transfer(&self) -> Option<&DownloadProgress> {
         let model = self.model()?;
         let (id, cache) = self.drivers.key.as_ref()?;
         if *id != model.id
@@ -81,15 +81,17 @@ impl PatcherApp {
         if self.drivers.error.is_some() {
             return Some(("Driver download failed".into(), colors.error));
         }
-        let status = if let Some((name, received, Some(total))) = &self.drivers.progress {
+        let status = if let Some(progress) = &self.drivers.progress {
+            let DownloadProgress { name, received, total, .. } = progress;
             let package = if name.ends_with(".pkg") {
                 "Boot Camp"
             } else {
                 "Intel graphics"
             };
             format!(
-                "{package} download · {:.0}%",
-                *received as f64 / (*total).max(1) as f64 * 100.0
+                "{package} download · {} · {}",
+                total.filter(|n| *n > 0).map_or_else(|| format!("{:.1} MB", *received as f64 / 1_000_000.0), |n| format!("{:.0}%", *received as f64 / n as f64 * 100.0)),
+                progress.rate_label()
             )
         } else {
             self.drivers.stage.clone()
@@ -109,6 +111,7 @@ impl PatcherApp {
     pub(super) fn ensure_driver_downloads(&mut self, ctx: &egui::Context) {
         // Renderer fixtures never trigger real network transfers.
         if self.closing
+            || self.storage.recovery_failed
             || self.busy
             || self.storage.busy()
             || std::env::var_os("MACBOOK_PATCHER_SCREENSHOT").is_some()
@@ -157,6 +160,7 @@ impl PatcherApp {
         });
     }
     pub(super) fn build_iso_button(&self, ui: &mut egui::Ui, enabled: bool) -> bool {
+        let enabled = enabled && !self.storage.busy() && !self.storage.recovery_failed;
         let colors = appearance::palette(ui.ctx());
         let label = if self.busy {
             if self.cancel.is_cancelled() {
@@ -214,7 +218,7 @@ impl PatcherApp {
             self.build_progress.fraction()
         } else {
             self.current_driver_transfer()
-                .and_then(|(_, received, total)| download_fraction(*received, *total))
+                .and_then(|p| download_fraction(p.received, p.total))
         };
         if active || progress.is_some() {
             let track = egui::Rect::from_min_max(
@@ -285,7 +289,7 @@ impl PatcherApp {
                     egui::vec2(area.width(), 17.0),
                 ),
                 egui::Label::new(
-                    RichText::new(format!("{} · {}", self.build_progress.label(), self.stage))
+                    RichText::new(format!("{}{} · {}", self.build_progress.label(), self.download.as_ref().map(|p| format!(" · {}", p.rate_label())).unwrap_or_default(), self.stage))
                         .size(11.0)
                         .color(colors.muted),
                 )
@@ -405,7 +409,8 @@ impl PatcherApp {
             self.current_driver_transfer()
         };
         let mut fraction = None;
-        let (text, detail) = if let Some((name, received, total)) = progress {
+        let (text, detail) = if let Some(progress) = progress {
+            let DownloadProgress { name, received, total, .. } = progress;
             let package = if name.ends_with(".pkg") {
                 "Boot Camp"
             } else {
@@ -425,10 +430,11 @@ impl PatcherApp {
                     *received as f64 / 1_000_000.0
                 )
             };
-            let text = if area.width() < 340.0 {
+            let detail = format!("{detail} · {}", progress.rate_label());
+            let text = if area.width() < 400.0 {
                 fraction.map_or_else(
-                    || "Downloading…".into(),
-                    |value| format!("Downloading · {:.0}%", value * 100.0),
+                    || format!("Downloading · {}", progress.rate_label()),
+                    |value| format!("{:.0}% · {}", value * 100.0, progress.rate_label()),
                 )
             } else {
                 detail.clone()

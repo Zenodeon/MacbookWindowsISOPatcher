@@ -1,5 +1,57 @@
 # Validation
 
+## WorkingSpace naming and setup-stage moves — 2026-10-22
+
+- Renamed the configured folder to WorkingSpace in Review, Settings, space
+  requirements and relocation errors. Review now shows its saved path and a
+  Change WorkingSpace button which uses the verified relocation operation.
+- WorkingSpace moves are enabled on idle Model, ISO, Editions and Review screens,
+  including the optional donation screen. Downloads, scans, installation, cleanup,
+  moves, closing, recovery failures and active builds block changes. Failed builds
+  can return to setup before moving. Cache moves still require idle model selection.
+- Relocation gates now depend on folder kind in both UI and backend. Build
+  preflight and build initiation wait for moves. WorkingSpace completion preserves
+  the ISO, model, editions, output filename, donation state and driver readiness;
+  the next build request uses the new saved path with existing settings keys.
+- All-target tests: 120 passed, 5 existing environment-specific tests ignored.
+  Added setup-stage/busy-state coverage, backend gate checks and a real move from
+  Review followed by UI completion, selection/readiness checks and settings reload.
+  Clippy passes with warnings denied. Renderer captures at 1240 x 700 and 800 x 520
+  in dark/light themes verify Review controls, setup/donation availability and
+  build-time locking; retained in `.cache/workingspace-ui-20261022/`.
+  `cargo build --locked --release` succeeds and refreshes
+  `target/release/macbook-iso-patcher.exe`.
+
+## Download rates and movable storage — 2026-10-21
+
+- Added two-second rolling download rates in decimal MB/s for driver transfers,
+  build-time downloads, and the app-managed ADK installer download. Progress
+  remains usable without a Content-Length and falls to zero during stalls;
+  transfer state clears before verification.
+- Settings exposes folder paths, free space, Move cache folder and Move workspace
+  folder. Moving is restricted to idle model selection, including backend guards.
+  Continue and competing operations are blocked while moving; closing waits.
+- Relocation copies to a sibling staging folder, verifies SHA-256 hashes, updates
+  settings and build ownership metadata, then removes original contents. A journal
+  supports rollback before commit and retains original leftovers after commit.
+  Locked files, protected source ISOs, links, overlapping paths, destination
+  conflicts and retained image mounts are rejected or reported without losing the
+  verified copy. Workspace relocation preserves output identity checks and cleanup.
+- Settings now live in Local AppData, with automatic import of legacy Roaming
+  settings. Space failures include the checked folder, drive, available and required
+  bytes. Canonical and normal Windows paths identify the same imported build.
+- `cargo test --locked --all-targets`: 117 passed, 5 existing explicit-environment
+  tests ignored. Coverage includes a real C: to E: cache move, history refresh and
+  ownership-checked deletion after a workspace move, sharing violations, junctions,
+  verification failure, interrupted moves, startup lock contention, persistence,
+  workflow gating, rate calculation and serialization compatibility.
+- Clippy passes with warnings denied; `cargo build --locked --release` succeeds
+  and produces `target/release/macbook-iso-patcher.exe`. Native renderer captures inspected in dark
+  and light themes at 1240 x 700 and 800 x 520 cover Settings, disabled and moving
+  states, driver downloads and build downloads with known/unknown totals. Captures
+  are retained in `.cache/relocation-ui-20261021/`. Full ISO and hardware boot tests
+  were not run for these changes.
+
 ## Dedicated completion page and shared installation guide — 2026-10-21
 
 - Finished now navigates to Complete and resets the page scroll to the top.

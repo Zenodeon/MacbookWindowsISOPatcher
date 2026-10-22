@@ -96,6 +96,7 @@ fn validate_paths(req: &BuildRequest) -> Result<()> {
         "Install Windows ADK Deployment Tools, or select oscdimg.exe"
     );
     for path in [&req.workspace, &req.cache] {
+        ensure!(!path.join(".storage-moved.json").exists(), "Storage at {} was moved. Restart the app to load its new location", path.display());
         fs::create_dir_all(path)?;
     }
     let output_parent = req.output.parent().context("Output parent is missing")?;
@@ -108,21 +109,19 @@ fn validate_paths(req: &BuildRequest) -> Result<()> {
         "Save the output outside the download cache"
     );
     let required = req.required_space()?;
-    ensure!(
-        fs2::available_space(&cache)? >= 8 * GIB,
-        "The driver cache needs at least {} free for downloading and extraction",
-        crate::cleanup::format_bytes(8 * GIB)
-    );
-    ensure!(
-        fs2::available_space(&work)? >= required,
-        "Not enough workspace disk space; allow at least {}",
-        crate::cleanup::format_bytes(required)
-    );
-    ensure!(
-        fs2::available_space(output_parent)? >= req.inventory.iso_size.saturating_add(8 * GIB),
-        "Output disk needs room for the patched ISO (source size plus at least {})",
-        crate::cleanup::format_bytes(8 * GIB)
-    );
+    require_space(&cache, 8 * GIB, "Driver cache (downloads and extraction)")?;
+    require_space(&work, required, "WorkingSpace")?;
+    require_space(&output_parent, req.inventory.iso_size.saturating_add(8 * GIB), "Output ISO folder")?;
+    Ok(())
+}
+
+fn require_space(path: &Path, required: u64, purpose: &str) -> Result<()> {
+    let available = fs2::available_space(path)?;
+    let drive = path.ancestors().last().unwrap_or(path);
+    ensure!(available >= required,
+        "{purpose}: {}\nDrive: {}\nAvailable: {} · Required: {}",
+        crate::platform::display_path(path), crate::platform::display_path(drive),
+        crate::cleanup::format_bytes(available), crate::cleanup::format_bytes(required));
     Ok(())
 }
 

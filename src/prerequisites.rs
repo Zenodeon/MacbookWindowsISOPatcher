@@ -5,7 +5,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub const ADK_SETUP_URL: &str =
@@ -65,20 +65,25 @@ pub fn download_adk(cache: &Path, status: &dyn Fn(String)) -> Result<PathBuf> {
             .create_new(true)
             .open(&part)?;
         let mut received = 0u64;
-        while let Some(chunk) = response.chunk().await? {
+        let started = Instant::now();
+        let mut rate = crate::transfer::Rate::default();
+        let mut ticks = tokio::time::interval(Duration::from_millis(200));
+        loop {
+            let pending = response.chunk();
+            tokio::pin!(pending);
+            let next = loop {
+                tokio::select! {
+                    result = &mut pending => break result?,
+                    _ = ticks.tick() => status(adk_progress(received, total, rate.sample(started.elapsed(), received))),
+                }
+            };
+            let Some(chunk) = next else { break; };
             received += chunk.len() as u64;
             ensure!(
                 received <= MAX_SETUP_BYTES,
                 "ADK installer exceeded download limit"
             );
             file.write_all(&chunk)?;
-            status(format!(
-                "Downloading ADK installer: {:.1} MB{}",
-                received as f64 / 1_000_000.0,
-                total
-                    .map(|n| format!(" / {:.1} MB", n as f64 / 1_000_000.0))
-                    .unwrap_or_default()
-            ));
         }
         ensure!(
             received > 0 && total.is_none_or(|n| n == received),
@@ -86,6 +91,7 @@ pub fn download_adk(cache: &Path, status: &dyn Fn(String)) -> Result<PathBuf> {
         );
         file.sync_all()?;
         drop(file);
+        status(adk_progress(received, total, rate.sample(started.elapsed(), received)));
         status("Verifying Microsoft's installer signature…".into());
         verify_microsoft(&part)?;
         fs::rename(&part, &path)?;
@@ -95,6 +101,12 @@ pub fn download_adk(cache: &Path, status: &dyn Fn(String)) -> Result<PathBuf> {
         let _ = fs::remove_file(&part);
     }
     result
+}
+
+fn adk_progress(received: u64, total: Option<u64>, rate: Option<u64>) -> String {
+    format!("Downloading ADK installer: {:.1} MB{} · {}", received as f64 / 1_000_000.0,
+        total.map(|n| format!(" / {:.1} MB", n as f64 / 1_000_000.0)).unwrap_or_default(),
+        crate::transfer::label(rate))
 }
 
 pub fn install_adk(cache: &Path, status: &dyn Fn(String)) -> Result<(PathBuf, bool)> {
@@ -128,6 +140,14 @@ pub fn install_adk(cache: &Path, status: &dyn Fn(String)) -> Result<(PathBuf, bo
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn installer_progress_includes_speed_without_requiring_a_total() {
+        let known = adk_progress(1_000_000, Some(2_000_000), Some(12_300_000));
+        assert!(known.contains("1.0 MB / 2.0 MB · 12.3 MB/s"));
+        let unknown = adk_progress(1_000_000, None, Some(0));
+        assert!(unknown.contains("1.0 MB · 0.0 MB/s"));
+        assert!(adk_progress(0, None, None).contains("Calculating"));
+    }
     #[test]
     fn restricts_installer_redirects_to_microsoft_https() {
         for url in [

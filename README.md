@@ -9,13 +9,15 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 
 ## Use
 
-1. Run `macbook-iso-patcher.exe` on x64 Windows 10 or 11.
+1. Run `macbook-iso-patcher.exe` on x64 Windows 10 or 11. Open **Settings** to
+   move the driver cache before continuing past model selection. **WorkingSpace**
+   can be changed from any idle setup screen before starting an ISO build.
 2. Choose a model, then press **Start download & continue to Windows ISO**.
    Every card lists its graphics hardware and verification status. The graphics
    driver is selected automatically for that model's external display output.
    Selecting a model alone does not download anything. The button starts downloading
    that model's files in the background and opens the Windows ISO page.
-   Download bytes, progress, completion and Retry stay in the center between the
+   Download bytes, progress, live speed in **MB/s**, completion and Retry stay in the center between the
    footer buttons. Completion turns green. Switching models cancels the previous transfer cleanly;
    press the start button again to download the newly selected model's files.
    Verified shared packages are reused from the cache; failed downloads offer Retry.
@@ -29,14 +31,18 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
    Pro has a green **Hardware Verified** label based on the original project's
    A1706 result; other editions have an orange **Unverified** label. This app's
    generated ISOs still need hardware validation.
-5. Choose a new output filename and a working folder with enough free disk space.
+5. Choose a new output filename. **WorkingSpace** must have enough free space.
+   Use **Change WorkingSpace** in Review or **Move WorkingSpace folder** in
+   Settings to move it before building. Wait for downloads and other operations
+   to finish first; your ISO, edition selections and downloaded driver readiness
+   are retained.
 6. Install missing prerequisites using **Missing downloads**, highlighted above
    **Build setup**. **Download & install ADK tools** downloads Microsoft's installer,
    verifies its signature, requests UAC, and installs Deployment Tools only. Its
    progress appears in the panel; the ISO tool is detected automatically afterward.
    A manual Microsoft download link is also available. Once both tools are found,
    the panel stays visible as a green **Build tools ready** section. **Build setup**
-   appears above **Output & workspace**.
+   appears above **Output & WorkingSpace**.
 7. The button says **Downloading**, **Getting ready**, or **Waiting for drivers**
    while prerequisites are pending. It becomes **Build ISO** once ready, and
    **Building ISO** during image building. Press **Build ISO** to start. Its progress
@@ -48,13 +54,21 @@ HDMI startup sequence for a Mac whose internal display is disconnected.
 8. Approve UAC when the separate image-servicing worker starts.
 
 Errors open an **Action needed** popup. Build-check failures, including insufficient
-workspace space, offer **Retry** to check the requirements again and continue when
+WorkingSpace space, offer **Retry** to check the requirements again and continue when
 ready. **Close** dismisses the popup so you can change the build settings.
 **Copy error** copies the full message for troubleshooting or a GitHub issue.
 Download failures also have a **Copy** link beside **Retry** in the footer.
 
 Open **Settings** above Appearance to manage storage:
 
+- **Move cache folder** and **Move WorkingSpace folder** move existing contents to
+  an empty destination, including between drives. Settings shows both locations
+  and their free space. Cache moves require idle model selection. WorkingSpace
+  moves are available on every idle setup screen, including before continuing
+  from the optional donation page. Both moves wait for downloads and other
+  operations to finish, and neither can run during a build. Copies are
+  verified before the app saves the new location and removes the original.
+  Retained image mounts must be cleaned up before moving WorkingSpace.
 - **Cache** shows reclaimable file count and size. **Clear cache** removes the
   patcher's downloaded driver packages, partial downloads, extraction folders
   and cached ADK setup downloads. Installed tools and unrelated files are kept.
@@ -70,7 +84,12 @@ Open **Settings** above Appearance to manage storage:
 
 Cleanup runs in the background, reports partial failures with **Copy error** and
 **Retry**, and never starts a new build. Build history is stored separately from
-settings and remains available when the workspace setting changes.
+settings and remains available when WorkingSpace changes.
+Folder choices and preferences are saved in
+`%LOCALAPPDATA%\Zenodeon\MacBookISOPatcher\settings.json`; existing Roaming
+settings are imported automatically when this file is absent. The folders stay
+at your chosen locations. Disk-space errors identify the checked folder and
+drive, so cache requirements can be distinguished from WorkingSpace requirements.
 
 Worker connection failures include the connection phase, elapsed time and the
 retained `worker-connection-<id>.log` path in the workspace. This log includes

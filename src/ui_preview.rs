@@ -166,6 +166,18 @@ impl PatcherApp {
                 self.storage.deleting = true;
                 self.close_ready = true;
             }
+            if view == "settings-moving" {
+                self.storage.moving = true;
+                self.close_ready = true;
+                self.storage.move_progress = Some(macbook_iso_patcher::relocation::Progress {
+                    files: 8, total_files: 20, bytes: 350_000_000, total_bytes: 800_000_000,
+                    phase: "Copying files".into(),
+                });
+            }
+            if view == "settings-limited" { self.page = Page::Iso; self.model_selected = Some(0); }
+            if view == "settings-workingspace" { self.page = Page::Review; self.model_selected = Some(0); }
+            if view == "settings-workingspace-donation" { self.page = Page::Review; self.model_selected = Some(0); self.donation = true; }
+            if view == "settings-build-locked" { self.page = Page::Build; self.busy = true; self.close_ready = true; }
             if view == "settings-scanning" {
                 self.storage.scanning = true;
                 self.close_ready = true;
@@ -187,6 +199,8 @@ impl PatcherApp {
             "review-unverified" => ("review-ready", 1),
             "workspace-error" | "generic-error" | "worker-error" => ("review-ready", 0),
             "build-active"
+                | "build-download"
+                | "build-download-unknown"
             | "build-preparing"
             | "build-log"
             | "build-failed"
@@ -211,10 +225,11 @@ impl PatcherApp {
                     "The connection was interrupted. Retry to download the remaining files.".into(),
                 );
             } else if !self.drivers.ready {
-                self.drivers.progress = Some((
+                self.drivers.progress = Some(DownloadProgress::new(
                     "BootCampESD-041-88734.pkg".into(),
                     106_000_000,
                     Some(353_187_226),
+                    Some(12_300_000),
                 ));
             }
         }
@@ -302,6 +317,8 @@ impl PatcherApp {
         if matches!(
             driver_preview.as_str(),
             "build-active"
+                | "build-download"
+                | "build-download-unknown"
                 | "build-preparing"
                 | "build-log"
                 | "build-failed"
@@ -325,6 +342,13 @@ impl PatcherApp {
                 operation: "Importing Intel graphics driver".into(),
                 percent: Some(47.0),
             });
+            if driver_preview.starts_with("build-download") {
+                self.build_progress.operation = None;
+                self.stage = "Downloading drivers".into();
+                self.detail = "BootCampESD-041-88734.pkg".into();
+                self.download = Some(DownloadProgress::new(self.detail.clone(), 106_000_000,
+                    (driver_preview != "build-download-unknown").then_some(353_187_226), Some(12_300_000)));
+            }
             if matches!(
                 driver_preview.as_str(),
                 "build-log" | "build-failed" | "build-failure-popup"
@@ -378,7 +402,7 @@ impl PatcherApp {
         self.confirm_dismount = view == "dismount";
         if driver_preview == "workspace-error" {
             self.show_build_error(
-                "Not enough workspace disk space; allow at least 55.4 GB".into(),
+                "WorkingSpace needs at least 55.4 GB free".into(),
                 BuildRetry::Review,
             );
         } else if driver_preview == "worker-error" {

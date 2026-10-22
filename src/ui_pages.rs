@@ -519,22 +519,22 @@ impl PatcherApp {
                         self.settings.oscdimg = platform::find_oscdimg().display().to_string();
                         self.settings.seven_zip = platform::find_seven_zip().display().to_string();
                     }
-                    Self::folder_field(ui, "Driver download cache", &mut self.settings.cache);
+                    ui.add_enabled_ui(false, |ui| Self::folder_field(ui, "Driver download cache", &mut self.settings.cache)).response.on_disabled_hover_text(macbook_iso_patcher::relocation::LOCKED_REASON);
                 });
             egui::CollapsingHeader::new("What happens during the build?").show(ui, |ui| {
                 ui.label("Downloads about 610 MB of verified Intel and Apple drivers once, then reuses the cache.");
                 ui.label("Administrator approval is required. Your original ISO stays unchanged.");
             });
         });
-        Self::section(ui, "Output & workspace", colors.surface, |ui| {
+        Self::section(ui, "Output & WorkingSpace", colors.surface, |ui| {
             Self::file_field(ui, "Save patched ISO", &mut self.output, "iso", true);
-            Self::folder_field(ui, "Temporary working folder", &mut self.settings.work);
+            self.workspace_field(ui);
             if let Ok(req) = self.request()
                 && let Ok(space) = req.required_space()
             {
                 ui.label(
                     RichText::new(format!(
-                        "Workspace: allow {} free, plus room for your output ISO.",
+                        "WorkingSpace: allow {} free, plus room for your output ISO.",
                         macbook_iso_patcher::cleanup::format_bytes(space)
                     ))
                     .size(13.0)

@@ -149,6 +149,8 @@ pub enum Event {
         name: String,
         received: u64,
         total: Option<u64>,
+        #[serde(default)]
+        bytes_per_second: Option<u64>,
     },
     OperationProgress {
         operation: String,
@@ -192,6 +194,13 @@ pub fn stage(emit: &Emit, name: &str, detail: impl Into<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn download_events_accept_old_messages_and_round_trip_speed() {
+        let old = r#"{"kind":"Download","data":{"name":"package","received":10,"total":null}}"#;
+        assert!(matches!(serde_json::from_str::<Event>(old).unwrap(), Event::Download { bytes_per_second: None, .. }));
+        let event = Event::Download { name: "package".into(), received: 100, total: Some(200), bytes_per_second: Some(12_300_000) };
+        assert!(matches!(serde_json::from_str::<Event>(&serde_json::to_string(&event).unwrap()).unwrap(), Event::Download { bytes_per_second: Some(12_300_000), .. }));
+    }
     fn pro() -> Image {
         Image {
             index: 6,

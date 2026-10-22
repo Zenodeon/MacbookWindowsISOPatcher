@@ -10,3 +10,5 @@ pub mod platform;
 pub mod prerequisites;
 pub mod progress;
 pub mod wim;
+pub mod transfer;
+pub mod relocation;

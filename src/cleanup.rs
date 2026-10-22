@@ -17,6 +17,7 @@ impl Drop for ActivityLock {
 }
 pub fn activity(root: &Path, name: &str, exclusive: bool) -> Result<ActivityLock> {
     safe_path(root)?;
+    ensure!(!root.join(".storage-moved.json").exists(), "This folder was moved by another app instance. Restart the app to use the new location");
     fs::create_dir_all(root)?;
     let path = root.join(name);
     safe_path(&path)?;
@@ -37,22 +38,24 @@ pub fn activity(root: &Path, name: &str, exclusive: bool) -> Result<ActivityLock
 pub fn cache_activity(root: &Path) -> Result<ActivityLock> {
     activity(root, ".cache.lock", false)
 }
-fn history_lock(root: &Path) -> Result<ActivityLock> {
+pub(crate) fn history_lock(root: &Path) -> Result<ActivityLock> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         match activity(root, ".history.lock", true) {
             Ok(lock) => return Ok(lock),
             Err(e)
-                if e.chain().any(|e| {
-                    e.downcast_ref::<std::io::Error>()
-                        .is_some_and(|e| e.kind() == std::io::ErrorKind::WouldBlock)
-                }) && std::time::Instant::now() < deadline =>
+                if lock_busy(&e) && std::time::Instant::now() < deadline =>
             {
                 std::thread::sleep(std::time::Duration::from_millis(20))
             }
             Err(e) => return Err(e),
         }
     }
+}
+
+pub(crate) fn lock_busy(error: &anyhow::Error) -> bool {
+    error.chain().any(|e| e.downcast_ref::<std::io::Error>().is_some_and(|e|
+        e.kind() == std::io::ErrorKind::WouldBlock || (cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33)))))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -144,9 +147,9 @@ pub struct BuildRecord {
     pub state: BuildState,
     pub published: Option<Fingerprint>,
 }
-#[derive(Default, Serialize, Deserialize)]
-struct History {
-    records: Vec<BuildRecord>,
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub(crate) struct History {
+    pub(crate) records: Vec<BuildRecord>,
 }
 pub fn history_dir() -> PathBuf {
     directories::ProjectDirs::from("com", "Zenodeon", "MacBookISOPatcher")
@@ -154,7 +157,7 @@ pub fn history_dir() -> PathBuf {
         .config_dir()
         .to_owned()
 }
-fn read_history(root: &Path) -> Result<History> {
+pub(crate) fn read_history(root: &Path) -> Result<History> {
     let path = root.join("build-history.json");
     safe_path(&path)?;
     match fs::read(&path) {
@@ -164,17 +167,22 @@ fn read_history(root: &Path) -> Result<History> {
         Err(e) => Err(e.into()),
     }
 }
-fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
+pub(crate) fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     safe_path(path)?;
     let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
-    fs::write(&temp, serde_json::to_vec_pretty(value)?)?;
+    {
+        use std::io::Write;
+        let mut file = OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        file.write_all(&serde_json::to_vec_pretty(value)?)?;
+        file.sync_all()?;
+    }
     if let Err(error) = fs::rename(&temp, path) {
         let _ = fs::remove_file(temp);
         return Err(error.into());
     }
     Ok(())
 }
-fn save_history(root: &Path, history: &History) -> Result<()> {
+pub(crate) fn save_history(root: &Path, history: &History) -> Result<()> {
     write_json(&root.join("build-history.json"), history)
 }
 fn request_record(job: &Path, req: &BuildRequest) -> Result<BuildRecord> {
@@ -311,7 +319,7 @@ fn reparse(meta: &fs::Metadata) -> bool {
         meta.file_type().is_symlink()
     }
 }
-fn same_path(a: &Path, b: &Path) -> Result<bool> {
+pub(crate) fn same_path(a: &Path, b: &Path) -> Result<bool> {
     let a = if a.exists() {
         a.canonicalize()?
     } else {
@@ -333,7 +341,7 @@ fn same_path(a: &Path, b: &Path) -> Result<bool> {
         Ok(a == b)
     }
 }
-fn validate_record(r: &BuildRecord) -> Result<()> {
+pub(crate) fn validate_record(r: &BuildRecord) -> Result<()> {
     uuid::Uuid::parse_str(&r.id)?;
     ensure!(r.source.is_absolute(), "Source ISO path must be absolute");
     for p in [&r.job, &r.workspace, &r.output] {
@@ -774,7 +782,7 @@ pub fn inspect_build(record: BuildRecord) -> BuildView {
     }
 }
 
-fn import_jobs(history: &mut History, workspace: &Path) -> Result<()> {
+pub(crate) fn import_jobs(history: &mut History, workspace: &Path) -> Result<()> {
     safe_path(workspace)?;
     if !workspace.exists() {
         return Ok(());
@@ -786,7 +794,7 @@ fn import_jobs(history: &mut History, workspace: &Path) -> Result<()> {
             .and_then(|v| v.to_str())
             .and_then(|s| s.strip_prefix("build-"))
             .is_some_and(|s| uuid::Uuid::parse_str(s).is_ok())
-            || history.records.iter().any(|r| r.job == path)
+            || history.records.iter().any(|r| same_path(&r.job, &path).unwrap_or(false))
         {
             continue;
         }
@@ -803,7 +811,7 @@ fn import_jobs(history: &mut History, workspace: &Path) -> Result<()> {
         if let Ok(bytes) = fs::read(path.join("build-state.json")) {
             if let Ok(saved) = serde_json::from_slice::<BuildRecord>(&bytes)
                 && saved.id == record.id
-                && saved.job == record.job
+                && same_path(&saved.job, &record.job).unwrap_or(false)
                 && validate_record(&saved).is_ok()
             {
                 record = saved;
@@ -1897,6 +1905,36 @@ mod tests {
         assert_eq!(format_bytes(1_000_000_000), "1.00 GB");
         assert_eq!(format_bytes(1_000_000), "1.0 MB");
         assert_eq!(format_bytes(1_000), "1.0 KB");
+    }
+
+    #[test]
+    fn relocated_build_can_be_inspected_and_deleted_with_ownership_checks() {
+        use crate::relocation::{self, Gate, Kind, Request};
+        let f = Fixture::new();
+        let mut record = f.record();
+        let new_output = record.workspace.join("generated.iso");
+        fs::rename(&record.output, &new_output).unwrap();
+        record.output = new_output;
+        record.published = Some(fingerprint(&record.output).unwrap());
+        let mut req: BuildRequest = serde_json::from_slice(&fs::read(record.job.join("job.json")).unwrap()).unwrap();
+        req.output = record.output.clone();
+        write_json(&record.job.join("job.json"), &req).unwrap();
+        write_json(&record.job.join("build-state.json"), &record).unwrap();
+        let history = f.history(vec![record.clone()]);
+        let settings = serde_json::json!({"cache":f.path("cache"),"work":record.workspace});
+        let settings_path = f.path("local/settings.json");
+        relocation::save_settings(&settings_path, &settings).unwrap();
+        let destination = f.path("moved-builds");
+        relocation::execute(Request { kind: Kind::Workspace, source: record.workspace, destination: destination.clone(), other_root: f.path("cache"), protected_sources: vec![record.source.clone()], settings_path, settings, history_root: history.clone(), gate: Gate { model_selection: true, before_build: true, idle: true } }, &|_| {}).unwrap();
+        let inventory = inventory_at(&history, &f.path("cache"), &destination).unwrap();
+        assert_eq!(inventory.builds.len(), 1);
+        assert!(inventory.builds[0].complete());
+        assert!(inventory.builds[0].can_delete());
+        let report = delete_builds_at(&history, &[record.id], &[], &|_| Ok(()), &|_| Ok(())).unwrap();
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert!(record.source.exists());
+        assert!(!destination.join("generated.iso").exists());
+        assert!(read_history(&history).unwrap().records.is_empty());
     }
 
     #[cfg(windows)]

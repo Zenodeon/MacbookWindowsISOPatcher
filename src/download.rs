@@ -95,36 +95,40 @@ fn fetch_checked(
             .write(true)
             .open(&part)?;
         let mut received = 0u64;
-        let mut last = Instant::now();
+        let started = Instant::now();
+        let mut rate = crate::transfer::Rate::default();
+        let mut ticks = tokio::time::interval(Duration::from_millis(200));
         loop {
             cancel.check()?;
-            let Some(bytes) = response.chunk().await? else {
+            let pending = response.chunk();
+            tokio::pin!(pending);
+            let next = loop {
+                tokio::select! {
+                    result = &mut pending => break result?,
+                    _ = ticks.tick() => emit(Event::Download {
+                        name: name.into(), received, total,
+                        bytes_per_second: rate.sample(started.elapsed(), received),
+                    }),
+                }
+            };
+            let Some(bytes) = next else {
                 break;
             };
             f.write_all(&bytes)?;
             received += bytes.len() as u64;
-            if last.elapsed() > Duration::from_millis(200) {
-                emit(Event::Download {
-                    name: name.into(),
-                    received,
-                    total,
-                });
-                last = Instant::now();
-            }
         }
         if let Some(total) = total {
             ensure!(received == total, "Incomplete download of {name}");
         }
         f.sync_all()?;
         drop(f);
+        emit(Event::Download {
+            name: name.into(), received, total,
+            bytes_per_second: rate.sample(started.elapsed(), received),
+        });
         stage(emit, "Verifying drivers", name);
         verify(&part, hash, cancel)?;
         fs::rename(&part, &path)?;
-        emit(Event::Download {
-            name: name.into(),
-            received,
-            total,
-        });
         Ok::<(), anyhow::Error>(())
     };
     let result = runtime.block_on(async {

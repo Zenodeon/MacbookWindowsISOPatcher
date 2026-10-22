@@ -10,6 +10,7 @@ mod pages;
 #[path = "ui_settings.rs"]
 mod storage_settings;
 use downloads::DriverDownloads;
+use macbook_iso_patcher::transfer::DownloadProgress;
 #[cfg(debug_assertions)]
 #[path = "ui_preview.rs"]
 mod preview;
@@ -77,12 +78,14 @@ enum Message {
     DriversDone(u64, Result<(), String>),
     Build(Event),
     StorageScanned(Result<macbook_iso_patcher::cleanup::Inventory, String>),
+    StorageMoveProgress(macbook_iso_patcher::relocation::Progress),
+    StorageMoved(macbook_iso_patcher::relocation::Kind, Result<macbook_iso_patcher::relocation::Outcome, String>),
     StorageCleaned(
         macbook_iso_patcher::cleanup::CleanupRequest,
         Result<macbook_iso_patcher::cleanup::CleanupReport, String>,
     ),
 }
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 struct Settings {
     work: String,
     cache: String,
@@ -133,7 +136,7 @@ pub struct PatcherApp {
     error: Option<ActionError>,
     stage: String,
     detail: String,
-    download: Option<(String, u64, Option<u64>)>,
+    download: Option<DownloadProgress>,
     build_progress: macbook_iso_patcher::progress::BuildStatus,
     last_build_error: Option<String>,
     last_build_workspace: Option<PathBuf>,
@@ -155,11 +158,22 @@ impl PatcherApp {
         appearance::install(ctx);
         let dirs = directories::ProjectDirs::from("com", "Zenodeon", "MacBookISOPatcher")
             .expect("User profile is required");
-        let settings_file = dirs.config_dir().join("settings.json");
-        let mut settings: Settings = std::fs::read(&settings_file)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        let settings_file = macbook_iso_patcher::relocation::settings_path();
+        let recovery = macbook_iso_patcher::relocation::recover(&settings_file);
+        let mut recovery_failed = recovery.is_err();
+        let mut startup_notice = match recovery {
+            Ok(notice) => notice,
+            Err(error) => Some(format!("Storage recovery failed. Restart after resolving this error: {error:#}")),
+        };
+        let loaded = macbook_iso_patcher::relocation::load_settings(&settings_file, &dirs.config_dir().join("settings.json"));
+        let mut settings: Settings = match loaded.and_then(|bytes| bytes.map(|bytes| serde_json::from_slice(&bytes).map_err(anyhow::Error::from)).transpose()) {
+            Ok(settings) => settings.unwrap_or_default(),
+            Err(error) => {
+                recovery_failed = true;
+                startup_notice = Some(format!("Could not load settings. The saved file was preserved: {error:#}"));
+                Settings::default()
+            },
+        };
         if settings.work.is_empty() {
             settings.work = dirs.data_local_dir().join("builds").display().to_string();
         }
@@ -187,7 +201,7 @@ impl PatcherApp {
             scroll_page: (Page::Model, false),
             model_selected: None,
             drivers: DriverDownloads::default(),
-            storage: storage_settings::StorageSettings::default(),
+            storage: storage_settings::StorageSettings::with_recovery_failure(recovery_failed),
             iso: String::new(),
             output: String::new(),
             inventory: None,
@@ -206,7 +220,7 @@ impl PatcherApp {
             installing_adk: false,
             adk_status: String::new(),
             window_fitted: false,
-            notice: None,
+            notice: startup_notice,
             cancel: Cancellation::default(),
             error: None,
             stage: String::new(),
@@ -233,12 +247,10 @@ impl PatcherApp {
         };
         app
     }
-    fn persist_settings(&self) {
-        if let Some(parent) = self.settings_file.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Ok(data) = serde_json::to_vec_pretty(&self.settings) {
-            let _ = std::fs::write(&self.settings_file, data);
+    fn persist_settings(&mut self) {
+        if self.storage.moving || self.storage.recovery_failed { return; }
+        if let Err(error) = macbook_iso_patcher::relocation::save_settings(&self.settings_file, &self.settings) {
+            self.notice = Some(format!("Could not save settings: {error:#}"));
         }
     }
     fn page_scroll(&mut self) -> egui::ScrollArea {
@@ -255,6 +267,29 @@ impl PatcherApp {
     fn consume(&mut self) {
         while let Ok(message) = self.receiver.try_recv() {
             match message {
+                Message::StorageMoveProgress(progress) => self.storage.move_progress = Some(progress),
+                Message::StorageMoved(kind, result) => {
+                    self.storage.moving = false;
+                    self.storage.move_progress = None;
+                    match result {
+                        Ok(outcome) => match serde_json::from_value::<Settings>(outcome.settings) {
+                            Ok(settings) => {
+                                self.settings = settings;
+                                if kind == macbook_iso_patcher::relocation::Kind::Cache {
+                                    self.drivers.reset_after_cleanup();
+                                } else {
+                                    self.last_build_workspace = None;
+                                }
+                                self.storage.notice = Some(outcome.warning.unwrap_or_else(|| "Folder moved. The new location is saved for future builds.".into()));
+                            },
+                            Err(error) => self.storage.error = Some(format!("Reload the app to read the moved storage settings: {error}")),
+                        },
+                        Err(error) => self.storage.error = Some(error),
+                    }
+                    self.storage.recovery_failed = macbook_iso_patcher::relocation::recovery_pending(&self.settings_file);
+                    self.storage.inventory = None;
+                    self.storage.needs_scan = true;
+                }
                 Message::StorageScanned(result) => {
                     self.storage.scanning = false;
                     match result {
@@ -295,7 +330,8 @@ impl PatcherApp {
                         name,
                         received,
                         total,
-                    } => self.drivers.progress = Some((name, received, total)),
+                        bytes_per_second,
+                    } => self.drivers.progress = Some(DownloadProgress::new(name, received, total, bytes_per_second)),
                     _ => (),
                 },
                 Message::DriversDone(id, result) => self.drivers.finish(id, result),
@@ -395,7 +431,8 @@ impl PatcherApp {
                             name,
                             received,
                             total,
-                        } => self.download = Some((name, received, total)),
+                            bytes_per_second,
+                        } => self.download = Some(DownloadProgress::new(name, received, total, bytes_per_second)),
                         Event::Log(text) => {
                             if self.logs.len() >= 4000 {
                                 self.logs.drain(..500);
@@ -433,6 +470,7 @@ impl PatcherApp {
         }
     }
     fn scan(&mut self, ctx: &egui::Context) {
+        if self.storage.moving || self.storage.recovery_failed { return; }
         if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
             return;
         }
@@ -457,6 +495,7 @@ impl PatcherApp {
         });
     }
     fn dismount(&mut self, ctx: &egui::Context, only_owned: bool) {
+        if self.storage.moving { return; }
         if self.busy || self.scanning || self.dismounting || (!only_owned && self.installing_adk) {
             return;
         }
@@ -481,6 +520,7 @@ impl PatcherApp {
         });
     }
     fn install_adk(&mut self, ctx: &egui::Context) {
+        if self.storage.moving || self.storage.recovery_failed { return; }
         if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
             return;
         }
@@ -539,6 +579,7 @@ impl PatcherApp {
         });
     }
     fn review_build(&mut self, ctx: &egui::Context) {
+        if self.storage.busy() || self.storage.recovery_failed { return; }
         match self.request().and_then(|req| engine::preflight(&req)) {
             Ok(()) => {
                 self.error = None;
@@ -564,7 +605,7 @@ impl PatcherApp {
             && !self.storage.busy()
     }
     fn begin(&mut self, ctx: &egui::Context) {
-        if self.storage.busy() {
+        if self.storage.busy() || self.storage.recovery_failed {
             return;
         }
         if self.busy || self.scanning || self.dismounting || self.installing_adk || self.closing {
@@ -756,9 +797,10 @@ impl PatcherApp {
             ui.label(RichText::new(&self.stage).strong());
             ui.label(RichText::new(&self.detail).size(13.0).color(muted(ui)));
             ui.add_space(4.0);
-            let transfer = self.download.as_ref().map(|(name, received, total)| {
+            let transfer = self.download.as_ref().map(|progress| {
+                let DownloadProgress { received, total, .. } = progress;
                 (
-                    format!("Downloading {name}"),
+                    format!("Downloading · {}", progress.rate_label()),
                     total.filter(|v| *v > 0).map(|total| {
                         (*received as f64 / total as f64 * 100.0).clamp(0.0, 100.0) as f32
                     }),
@@ -815,7 +857,7 @@ impl PatcherApp {
             if let Some(error)=&self.last_build_error {
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Copy error").clicked(){ui.ctx().copy_text(error.clone());}
-                    ui.label(RichText::new("Free space or change the workspace in setup, then retry.").size(12.0).color(muted(ui)));
+                    ui.label(RichText::new("Free space or change WorkingSpace in setup, then retry.").size(12.0).color(muted(ui)));
                 });
             }
         });
@@ -1136,7 +1178,7 @@ impl eframe::App for PatcherApp {
                             if Self::primary(ui,"Retry build",self.can_retry_build()){self.begin(ctx);}
                         } else if self.busy || self.page == Page::Build { self.build_iso_button(ui, false); }
                         if !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.confirm_dismount && !self.donation && !self.closing {
-                            if self.page == Page::Model && Self::primary(ui,"Start download & continue to Windows ISO", self.model().is_some() && !self.storage.busy()) {
+                            if self.page == Page::Model && Self::primary(ui,"Start download & continue to Windows ISO", self.model().is_some() && !self.storage.busy() && !self.storage.recovery_failed) {
                                 self.drivers.requested_model = self.model().map(|model| model.id);
                                 self.ensure_driver_downloads(ctx);
                                 self.page = Page::Iso;
@@ -1526,6 +1568,7 @@ mod drop_tests {
                     name: "package".into(),
                     received: 50,
                     total: Some(100),
+                    bytes_per_second: Some(10),
                 },
                 terminal,
             ] {
