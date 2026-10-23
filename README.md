@@ -27,10 +27,10 @@ other models are still in progress.
 | --- | --- | --- | --- |
 | MacBook Pro 13-inch 2015 | Pending | Model-dependent | Coming soon |
 | MacBook Pro 15-inch 2015 | Pending | Model-dependent | Coming soon |
-| MacBook Pro 13-inch 2016 · A1708 · No Touch Bar | `MacBookPro13,1` | Iris 540 | **Ready for testing** · Unverified |
-| MacBook Pro 13-inch 2016 · A1706 · Touch Bar | `MacBookPro13,2` | Iris 550 | **Hardware Verified (headless)** |
-| MacBook Pro 15-inch 2016 · A1707 · Touch Bar | `MacBookPro13,3` | Intel HD 530 + Radeon Pro | **Ready for testing** · Unverified |
-| MacBook Pro 13-inch 2017 · A1706 · Touch Bar | `MacBookPro14,2` | Iris Plus 650 | In progress · Available to test · Unverified |
+| MacBook Pro 13-inch 2016 · A1708 · No Touch Bar | `MacBookPro13,1` | Iris 540 | Ready for testing · Unverified |
+| MacBook Pro 13-inch 2016 · A1706 · Touch Bar | `MacBookPro13,2` | Iris 550 | Hardware Verified (headless) |
+| MacBook Pro 15-inch 2016 · A1707 · Touch Bar | `MacBookPro13,3` | Intel HD 530 + Radeon Pro | Ready for testing · Unverified |
+| MacBook Pro 13-inch 2017 · A1706 · Touch Bar | `MacBookPro14,2` | Iris Plus 650 | Ready for testing · Unverified |
 | MacBook Pro 13-inch 2017 · No Touch Bar | Pending | Model-dependent | Coming soon |
 | MacBook Pro 15-inch 2017 | Pending | Model-dependent | Coming soon |
 | MacBook Pro 2018-2020 · Intel | Pending | Model-dependent | Coming soon |
