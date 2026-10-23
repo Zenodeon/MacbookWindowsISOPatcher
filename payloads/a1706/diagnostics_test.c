@@ -52,6 +52,10 @@ int wmain(int argc,wchar_t **argv) {
      join(a,usb,L"MacBookPatcher-Logs\\A1706-2017\\test-session\\timeline.jsonl");assert(ordinary(a,0));
      join(a,usb,L"MacBookPatcher-Logs\\A1706\\test-session\\timeline.jsonl");assert(ordinary(a,0));
      assert(select_profile(L"a1706"));watch_command(L"logger.exe",command,P*2);assert(!wcsstr(command,L"--profile"));}
+    {const wchar_t *profiles[]={L"a1708-2016",L"a1707-2016"};
+     const wchar_t *folders[]={L"MacBookPatcher-Logs\\A1708-2016\\test-session\\timeline.jsonl",L"MacBookPatcher-Logs\\A1707-2016\\test-session\\timeline.jsonl"};int i;
+     for(i=0;i<2;++i){wchar_t command[P*2];assert(select_profile(profiles[i]));watch_command(L"logger.exe",command,P*2);assert(wcsstr(command,profiles[i]));sync_usb();join(a,usb,folders[i]);assert(ordinary(a,0));}
+     assert(select_profile(L"a1706"));}
     /* Tail bound and budget: sources stay outside the local spool. */
     join(a,argv[1],L"large.log");large=(char*)malloc(CAP+128);assert(large);memset(large,'a',CAP+128);large[CAP+127]='Z';
     assert(bytes(a,large,CAP+128,0,CAP+128));free(large);
@@ -76,6 +80,8 @@ int wmain(int argc,wchar_t **argv) {
      join(a,spool,L"current.txt");assert(bytes(a,L"..\\escape",18,0,128));assert(!context(0));
      assert(select_profile(L"a1706-2017"));assert(context(1));wcscpy_s(first,96,session);assert(context(0)&&!wcscmp(first,session));
      assert(context(2));assert(wcscmp(first,session));assert(context(0)&&!wcscmp(first,session));
+     {const wchar_t *profiles[]={L"a1708-2016",L"a1707-2016"};int i;
+      for(i=0;i<2;++i){assert(select_profile(profiles[i]));assert(context(1));wcscpy_s(first,96,session);assert(context(0)&&!wcscmp(first,session));assert(context(2));assert(wcscmp(first,session));assert(context(0)&&!wcscmp(first,session));}}
      assert(select_profile(L"a1706"));assert(!context(0));}
     puts("Native collector fixture cases passed");return 0;
 }

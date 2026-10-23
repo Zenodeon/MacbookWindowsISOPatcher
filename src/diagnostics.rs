@@ -29,7 +29,8 @@ pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
         "code_revision": option_env!("PATCHER_CODE_REVISION").unwrap_or("unknown"),
         "code_dirty": option_env!("PATCHER_CODE_DIRTY").map(|v| v == "true"),
         "model_profile": model.id, "model_identifier": model.identifier, "model_name": model.name,
-        "graphics": model.details, "intel_driver": crate::driver_prefetch::intel_graphics(&req.model)?.version,
+        "graphics": model.details, "intel_driver": crate::driver_prefetch::intel_graphics(&req.model).ok().map(|p| p.version),
+        "graphics_driver": {"vendor": if req.model == "a1707-2016" {"AMD"} else {"Intel"}, "version": if req.model == "a1707-2016" {crate::amd::VERSION} else {crate::driver_prefetch::intel_graphics(&req.model)?.version}},
         "source_iso_filename": req.inventory.iso.file_name().unwrap_or_default().to_string_lossy(),
         "windows_images": req.selected_images()?, "setup_image": req.inventory.setup_image,
         "reference_windows": (req.model==crate::domain::MODEL_ID).then_some("19045.3803 Professional"), "reference_setup": (req.model==crate::domain::MODEL_ID).then_some("19041.3803"),
@@ -45,10 +46,10 @@ pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
         include_bytes!("../payloads/a1706/MacBookPatcher-Logging.enabled"),
     )?;
     let launcher = include_str!("../payloads/a1706/Collect setup logs.cmd");
-    let launcher = if req.model == "a1706-2017" {
+    let launcher = if req.model != crate::domain::MODEL_ID {
         launcher.replace(
             "MacBookSetupLogger.exe --collect",
-            "MacBookSetupLogger.exe --profile a1706-2017 --collect",
+            &format!("MacBookSetupLogger.exe --profile {} --collect", req.model),
         )
     } else {
         launcher.into()

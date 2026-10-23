@@ -38,6 +38,16 @@ fn main() {
         ("a1706cue", false, vec!["user32.lib", "winmm.lib"]),
         ("a1706gpu", false, vec!["cfgmgr32.lib"]),
         ("a1706gpu2017", false, vec!["cfgmgr32.lib", "advapi32.lib"]),
+        (
+            "MacBookSetupGPU",
+            false,
+            vec!["cfgmgr32.lib", "advapi32.lib"],
+        ),
+        (
+            "gpu_profiles_test",
+            false,
+            vec!["cfgmgr32.lib", "advapi32.lib"],
+        ),
         ("gpu2017_test", false, vec!["cfgmgr32.lib", "advapi32.lib"]),
         (
             "MacBookSetupLogger",

@@ -28,9 +28,14 @@ pub fn installation_guide(model: &str) -> String {
     }
     text.push_str(&format!("Ventoy: {VENTOY_URL}\r\nDesktop iTunes: {ITUNES_URL}\r\nApple update guidance: {APPLE_UPDATE_URL}\r\n\r\n"));
     if let Some(recipe) = crate::setup_recipe::SetupRecipe::for_model(model) {
-        let graphics =
-            crate::driver_prefetch::intel_graphics(model).expect("Setup profile graphics");
-        text.push_str(&format!("A1706: keep the included signed {} graphics driver {}. Do not run the old IntelHDGraphics64 installer. For boot/setup failures, attach the session folder from MacBookPatcher-Logs/{} on the marked USB and your saved build log. Prepare USB logging using the app or copy MacBookPatcher-Logging.enabled from Support to the USB root. Automatic collection ends at reboot; run Support/Collect setup logs.cmd to recover saved logs later.\r\n",recipe.graphics(),graphics.version,recipe.log_folder()));
+        let version = if model == "a1707-2016" {
+            crate::amd::VERSION
+        } else {
+            crate::driver_prefetch::intel_graphics(model)
+                .expect("Setup profile graphics")
+                .version
+        };
+        text.push_str(&format!("Keep the included signed {} graphics driver {}. Do not run the old IntelHDGraphics64 installer. For boot/setup failures, attach the session folder from MacBookPatcher-Logs/{} on the marked USB and your saved build log. Prepare USB logging using the app or copy MacBookPatcher-Logging.enabled from Support to the USB root. Automatic collection ends at reboot; run Support/Collect setup logs.cmd to recover saved logs later.\r\n",recipe.graphics(),version,recipe.log_folder()));
         if model == MODEL_ID {
             text.push_str("Older ISOs use A1706Logs.\r\n");
         }
@@ -54,7 +59,13 @@ pub fn issue_draft(model: &ModelProfile, images: &[&Image]) -> String {
         .join(", ");
     let graphics = crate::driver_prefetch::intel_graphics(model.id)
         .map(|profile| format!("{}; Intel driver {}", model.details, profile.version))
-        .unwrap_or_else(|_| format!("{}; Apple Boot Camp AMD graphics", model.details));
+        .unwrap_or_else(|_| {
+            format!(
+                "{}; Apple Boot Camp AMD driver {}",
+                model.details,
+                crate::amd::VERSION
+            )
+        });
     let mut body = format!(
         "## Build details\nSelected Mac model: {}\nModel identifier: {}\nModel profile: {}\nWindows editions/build: {}\nGraphics: {}\nApp version: {}\n\n## What happened?\nDescribe the failure and which installation step you reached. If your actual Mac model differs from the selection above, include it here.\n\n## Logs\nAttach the saved build log and any Windows Setup/startup logs.\n",
         model.name,

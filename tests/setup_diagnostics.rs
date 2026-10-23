@@ -155,6 +155,47 @@ fn iso_support_payload_contains_metadata_and_copyable_marker() {
         fs::read(dir.join(macbook_iso_patcher::diagnostics::MARKER)).unwrap(),
         include_bytes!("../payloads/a1706/MacBookPatcher-Logging.enabled")
     );
+    for (id, identifier, version, folder) in [
+        (
+            "a1708-2016",
+            "MacBookPro13,1",
+            "21.20.16.5174",
+            "A1708-2016",
+        ),
+        ("a1707-2016", "MacBookPro13,3", "21.19.128.7", "A1707-2016"),
+    ] {
+        let mut request = req.clone();
+        request.model = id.into();
+        let dir = root.join(folder);
+        macbook_iso_patcher::diagnostics::write_support(&dir, &request, &root.join("build-model"))
+            .unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(dir.join("build-manifest.json")).unwrap()).unwrap();
+        assert_eq!(manifest["model_identifier"], identifier);
+        assert_eq!(manifest["graphics_driver"]["version"], version);
+        if id == "a1707-2016" {
+            assert!(manifest["intel_driver"].is_null());
+            assert_eq!(manifest["graphics_driver"]["vendor"], "AMD");
+        }
+        assert_eq!(manifest["log_folder"], folder);
+        let launcher = fs::read_to_string(dir.join("Collect setup logs.cmd")).unwrap();
+        assert!(launcher.contains(&format!("--profile {id} --collect")));
+        let guide = macbook_iso_patcher::completion::installation_guide(id);
+        assert!(guide.contains(version) && guide.contains(folder));
+        let model = macbook_iso_patcher::models::MODEL_PROFILES
+            .iter()
+            .find(|p| p.id == id)
+            .unwrap();
+        let url =
+            reqwest::Url::parse(&macbook_iso_patcher::completion::issue_draft(model, &[])).unwrap();
+        let body = url
+            .query_pairs()
+            .find(|(k, _)| k == "body")
+            .unwrap()
+            .1
+            .into_owned();
+        assert!(body.contains(identifier) && body.contains(version) && body.contains(folder));
+    }
     let mut req2017 = req.clone();
     req2017.model = "a1706-2017".into();
     let dir2017 = root.join("Support2017");
@@ -199,4 +240,17 @@ fn iso_support_payload_contains_metadata_and_copyable_marker() {
     }
     assert!(root.starts_with(std::env::temp_dir()));
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+#[cfg(windows)]
+fn gpu_2016_profiles_production_paths() {
+    let output = std::process::Command::new(concat!(env!("OUT_DIR"), "/gpu_profiles_test.exe"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

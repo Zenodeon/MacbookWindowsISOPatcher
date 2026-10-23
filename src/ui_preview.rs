@@ -256,7 +256,8 @@ impl PatcherApp {
             | "build-failure-popup"
             | "complete" => ("review-ready", 0),
             "complete-2017" | "complete-2017-usb" | "review-2017" => ("review-ready", 3),
-            "complete-unverified" => ("review-ready", 1),
+            "complete-unverified" | "complete-a1708" => ("review-ready", 1),
+            "complete-a1707" | "review-a1707" => ("review-ready", 2),
             other if other.starts_with("complete-usb-") => ("review-ready", 0),
             "review-unverified-download" => ("review-ready", 1),
             other => (other, 0),

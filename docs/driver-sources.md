@@ -114,6 +114,34 @@ shared packages, must match their SHA-256 pin on every reuse.
 
 Catalog: https://swscan.apple.com/content/catalogs/others/index-11-10.15-10.14-10.13-10.12-10.11-10.10-10.9-mountainlion-lion-snowleopard-leopard.merged-1.sucatalog
 
+## 2016 external-display testing recipes
+
+MacBookPro13,1 now imports the existing signed 21.20.16.5174 Intel package into
+Setup as well as the selected installed-Windows images. It targets Iris 540
+(8086:1926), with the 13,2-style kernel copy, demand-start igfx and BasicDisplay
+enabled. The original 13,2 recipe is unchanged.
+
+MacBookPro13,3 uses the existing Apple 041-88737 Radeon package:
+
+- Display INF: `C0307252.inf`; catalog: `C0307252.CAT`.
+- Driver version: **21.19.128.7**, dated September 14, 2016 in the pinned INF.
+- Pro 460: `1002:67EF`, Apple subsystem `0160106B`, revision `C0`.
+- Pro 455: `1002:67EF`, Apple subsystem `0166106B`, revision `C7`.
+- Pro 450: `1002:67EF`, Apple subsystem `0167106B`, revision `EF`.
+- Windows 10 uses `ati2mtag_Polaris11DS`; the associated display service is
+  `amdkmdap` (`atikmpag.sys`), with supporting `amdkmdag` (`atikmdag.sys`). Both
+  are demand-start. Preserve their INF settings and resolve the actual signed
+  DriverStore kernel paths, including nested directories.
+- Readiness must identify the selected Radeon device, with no device problem
+  and the expected service/version. It must not restart Intel HD 530.
+- Setup receives the signed display INF. Installed Windows retains the bundled
+  AMD driver packages. Do not install Radeon Settings into WinPE or add a
+  separate Intel graphics package to this profile.
+
+Both recipes are Unverified and require direct-adapter hardware testing.
+Matching a signed INF establishes package support, not working external output
+or successful Windows installation on the Mac.
+
 ## Build tools
 
 7-Zip has an official installation link. The ADK button downloads Microsoft's

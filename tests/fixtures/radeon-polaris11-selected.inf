@@ -1,0 +1,492 @@
+; Selected sections from pinned Apple 041-88737, parser fixture only.
+[Version]
+Signature="$Windows NT$"
+Provider=%ATI%
+ClassGUID={4D36E968-E325-11CE-BFC1-08002BE10318}
+Class=Display
+DriverVer=09/14/2016, 21.19.128.7
+;;LayoutFile=layout.inf
+CatalogFile=C0307252.CAT
+
+[ATI.Mfg.NTamd64.10.0...14310]
+"%AMD67EF.1%" = ati2mtag_Polaris11DS, PCI\VEN_1002&DEV_67EF&SUBSYS_0160106B&REV_C0
+"%AMD67EF.2%" = ati2mtag_Polaris11DS, PCI\VEN_1002&DEV_67EF&SUBSYS_0166106B&REV_C7
+"%AMD67EF.3%" = ati2mtag_Polaris11DS, PCI\VEN_1002&DEV_67EF&SUBSYS_0167106B&REV_EF
+"%AMDKFD%" = amdkfd_HSA_NTamd64, video\AMDHSA
+"%AMD9400.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9400
+"%AMD9403.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9403
+"%AMD9405.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9405
+"%AMD940A.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_940A
+"%AMD940B.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_940B
+"%AMD940F.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_940F
+"%AMD9440.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9440
+"%AMD9441.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9441
+"%AMD9442.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9442
+"%AMD9443.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9443
+"%AMD9444.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9444
+"%AMD944A.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_944A
+"%AMD944C.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_944C
+"%AMD944E.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_944E
+"%AMD9450.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9450
+"%AMD9452.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9452
+"%AMD9456.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9456
+"%AMD945A.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_945A
+"%AMD9460.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9460
+"%AMD9462.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9462
+"%AMD9480.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9480
+"%AMD9488.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9488
+"%AMD9490.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9490
+"%AMD9491.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9491
+"%AMD9495.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9495
+"%AMD9498.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9498
+"%AMD949C.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_949C
+"%AMD949E.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_949E
+"%AMD949F.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_949F
+"%AMD94A0.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94A0
+"%AMD94A1.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94A1
+"%AMD94A3.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94A3
+"%AMD94B3.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94B3
+"%AMD94B4.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94B4
+"%AMD94B5.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94B5
+"%AMD94C1.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94C1
+"%AMD94C3.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94C3
+"%AMD94C4.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94C4
+"%AMD94C6.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94C6
+"%AMD94C7.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94C7
+"%AMD94C8.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94C8
+"%AMD94C9.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94C9
+"%AMD94CB.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94CB
+"%AMD94CC.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_94CC
+"%AMD9501.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9501
+"%AMD9504.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9504
+"%AMD9505.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9505
+"%AMD9506.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9506
+"%AMD9507.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9507
+"%AMD9508.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9508
+"%AMD9509.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9509
+"%AMD950F.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_950F
+"%AMD9511.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9511
+"%AMD9513.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9513
+"%AMD9515.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9515
+"%AMD9519.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9519
+"%AMD9540.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9540
+"%AMD954F.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_954F
+"%AMD9552.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9552
+"%AMD9553.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9553
+"%AMD9555.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9555
+"%AMD9557.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9557
+"%AMD955F.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_955F
+"%AMD9581.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9581
+"%AMD9583.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9583
+"%AMD9586.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9586
+"%AMD9587.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9587
+"%AMD9588.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9588
+"%AMD9589.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9589
+"%AMD958A.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_958A
+"%AMD958B.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_958B
+"%AMD958C.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_958C
+"%AMD958D.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_958D
+"%AMD9591.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9591
+"%AMD9593.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9593
+"%AMD9596.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9596
+"%AMD9598.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9598
+"%AMD95C0.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95C0
+"%AMD95C2.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95C2
+"%AMD95C4.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95C4
+"%AMD95C5.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95C5
+"%AMD95C6.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95C6
+"%AMD95C9.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95C9
+"%AMD95CC.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95CC
+"%AMD95CD.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95CD
+"%AMD95CE.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95CE
+"%AMD95CF.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_95CF
+"%AMD9610.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9610
+"%AMD9611.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9611
+"%AMD9612.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9612
+"%AMD9613.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9613
+"%AMD9614.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9614
+"%AMD9615.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9615
+"%AMD9616.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9616
+"%AMD9710.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9710
+"%AMD9712.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9712
+"%AMD9713.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9713
+"%AMD9714.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9714
+"%AMD9715.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9715
+"%AMD6700.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6700
+"%AMD6701.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6701
+"%AMD6702.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6702
+"%AMD6703.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6703
+"%AMD6704.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6704
+"%AMD6705.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6705
+"%AMD6706.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6706
+"%AMD6707.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6707
+"%AMD6708.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6708
+"%AMD6709.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6709
+"%AMD6718.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6718
+"%AMD6719.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6719
+"%AMD671C.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_671C
+"%AMD671D.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_671D
+"%AMD671F.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_671F
+"%AMD6720.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6720
+"%AMD6721.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6721
+"%AMD6722.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6722
+"%AMD6723.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6723
+"%AMD6724.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6724
+"%AMD6725.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6725
+"%AMD6726.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6726
+"%AMD6727.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6727
+"%AMD6728.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6728
+"%AMD6729.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6729
+"%AMD6738.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6738
+"%AMD6739.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6739
+"%AMD673E.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_673E
+"%AMD6740.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6740
+"%AMD6741.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6741
+"%AMD6742.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6742
+"%AMD6743.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6743
+"%AMD6744.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6744
+"%AMD6746.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6746
+"%AMD6747.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6747
+"%AMD6748.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6748
+"%AMD6749.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6749
+"%AMD674A.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_674A
+"%AMD6750.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6750
+"%AMD6751.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6751
+"%AMD6758.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6758
+"%AMD6759.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6759
+"%AMD675B.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_675B
+"%AMD675D.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_675D
+"%AMD675F.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_675F
+"%AMD6760.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6760
+"%AMD6761.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6761
+"%AMD6762.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6762
+"%AMD6763.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6763
+"%AMD6764.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6764
+"%AMD6765.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6765
+"%AMD6766.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6766
+"%AMD6767.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6767
+"%AMD6768.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6768
+"%AMD6770.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6770
+"%AMD6771.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6771
+"%AMD6772.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6772
+"%AMD6778.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6778
+"%AMD6779.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6779
+"%AMD677B.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_677B
+"%AMD6840.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6840
+"%AMD6841.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6841
+"%AMD6842.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6842
+"%AMD6843.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6843
+"%AMD6849.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6849
+"%AMD684C.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_684C
+"%AMD6850.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6850
+"%AMD6858.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6858
+"%AMD6859.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6859
+"%AMD6880.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6880
+"%AMD6888.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6888
+"%AMD6889.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6889
+"%AMD688A.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_688A
+"%AMD688C.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_688C
+"%AMD688D.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_688D
+"%AMD6898.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6898
+"%AMD6899.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_6899
+"%AMD689B.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_689B
+"%AMD689C.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_689C
+"%AMD689D.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_689D
+"%AMD689E.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_689E
+"%AMD68A0.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68A0
+"%AMD68A1.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68A1
+"%AMD68A8.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68A8
+"%AMD68A9.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68A9
+"%AMD68B0.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68B0
+"%AMD68B8.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68B8
+"%AMD68B9.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68B9
+"%AMD68BA.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68BA
+"%AMD68BE.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68BE
+"%AMD68BF.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68BF
+"%AMD68C0.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68C0
+"%AMD68C1.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68C1
+"%AMD68C7.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68C7
+"%AMD68C8.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68C8
+"%AMD68C9.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68C9
+"%AMD68D8.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68D8
+"%AMD68D9.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68D9
+"%AMD68DA.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68DA
+"%AMD68DE.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68DE
+"%AMD68E0.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68E0
+"%AMD68E1.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68E1
+"%AMD68E4.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68E4
+"%AMD68E5.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68E5
+"%AMD68E8.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68E8
+"%AMD68E9.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68E9
+"%AMD68F1.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68F1
+"%AMD68F2.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68F2
+"%AMD68F8.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68F8
+"%AMD68F9.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68F9
+"%AMD68FA.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68FA
+"%AMD68FE.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_68FE
+"%AMD964E.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_964E
+"%AMD964F.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_964F
+"%AMD9900.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9900
+"%AMD9901.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9901
+"%AMD9903.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9903
+"%AMD9904.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9904
+"%AMD9905.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9905
+"%AMD9906.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9906
+"%AMD9907.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9907
+"%AMD9908.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9908
+"%AMD9909.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9909
+"%AMD990A.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_990A
+"%AMD990B.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_990B
+"%AMD990C.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_990C
+"%AMD990D.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_990D
+"%AMD990E.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_990E
+"%AMD990F.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_990F
+"%AMD9910.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9910
+"%AMD9913.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9913
+"%AMD9917.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9917
+"%AMD9918.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9918
+"%AMD9919.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9919
+"%AMD9990.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9990
+"%AMD9991.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9991
+"%AMD9992.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9992
+"%AMD9993.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9993
+"%AMD9994.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9994
+"%AMD9995.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9995
+"%AMD9996.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9996
+"%AMD9997.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9997
+"%AMD9998.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9998
+"%AMD9999.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_9999
+"%AMD999A.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_999A
+"%AMD999B.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_999B
+"%AMD999C.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_999C
+"%AMD999D.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_999D
+"%AMD99A0.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_99A0
+"%AMD99A2.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_99A2
+"%AMD99A4.1%" = ati2mtag_Legacy, PCI\VEN_1002&DEV_99A4
+;
+; General installation section
+;
+
+[ati2mtag_Proxy_DS]
+ServiceType    = 1                  ; SERVICE_KERNEL_DRIVER
+StartType      = 3                  ; SERVICE_DEMAND_START
+ErrorControl   = 0                  ; SERVICE_ERROR_IGNORE
+LoadOrderGroup = Video
+ServiceBinary  = %13%\atikmpag.sys
+[ati2mtag_KMD_DS]
+AddReg = ati2mtag_ServiceSettings
+ServiceType    = 1                  ; SERVICE_KERNEL_DRIVER
+StartType      = 3                  ; SERVICE_DEMAND_START
+ErrorControl   = 0                  ; SERVICE_ERROR_IGNORE
+LoadOrderGroup = Video
+ServiceBinary  = %13%\atikmdag.sys
+[ati2mtag_ServiceSettings]
+HKR,, PowerXpressLoad, %REG_DWORD%, 0xFFFFFFFF
+[ati2mtag_Polaris11DS.Services]
+AddService = amdkmdap, 0x00000002, ati2mtag_Proxy_DS, R300_EventLog_Inst
+AddService = amdkmdag, 0x00000000, ati2mtag_KMD_DS, R300_EventLog_Inst
+DelService = Ati External Event Utility
+AddService = AMD External Events Utility, 0x00000000, Ati2evxx_Generic_Service_Inst, Ati2evxx_EventLog_Inst, APPLICATION, ATIeRecord
+
+[ati2mtag_Polaris11DS]
+FeatureScore=D1
+CopyFiles=DS.Graphics
+CopyFiles=DS.System32
+CopyFiles=DS.SysWow64
+CopyFiles=R300.MFTHEVC
+CopyFiles=R300.AMDKMPFD
+CopyFiles=R300.AMDKMAFD
+CopyFiles=R300.MFTENC
+CopyFiles=R300.MFTDEC
+CopyFiles=R300.MFTMJPEG
+AddReg = ati2mtag_SoftwareDeviceSettings
+AddReg = ati2mtag_AI_SoftwareDeviceSettings
+AddReg = ati2mtag_Polaris11_SoftwareDeviceSettings
+AddReg = ati2mtag_Mobile_SoftwareDeviceSettings
+AddReg = ati2mtag_Post_EG
+AddReg = ati2mtag_Proxy
+AddReg = ati2mtag_Polaris11_PX
+AddReg = ati2mtag_PX_DGPU_Only_2ID
+AddReg = ati2mtag_DSUMD
+DelReg = ati2mtag_RemoveDeviceSettings
+DelFiles = DS.DelFiles
+DelFiles = DS.DelFilesWow
+RegisterDlls = TMM.RegisterDlls
+RegisterDlls = MFTENCRegister
+RegisterDlls = MFTDECRegister
+RegisterDlls = MFTMJPEGRegister
+RegisterDlls = MFTHEVCRegister
+
+[ati2mtag_Polaris11DS.Coinstallers]
+AddReg=Coinstaller_AddReg
+CopyFiles=Coinstaller_CopyFiles
+
+[DS.Graphics]
+atio6axx.dll
+atioglxx.dll
+atidxx32.dll
+atidxx64.dll
+ATIODCLI.exe
+ATIODE.exe
+aticalcl.dll
+aticalcl64.dll
+aticaldd.dll
+aticaldd64.dll
+aticalrt.dll
+aticalrt64.dll
+atig6pxx.dll
+atig6txx.dll
+atigktxx.dll
+atiglpxx.dll
+atikmpag.sys
+atiu9p64.dll
+atiu9pag.dll
+atiuxp64.dll
+atiuxpag.dll
+coinst_16.40.dll
+aticfx32.dll
+aticfx64.dll
+amdocl.dll
+amdocl64.dll
+amdhdl32.dll
+amdhdl64.dll
+amdhsars.dll
+amdmantle32.dll
+amdmantle64.dll
+ativce03.dat
+ativvaxy_vi.dat
+ativvaxy_vi_nd.dat
+ativvaxy_cz_nd.dat
+amde31a.dat
+ativvaxy_FJ.dat
+ativvaxy_FJ_nd.dat
+amdxc32.dll
+amdxc64.dll
+amdocl12cl.dll
+amdocl12cl64.dll
+amdicdxx.dat
+atiicdxx.dat
+ativvaxy_el_nd.dat
+amde34a.dat
+ativvaxy_stn_nd.dat
+amde34b.dat
+amdoclvp9lib32.dll
+amdoclvp9lib64.dll
+amduve32.dll
+amduve64.dll
+amdave32.dll
+amdave64.dll
+amdmmcl.dll
+amdmmcl6.dll
+atikmdag.sys
+atitmm64.dll
+atiumd64.dll
+atiumd6a.dll
+atiumdag.dll
+atiumdva.dll
+ativce02.dat
+ativvaxy_cik.dat
+ativvaxy_cik_nd.dat
+
+[DS.System32]
+atieclxx.exe,,,0x00004000
+atiesrxx.exe,,,0x00004000
+atidemgy.dll,,,0x00004000
+ati2erec.dll
+atig6txx.dll,,,0x00004000
+atiapfxx.blb
+OpenCL.dll,AMD_OpenCL64.dll,,0x00004000
+clinfo.exe,,,0x00004000
+amdhcp64.dll,,,0x00004000
+hsa-thunk64.dll,,,0x00004000
+kapp_ci.sbin,,,0x00004000
+kapp_si.sbin,,,0x00004000
+samu_krnl_ci.sbin,,,0x00004000
+samu_krnl_isv_ci.sbin,,,0x00004000
+mantle64.dll,,,0x00004000
+mantleaxl64.dll,,,0x00004000
+amdgfxinfo64.dll,,,0x00004000
+atieah64.exe,,,0x00004000
+detoured.dll,detoured64.dll,,0x00004000
+amdlvr64.dll,,,0x00004000
+amdvlk64.dll,,,0x00004000
+amd-vulkan64.json,,,0x00004000
+GameManager64.dll,,,0x00004000
+amdmiracast.dll,,,0x00004000
+dgtrayicon.exe,,,0x00004000
+AMDKernelEvents.man,AMDKernelEvents.mc,,0x00004000
+amfrt64.dll,,,0x00004000
+amdmcl64.dll,,,0x00004000
+amdave64.dll,,,0x00004000
+amdpcom64.dll,,,0x00004000
+atiadlxx.dll,,,0x00004000
+atiapfxx.exe
+aticfx64.dll,aticfxstub64.dll,,0x00004000
+atidxx64.dll,atidxxstub64.dll,,0x00004000
+atimpc64.dll,,,0x00004000
+atimuixx.dll,,,0x00004000
+atisamu64.dll,,,0x00004000
+atiumd6a.cap,,,0x00004000
+ativvsva.dat,,,0x00004000
+ativvsvl.dat,,,0x00004000
+
+[DS.SysWow64]
+atigktxx.dll,,,0x00004000
+atiapfxx.blb
+OpenCL.dll,AMD_OpenCL32.dll,,0x00004000
+amdhcp32.dll,,,0x00004000
+hsa-thunk.dll,,,0x00004000
+mantle32.dll,,,0x00004000
+mantleaxl32.dll,,,0x00004000
+amdgfxinfo32.dll,,,0x00004000
+atieah32.exe,,,0x00004000
+detoured.dll,detoured32.dll,,0x00004000
+amdlvr32.dll,,,0x00004000
+amdvlk32.dll,,,0x00004000
+amd-vulkan32.json,,,0x00004000
+GameManager32.dll,,,0x00004000
+amfrt32.dll,,,0x00004000
+amdmcl32.dll,,,0x00004000
+amdave32.dll,,,0x00004000
+amdpcom32.dll,,,0x00004000
+atiadlxx.dll, atiadlxy.dll,,0x00004000
+atiadlxy.dll,,,0x00004000
+aticfx32.dll,aticfxstub32.dll,,0x00004000
+atidxx32.dll,atidxxstub32.dll,,0x00004000
+atimpc32.dll,,,0x00004000
+atisamu32.dll,,,0x00004000
+atiumdva.cap,,,0x00004000
+ativvsva.dat
+ativvsvl.dat
+
+;
+;Register COM object
+;
+[R300.MFTHEVC]
+AMDh265Enc32.dll,,,0x00004000
+AMDh265Enc64.dll,,,0x00004000
+[R300.AMDKMPFD]
+amdkmpfd.stz
+amdkmpfd.itz
+amdkmpfd.ctz
+
+[R300.AMDKMAFD]
+amdkmafd.stz
+amdkmafd.itz
+amdkmafd.ctz
+[R300.MFTENC]
+AMDh264Enc32.dll,,,0x00004000
+AMDh264Enc64.dll,,,0x00004000
+
+[R300.MFTDEC]
+AMDhwDecoder_32.dll,,,0x00004000
+AMDhwDecoder_64.dll,,,0x00004000
+
+[R300.MFTMJPEG]
+amf-mft-mjpeg-decoder32.dll,,,0x00004000
+amf-mft-mjpeg-decoder64.dll,,,0x00004000
+mcl32.dll,,,0x00004000
+mcl64.dll,,,0x00004000
+
+[Coinstaller_CopyFiles]
+coinst_16.40.dll,,,0x00004000

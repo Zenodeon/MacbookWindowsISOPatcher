@@ -16,12 +16,16 @@
 #define MAGIC "MacBookWindowsISOPatcher setup logging v1"
 #define P 1024
 static int profile2017;
+static int profile2016;
 static int select_profile(const wchar_t *profile) {
+    profile2016=0;
+    if(!wcscmp(profile,L"a1708-2016")){profile2017=0;profile2016=1;return 1;}
+    if(!wcscmp(profile,L"a1707-2016")){profile2017=0;profile2016=2;return 1;}
     if(!wcscmp(profile,L"a1706")){profile2017=0;return 1;}
     if(!wcscmp(profile,L"a1706-2017")){profile2017=1;return 1;}
     return 0;
 }
-static const wchar_t *profile_prefix(void) {return profile2017?L"--profile a1706-2017 ":L"";}
+static const wchar_t *profile_prefix(void) {return profile2016==1?L"--profile a1708-2016 ":profile2016==2?L"--profile a1707-2016 ":profile2017?L"--profile a1706-2017 ":L"";}
 static int profile_arguments(int *argc,wchar_t ***argv) {
     if(*argc>=2&&!wcscmp((*argv)[1],L"--profile")) {
         if(*argc<3||!select_profile((*argv)[2]))return 0;
@@ -220,7 +224,7 @@ static void sync_usb(void) {
     wchar_t root[P],p[P],dest[P],targets[26][P];int c;usb_count=0;
     for(c=0;root_at(c,root);++c) {
         if(!marked(root))continue;
-        join(p,root,profile2017?L"MacBookPatcher-Logs\\A1706-2017":L"MacBookPatcher-Logs\\A1706");join(dest,p,session);
+        join(p,root,profile2016==1?L"MacBookPatcher-Logs\\A1708-2016":profile2016==2?L"MacBookPatcher-Logs\\A1707-2016":profile2017?L"MacBookPatcher-Logs\\A1706-2017":L"MacBookPatcher-Logs\\A1706");join(dest,p,session);
         if(!directories(dest)){++errors;status(dest,GetLastError(),"usb-unavailable");continue;}
         wcscpy_s(targets[usb_count++],P,dest);
     }
@@ -262,7 +266,7 @@ static void hardware(void) {
         n=sizeof(name);RegQueryValueExA(k,"SystemManufacturer",NULL,NULL,(BYTE*)name,&n);
         n=sizeof(model);RegQueryValueExA(k,"SystemProductName",NULL,NULL,(BYTE*)model,&n);RegCloseKey(k);
     }
-    _snprintf_s(text,sizeof(text),_TRUNCATE,"Detected manufacturer: %s\r\nDetected model: %s\r\nSelected profile: %s\r\nTick at collector start: %llu\r\n",name[0]?name:"unavailable",model[0]?model:"unavailable",profile2017?"A1706 2017 / MacBookPro14,2 / Iris Plus 650":"A1706 / MacBookPro13,2 / Iris 550",started);
+    _snprintf_s(text,sizeof(text),_TRUNCATE,"Detected manufacturer: %s\r\nDetected model: %s\r\nSelected profile: %s\r\nTick at collector start: %llu\r\n",name[0]?name:"unavailable",model[0]?model:"unavailable",profile2016==1?"A1708 / MacBookPro13,1 / Iris 540":profile2016==2?"A1707 / MacBookPro13,3 / Radeon Pro 450/455/460":profile2017?"A1706 2017 / MacBookPro14,2 / Iris Plus 650":"A1706 / MacBookPro13,2 / Iris 550",started);
     join(p,home,L"hardware.txt");bytes(p,text,(DWORD)strlen(text),0,8192);
     /* Device API avoids parsing localized pnputil output for diagnostics. */
     {ULONG size=0;char *ids,*v;
@@ -329,7 +333,7 @@ static int context(int fresh) {
 #endif
     GetWindowsDirectoryW(win,P);
     join(spool,win,L"Temp\\MacBookPatcher-SetupLogs");
-    if(!directories(spool))return 0;join(current,spool,profile2017?L"current-a1706-2017.txt":L"current.txt");
+    if(!directories(spool))return 0;join(current,spool,profile2016==1?L"current-a1708-2016.txt":profile2016==2?L"current-a1707-2016.txt":profile2017?L"current-a1706-2017.txt":L"current.txt");
     if(fresh) {
         GUID id;SYSTEMTIME t;wchar_t g[40];
         if(tree_size(spool)>=BUDGET-12*1024*1024){fputs("Local support spool limit reached; retained sessions were preserved.\n",stderr);return 0;}

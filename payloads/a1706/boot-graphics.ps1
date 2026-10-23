@@ -1,6 +1,6 @@
 # A1706 WinPE preparation. The caller supplies only the loaded OFFLINE SYSTEM key.
 # Match the working recipe: BasicDisplay remains enabled; igfx is demand-start.
-function Get-A1706ControlSets([Microsoft.Win32.RegistryKey]$Root) {
+function Get-A1706ControlSets([Microsoft.Win32.RegistryKey]$Root, [string[]]$Services = @('igfx')) {
     $select = $Root.OpenSubKey('Select')
     if ($null -eq $select) { throw 'Offline SYSTEM hive has no Select key' }
     try {
@@ -26,15 +26,17 @@ function Get-A1706ControlSets([Microsoft.Win32.RegistryKey]$Root) {
                 throw "Unsafe offline $set BasicDisplay Start; expected 1"
             }
         } finally { $basic.Dispose() }
-        $override = $Root.OpenSubKey("$set\Services\igfx\StartOverride")
-        if ($null -ne $override) {
-            try {
-                foreach ($value in $override.GetValueNames()) {
-                    if ($override.GetValue($value) -ne 3 -or $override.GetValueKind($value) -ne [Microsoft.Win32.RegistryValueKind]::DWord) {
-                        throw "Unsafe offline $set igfx StartOverride"
+        foreach ($serviceName in $Services) {
+            $override = $Root.OpenSubKey("$set\Services\$serviceName\StartOverride")
+            if ($null -ne $override) {
+                try {
+                    foreach ($value in $override.GetValueNames()) {
+                        if ($override.GetValue($value) -ne 3 -or $override.GetValueKind($value) -ne [Microsoft.Win32.RegistryValueKind]::DWord) {
+                            throw "Unsafe offline $set $serviceName StartOverride"
+                        }
                     }
-                }
-            } finally { $override.Dispose() }
+                } finally { $override.Dispose() }
+            }
         }
     }
     return $sets

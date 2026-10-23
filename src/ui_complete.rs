@@ -240,7 +240,11 @@ impl PatcherApp {
                 ui.label(format!("{}. {step}", index + 5));
             }
             if recipe.is_some() {
-                ui.label(RichText::new("Keep the included Intel graphics driver. Do not run the old IntelHDGraphics64 installer.").size(13.0).color(muted(ui)));
+                ui.label(
+                    RichText::new("Keep the included graphics driver for your selected Mac model.")
+                        .size(13.0)
+                        .color(muted(ui)),
+                );
             }
         });
         Self::section(ui, "Something did not work?", colors.surface, |ui| {

@@ -7,8 +7,9 @@ use macbook_iso_patcher::platform;
 #[test]
 fn a1706_graphics_preparation_handles_fresh_and_existing_control_sets() {
     let script = format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
         include_str!("../payloads/a1706/boot-graphics.ps1"),
+        include_str!("../payloads/a1706/boot-radeon.ps1"),
         r#"
         function Assert($condition, $message) { if(-not $condition){throw $message} }
         function Seed($root, $current=1, $default=1) {
@@ -70,6 +71,23 @@ fn a1706_graphics_preparation_handles_fresh_and_existing_control_sets() {
                 MustFail {Set-A1706BootGraphics $root -ValidateOnly} 'binary path'
                 $service=$root.OpenSubKey('ControlSet001\Services\igfx')
                 try {Assert ($service.GetValue('ImagePath','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -eq $image) '2017 path was not preserved'} finally {$service.Dispose()}
+            } finally {$root.Dispose()}
+            $root=$fixture.CreateSubKey('radeon')
+            try {
+                Seed $root 2 3
+                $proxy='\SystemRoot\System32\DriverStore\FileRepository\c0307252.inf_amd64_fixture\B307184\atikmpag.sys'
+                $kernel=$proxy.Replace('atikmpag.sys','atikmdag.sys')
+                Set-RadeonBootGraphics $root $proxy $kernel
+                Set-RadeonBootGraphics $root $proxy $kernel -ValidateOnly
+                $service=$root.OpenSubKey('ControlSet002\Services\amdkmdag',$true)
+                try {$service.SetValue('OtherSetting','preserved')} finally {$service.Dispose()}
+                Set-RadeonBootGraphics $root $proxy $kernel
+                $service=$root.OpenSubKey('ControlSet002\Services\amdkmdag')
+                try {Assert ($service.GetValue('OtherSetting') -eq 'preserved') 'Radeon extra settings changed'} finally {$service.Dispose()}
+                MustFail {Set-RadeonBootGraphics $root 'wrong' $kernel -ValidateOnly} 'image path'
+                $override=$root.CreateSubKey('ControlSet003\Services\amdkmdap\StartOverride')
+                try {$override.SetValue('0',0,[Microsoft.Win32.RegistryValueKind]::DWord)} finally {$override.Dispose()}
+                MustFail {Set-RadeonBootGraphics $root $proxy $kernel} 'StartOverride'
             } finally {$root.Dispose()}
             $root=$fixture.CreateSubKey('unsafe-basic')
             try {

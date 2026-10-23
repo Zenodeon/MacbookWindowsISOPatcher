@@ -1,3 +1,4 @@
+pub mod amd;
 pub mod cleanup;
 pub mod completion;
 pub mod diagnostics;

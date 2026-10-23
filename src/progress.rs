@@ -293,7 +293,8 @@ mod tests {
         assert_eq!(build_steps(1, "a1706-2017"), 12);
         assert_eq!(build_steps(2, "a1706-2017"), 14);
         assert_eq!(build_steps(2, MODEL_ID), 14);
-        assert_eq!(build_steps(1, "a1707-2016"), 11);
+        assert_eq!(build_steps(1, "a1707-2016"), 12);
+        assert_eq!(build_steps(1, "a1708-2016"), 12);
         let emit: Emit = Arc::new(|event| {
             if let Event::OverallProgress { completed, total } = event {
                 assert!(completed < total);
