@@ -252,7 +252,10 @@ impl PatcherApp {
                 );
             }
             egui::CollapsingHeader::new("Compatibility details").show(ui, |ui| {
-                ui.label("Accepts all languages and client editions of Windows 10 x64, builds 19041–19045. Select one or more editions from install.wim or install.esd. Windows 11 and split SWM images are not supported.");
+                ui.label("• Windows 10, 64-bit (x64), builds 19041–19045.");
+                ui.label("• All languages and client editions supported.");
+                ui.label("• Single-edition and multi-edition ISOs supported.");
+                ui.label("• Windows 11 and split SWM images are not supported.");
             });
         });
         if !cfg!(windows) {
