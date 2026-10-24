@@ -36,6 +36,90 @@ fn copy_file(source: &Path, target: &Path, cancel: &Cancellation) -> Result<()> 
     Ok(())
 }
 
+/// Keep DisplaySwitch and its localized resources from the same Windows image.
+/// Enumerate resource folders instead of assuming the media uses en-US.
+fn copy_display_support(source: &Path, target: &Path, cancel: &Cancellation) -> Result<()> {
+    fs::create_dir_all(target)?;
+    let executable = source.join("DisplaySwitch.exe");
+    ensure!(
+        executable.is_file(),
+        "DisplaySwitch.exe missing from {}",
+        source.display()
+    );
+    copy_file(&executable, &target.join("DisplaySwitch.exe"), cancel)?;
+    for entry in fs::read_dir(source)? {
+        cancel.check()?;
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let resource = entry.path().join("DisplaySwitch.exe.mui");
+        if resource.is_file() {
+            ensure!(
+                !fs::symlink_metadata(&resource)?.file_type().is_symlink(),
+                "Linked DisplaySwitch resource is not supported: {}",
+                resource.display()
+            );
+            let folder = target.join(entry.file_name());
+            fs::create_dir_all(&folder)?;
+            copy_file(&resource, &folder.join("DisplaySwitch.exe.mui"), cancel)?;
+        }
+    }
+    Ok(())
+}
+
+fn edition_configuration(selected: &[&Image], original: Option<&[u8]>) -> Result<String> {
+    let text = match original {
+        Some(bytes) if bytes.starts_with(&[0xff, 0xfe]) => {
+            ensure!(
+                bytes.len().is_multiple_of(2),
+                "Invalid UTF-16 edition configuration"
+            );
+            String::from_utf16(
+                &bytes[2..]
+                    .chunks_exact(2)
+                    .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                    .collect::<Vec<_>>(),
+            )?
+        }
+        Some(bytes) => String::from_utf8(bytes.to_vec())?,
+        None => String::new(),
+    };
+    let mut section = String::new();
+    let mut channel = "Retail";
+    let mut volume = "0";
+    for line in text.trim_start_matches('\u{feff}').lines().map(str::trim) {
+        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            section = line[1..line.len() - 1].to_ascii_lowercase();
+        } else if section == "channel" {
+            ensure!(
+                line.eq_ignore_ascii_case("Retail") || line.eq_ignore_ascii_case("OEM"),
+                "Unsupported source edition configuration channel: {line}"
+            );
+            channel = line;
+        } else if section == "vl" {
+            ensure!(
+                matches!(line, "0" | "1"),
+                "Invalid source volume-license setting"
+            );
+            volume = line;
+        }
+    }
+    let mut config = String::new();
+    if selected.len() == 1 {
+        ensure!(
+            !selected[0].edition.contains(['\r', '\n']),
+            "Invalid edition ID"
+        );
+        config.push_str(&format!("[EditionID]\r\n{}\r\n", selected[0].edition));
+    }
+    config.push_str(&format!("[Channel]\r\n{channel}\r\n[VL]\r\n{volume}\r\n"));
+    Ok(config)
+}
+
 pub fn copy_tree(source: &Path, dest: &Path, cancel: &Cancellation) -> Result<()> {
     ensure!(
         source.is_dir(),
@@ -537,6 +621,17 @@ fn run_job(
     );
     steps.advance(emit);
     let selected = req.selected_images()?;
+    // Prefer a selected image matching Setup's base language for display resources.
+    let support_index = req
+        .inventory
+        .setup_image
+        .as_ref()
+        .and_then(|setup| {
+            selected
+                .iter()
+                .position(|image| image.language.eq_ignore_ascii_case(&setup.language))
+        })
+        .unwrap_or(0);
     let target = root.join("sources/install.wim");
     for (n, image) in selected.iter().enumerate() {
         stage(
@@ -565,6 +660,11 @@ fn run_job(
         )?;
         steps.advance(emit);
     }
+    let source_config = match fs::read(source.root.join("sources/ei.cfg")) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error).context("Cannot read source edition configuration"),
+    };
     drop(source);
     stage(
         emit,
@@ -586,14 +686,7 @@ fn run_job(
     validate_model_boot_drivers(&pe_drivers, &req.model)?;
     copy_tree(&assets.bootcamp, &root.join("BootCamp"), cancel)?;
     fs::write(root.join("autounattend.xml"), ANSWER_FILE)?;
-    let edition_cfg = if selected.len() == 1 {
-        format!(
-            "[EditionID]\r\n{}\r\n[Channel]\r\nRetail\r\n[VL]\r\n0\r\n",
-            selected[0].edition
-        )
-    } else {
-        "[Channel]\r\nRetail\r\n[VL]\r\n0\r\n".into()
-    };
+    let edition_cfg = edition_configuration(&selected, source_config.as_deref())?;
     fs::write(root.join("sources/ei.cfg"), edition_cfg)?;
     if crate::setup_recipe::SetupRecipe::for_model(&req.model).is_some() {
         crate::diagnostics::write_support(&root.join("Support"), req, job)?;
@@ -646,15 +739,12 @@ fn run_job(
         if let Some(intel) = &assets.intel {
             validate_signed_store(&mount.mount, intel, &req.model)?;
         }
-        if n == 0 && crate::setup_recipe::SetupRecipe::for_model(&req.model).is_some() {
-            let support = job.join("boot-support");
-            fs::create_dir_all(support.join("en-US"))?;
-            for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
-                let source = mount.mount.join("Windows/System32").join(rel);
-                if source.is_file() {
-                    fs::copy(&source, support.join(rel))?;
-                }
-            }
+        if n == support_index && crate::setup_recipe::SetupRecipe::for_model(&req.model).is_some() {
+            copy_display_support(
+                &mount.mount.join("Windows/System32"),
+                &job.join("boot-support"),
+                cancel,
+            )?;
         }
         mount.commit(cancel)?;
         steps.advance(emit);
@@ -692,12 +782,11 @@ fn run_job(
             inject_signed_driver(&mount.mount, &graphics, &req.model, emit, cancel)?;
         }
         write_boot_payload_for_model(&mount.mount, &root.join("Support"), &req.model)?;
-        for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
-            let source = job.join("boot-support").join(rel);
-            if source.is_file() {
-                fs::copy(&source, mount.mount.join("Windows/System32").join(rel))?;
-            }
-        }
+        copy_display_support(
+            &job.join("boot-support"),
+            &mount.mount.join("Windows/System32"),
+            cancel,
+        )?;
         ensure!(
             mount
                 .mount
@@ -721,7 +810,11 @@ fn run_job(
     );
     for (n, expected) in selected.iter().enumerate() {
         ensure!(
-            images[n].index == n as u32 + 1 && images[n].edition == expected.edition,
+            images[n].index == n as u32 + 1
+                && images[n].edition == expected.edition
+                && images[n].language == expected.language
+                && images[n].arch == expected.arch
+                && images[n].build == expected.build,
             "Output edition mapping mismatch"
         );
     }

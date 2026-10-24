@@ -551,6 +551,16 @@ It removes its extraction directory on completion and retains the verified archi
 
 ## Windows integration (requires original Windows media and ADK)
 
+- Localized-media support accepts every language without marking non-English
+  Pro as hardware verified. The existing x64 client/build checks remain.
+  The 2016 A1706 readiness helper now checks its discovered device's numeric
+  status and igfx binding, rather than English `pnputil` text. DisplaySwitch's
+  available MUI folders are copied with the executable from the same image.
+  Multi-edition builds retain language metadata and source EI.cfg channel/VL
+  settings; the edition restriction is regenerated from the selection.
+- Pending hardware validation: build French Pro and a French multi-edition
+  ISO, confirm localized Setup reaches the external display, and install each
+  selected edition. Also exercise another non-Latin language and volume media.
 - Scan a multi-edition WIM ISO and an ESD ISO; compare names, indices, edition
   IDs, version, architecture and language against DISM.
 - Build Pro alone, Home alone, and Pro+Home. Confirm every selected image has

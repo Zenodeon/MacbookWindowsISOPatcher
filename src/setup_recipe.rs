@@ -56,7 +56,7 @@ impl SetupRecipe {
     }
     pub fn payload_version(self) -> &'static str {
         match self {
-            Self::A1706_2016 => "a1706-v17-diagnostics-1",
+            Self::A1706_2016 => "a1706-v17-diagnostics-2",
             Self::A1706_2017 => "a1706-2017-external-1",
             Self::A1708_2016 => "a1708-2016-external-1",
             Self::A1707_2016 => "a1707-2016-external-1",

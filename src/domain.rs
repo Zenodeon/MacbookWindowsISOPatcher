@@ -67,9 +67,6 @@ impl Image {
                 self.build
             ));
         }
-        if !self.language.eq_ignore_ascii_case("en-US") {
-            return Some("This profile requires English (United States)".into());
-        }
         if !self.installation_type.eq_ignore_ascii_case("Client") {
             return Some("Windows client editions only".into());
         }
@@ -79,7 +76,7 @@ impl Image {
         None
     }
     pub fn source_tested(&self) -> bool {
-        self.edition == "Professional"
+        self.edition == "Professional" && self.language.eq_ignore_ascii_case("en-US")
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,7 +245,7 @@ mod tests {
         assert!(i.unsupported_reason().is_some());
         i.arch = 9;
         i.language = "de-DE".into();
-        assert!(i.unsupported_reason().is_some());
+        assert!(i.unsupported_reason().is_none());
     }
     #[test]
     fn home_is_allowed_but_unverified() {

@@ -257,9 +257,9 @@ pub fn scan_root(iso: &Path, root: &Path) -> Result<Inventory> {
     ensure!(
         setup.arch == 9
             && setup.major == 10
-            && (19041..=19045).contains(&setup.build)
-            && setup.language.eq_ignore_ascii_case("en-US"),
-        "Setup must be x64 en-US Windows 10 build 19041–19045"
+            && setup.minor == 0
+            && (19041..=19045).contains(&setup.build),
+        "Setup must be x64 Windows 10 build 19041–19045 (any language)"
     );
     Ok(Inventory {
         iso: iso.to_owned(),

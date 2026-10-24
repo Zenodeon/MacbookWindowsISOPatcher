@@ -88,8 +88,10 @@ if not exist %SystemRoot%\System32\a1706iris.exe (
   call :note
   goto :irisdone
 )
-%SystemRoot%\System32\a1706iris.exe
-if !ERRORLEVEL! equ 0 (
+%SystemRoot%\System32\a1706iris.exe "!GPU!" >X:\a1706-ready.txt 2>&1
+set "IRIS_RC=!ERRORLEVEL!"
+call :addfile X:\a1706-ready.txt
+if !IRIS_RC! equ 0 (
   set "MSG=iris started %TIME%"
   call :note
   set "IRISOK=1"

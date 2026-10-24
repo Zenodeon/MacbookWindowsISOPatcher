@@ -477,11 +477,9 @@ impl PatcherApp {
                         Ok((inv, mount)) => {
                             self.iso_mount = Some(mount);
                             self.selected.clear();
-                            if let Some(pro) = inv
-                                .images
-                                .iter()
-                                .find(|i| i.source_tested() && i.unsupported_reason().is_none())
-                            {
+                            if let Some(pro) = inv.images.iter().find(|i| {
+                                i.edition == "Professional" && i.unsupported_reason().is_none()
+                            }) {
                                 self.selected.insert(pro.index);
                             }
                             let source = inv.iso.parent().unwrap();
