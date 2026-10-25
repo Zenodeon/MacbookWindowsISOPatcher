@@ -552,7 +552,7 @@ impl PatcherApp {
                             self.last_build_error = Some(error.clone());
                             self.show_build_error(error, BuildRetry::Begin);
                             self.stage = "Build stopped".into();
-                            self.detail = "Resolve the issue, then retry from step 1. The previous workspace is retained.".into();
+                            self.detail = "Resolve the issue, then retry.".into();
                         }
                         Event::Cancelled => {
                             self.download = None;
@@ -1524,9 +1524,9 @@ impl eframe::App for PatcherApp {
                     egui::ScrollArea::vertical().id_salt("action-error-message")
                         .max_height((ctx.content_rect().height() - 300.0).max(80.0))
                         .show(ui, |ui| { ui.label(RichText::new(&message).color(colors.error)); });
-                    if retry.is_some() {
+                    if retry.is_some() && self.page != Page::Build {
                         ui.add_space(12.0);
-                        ui.label(RichText::new(if self.page==Page::Build{"Retry starts from step 1 in a new workspace. Retained build files are kept. Close this popup to return to setup or inspect the log."}else{"Resolve the issue, then retry."}).size(13.0).color(colors.muted));
+                        ui.label(RichText::new("Resolve the issue, then retry.").size(13.0).color(colors.muted));
                     }
                     if self.close_cleanup_failed {
                         ui.add_space(12.0);
@@ -1697,7 +1697,7 @@ mod drop_tests {
             }
             .into();
             app.detail = if failed {
-                "Resolve the issue, then retry from step 1. The previous workspace is retained."
+                "Resolve the issue, then retry."
             } else {
                 "Adding the selected graphics and Boot Camp drivers."
             }

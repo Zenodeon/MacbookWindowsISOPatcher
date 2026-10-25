@@ -22,16 +22,22 @@ pub struct PreparedBuild {
 }
 
 fn copy_file(source: &Path, target: &Path, cancel: &Cancellation) -> Result<()> {
-    let mut input = File::open(source)?;
-    let mut output = File::create(target)?;
+    let mut input = File::open(source)
+        .with_context(|| format!("Cannot open source file {}", source.display()))?;
+    let mut output = File::create(target)
+        .with_context(|| format!("Cannot create destination file {}", target.display()))?;
     let mut buffer = vec![0u8; 1024 * 1024];
     loop {
         cancel.check()?;
-        let n = input.read(&mut buffer)?;
+        let n = input
+            .read(&mut buffer)
+            .with_context(|| format!("Cannot read source file {}", source.display()))?;
         if n == 0 {
             break;
         }
-        output.write_all(&buffer[..n])?;
+        output
+            .write_all(&buffer[..n])
+            .with_context(|| format!("Cannot write destination file {}", target.display()))?;
     }
     Ok(())
 }
@@ -96,7 +102,9 @@ fn edition_configuration(selected: &[&Image], original: Option<&[u8]>) -> Result
             section = line[1..line.len() - 1].to_ascii_lowercase();
         } else if section == "channel" {
             ensure!(
-                line.eq_ignore_ascii_case("Retail") || line.eq_ignore_ascii_case("OEM"),
+                line.eq_ignore_ascii_case("Retail")
+                    || line.eq_ignore_ascii_case("OEM")
+                    || line.eq_ignore_ascii_case("Volume"),
                 "Unsupported source edition configuration channel: {line}"
             );
             channel = line;
@@ -118,6 +126,33 @@ fn edition_configuration(selected: &[&Image], original: Option<&[u8]>) -> Result
     }
     config.push_str(&format!("[Channel]\r\n{channel}\r\n[VL]\r\n{volume}\r\n"));
     Ok(config)
+}
+
+fn validate_output_image(actual: &Image, expected: &Image, output_index: u32) -> Result<()> {
+    // Source compatibility is checked during ISO scanning and selection.
+    // Servicing may refresh VERSION metadata; validate the output selection here.
+    ensure!(
+        actual.index == output_index
+            && actual.edition.eq_ignore_ascii_case(&expected.edition)
+            && actual.language.eq_ignore_ascii_case(&expected.language)
+            && actual.arch == expected.arch
+            && actual
+                .installation_type
+                .eq_ignore_ascii_case(&expected.installation_type),
+        "Output edition mapping mismatch at image {output_index}. \
+         Expected edition {}, language {}, architecture {}, installation type {}; \
+         found index {}, edition {}, language {}, architecture {}, installation type {}",
+        expected.edition,
+        expected.language,
+        expected.arch,
+        expected.installation_type,
+        actual.index,
+        actual.edition,
+        actual.language,
+        actual.arch,
+        actual.installation_type
+    );
+    Ok(())
 }
 
 pub fn copy_tree(source: &Path, dest: &Path, cancel: &Cancellation) -> Result<()> {
@@ -504,7 +539,15 @@ pub fn run(prepared: PreparedBuild, emit: Emit, cancel: Cancellation) -> Result<
             "Build history update failed; workspace retained: {error:#}"
         )));
     }
-    if result.is_err() {
+    if let Err(error) = &result {
+        emit(Event::Log(format!(
+            "Build {}: {error:#}",
+            if cancel.is_cancelled() {
+                "cancelled"
+            } else {
+                "failed"
+            }
+        )));
         emit(Event::Log(format!(
             "Build files retained for diagnosis: {}",
             job.display()
@@ -681,13 +724,24 @@ fn run_job(
             &assets.drivers.join(folder),
             &pe_drivers.join(folder),
             cancel,
-        )?;
+        )
+        .with_context(|| {
+            format!(
+                "Cannot stage boot drivers from {}",
+                assets.drivers.join(folder).display()
+            )
+        })?;
     }
-    validate_model_boot_drivers(&pe_drivers, &req.model)?;
-    copy_tree(&assets.bootcamp, &root.join("BootCamp"), cancel)?;
-    fs::write(root.join("autounattend.xml"), ANSWER_FILE)?;
-    let edition_cfg = edition_configuration(&selected, source_config.as_deref())?;
-    fs::write(root.join("sources/ei.cfg"), edition_cfg)?;
+    validate_model_boot_drivers(&pe_drivers, &req.model)
+        .context("Staged boot-driver validation failed")?;
+    copy_tree(&assets.bootcamp, &root.join("BootCamp"), cancel)
+        .context("Cannot stage Boot Camp installers")?;
+    fs::write(root.join("autounattend.xml"), ANSWER_FILE)
+        .context("Cannot write Windows Setup answer file")?;
+    let edition_cfg = edition_configuration(&selected, source_config.as_deref())
+        .context("Cannot prepare source edition configuration (sources/ei.cfg)")?;
+    fs::write(root.join("sources/ei.cfg"), edition_cfg)
+        .context("Cannot write output edition configuration (sources/ei.cfg)")?;
     if crate::setup_recipe::SetupRecipe::for_model(&req.model).is_some() {
         crate::diagnostics::write_support(&root.join("Support"), req, job)?;
     }
@@ -809,14 +863,17 @@ fn run_job(
         "Output edition count does not match selection"
     );
     for (n, expected) in selected.iter().enumerate() {
-        ensure!(
-            images[n].index == n as u32 + 1
-                && images[n].edition == expected.edition
-                && images[n].language == expected.language
-                && images[n].arch == expected.arch
-                && images[n].build == expected.build,
-            "Output edition mapping mismatch"
-        );
+        validate_output_image(&images[n], expected, n as u32 + 1)?;
+        if images[n].build != expected.build {
+            emit(Event::Log(format!(
+                "Windows build metadata refreshed by servicing: {} -> {} (edition {}, language {}, revision {:?})",
+                expected.build,
+                images[n].build,
+                expected.edition,
+                expected.language,
+                images[n].revision
+            )));
+        }
     }
     ensure!(
         !ANSWER_FILE.contains("DiskConfiguration") && !ANSWER_FILE.contains("ImageInstall"),

@@ -261,13 +261,20 @@ pub fn scan_root(iso: &Path, root: &Path) -> Result<Inventory> {
             && (19041..=19045).contains(&setup.build),
         "Setup must be x64 Windows 10 build 19041–19045 (any language)"
     );
+    let images = wim::read_images(&root.join("sources").join(install_file))?;
+    ensure!(
+        images
+            .iter()
+            .any(|image| image.unsupported_reason().is_none()),
+        "This ISO contains no supported Windows 10 x64 client editions (builds 19041–19045)"
+    );
     Ok(Inventory {
         iso: iso.to_owned(),
         iso_size: fs::metadata(iso)?.len(),
         iso_modified: modified(iso)?,
         install_file: install_file.into(),
         setup_image: Some(setup.clone()),
-        images: wim::read_images(&root.join("sources").join(install_file))?,
+        images,
     })
 }
 
