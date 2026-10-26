@@ -85,7 +85,8 @@ is saved as a separate custom ISO.
 
 ## Install Windows on the Mac
 
-### 1. Prepare the partition
+<details>
+<summary>1. Prepare the partition</summary>
 
 For dual boot, use [Boot Camp Assistant](https://support.apple.com/en-nz/102622)
 in macOS to create a separate Windows partition while keeping macOS. Choose how
@@ -94,7 +95,10 @@ much space to give Windows and note the BOOTCAMP partition's size.
 If you prepare the partition another way, identify the intended Windows partition
 before continuing. The patcher does not partition your disk.
 
-### 2. Prepare the USB
+</details>
+
+<details>
+<summary>2. Prepare the USB</summary>
 
 1. On your Windows PC, connect a USB drive with enough space for the generated ISO.
    Back up anything on that USB first. Installing Ventoy erases the selected USB.
@@ -112,7 +116,10 @@ before continuing. The patcher does not partition your disk.
 Prepare USB for setup logs adds a logging marker. It does not format the USB
 or install Ventoy.
 
-### 3. Boot the Mac
+</details>
+
+<details>
+<summary>3. Boot the Mac</summary>
 
 1. Shut down the Mac completely.
 2. Plug in the prepared USB, connect your external display and connect power.
@@ -133,7 +140,10 @@ that the Mac's earlier startup picker appears on the external screen.
 See [Apple's startup-key instructions](https://support.apple.com/en-gb/102603)
 and [Ventoy's WIMBOOT guide](https://www.ventoy.net/en/doc_wimboot.html).
 
-### 4. Install Windows
+</details>
+
+<details>
+<summary>4. Install Windows</summary>
 
 1. Choose your language and keyboard, then continue with Windows Setup.
 2. When asked for the installation type, choose Custom: Install Windows only.
@@ -151,7 +161,10 @@ and [Ventoy's WIMBOOT guide](https://www.ventoy.net/en/doc_wimboot.html).
 You can keep both operating systems installed and hold Option at startup to
 choose macOS or Windows.
 
-### 5. Install drivers
+</details>
+
+<details>
+<summary>5. Install drivers</summary>
 
 1. In Windows, open `C:\BootCamp\Setup.exe`, run it as administrator and complete
    the Boot Camp driver installation. Restart Windows afterward.
@@ -162,6 +175,8 @@ choose macOS or Windows.
 4. Check the display, keyboard, trackpad or mouse, sound and Wi-Fi.
    [Report anything that still fails](https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues)
    using the troubleshooting instructions below.
+
+</details>
 
 ## Something did not work?
 
