@@ -110,7 +110,8 @@ before continuing. The patcher does not partition your disk.
    ISO file onto it. Do not extract the ISO or copy it to the small VTOYEFI partition.
 5. When the patcher's completion page offers Prepare USB for setup logs, click
    it, select the USB's main storage root, such as `E:\`, and wait for USB prepared.
-   These logs help troubleshoot failures and improve support for your Mac model.
+   See [Set up USB logging](#set-up-usb-logging) for the full instructions and a
+   manual option if you have already closed the app.
 6. Safely eject the USB from the Windows PC.
 
 Prepare USB for setup logs adds a logging marker. It does not format the USB
@@ -178,6 +179,83 @@ choose macOS or Windows.
 
 </details>
 
+## Set up USB logging
+
+Prepare logging before booting the generated ISO so you can save diagnostics
+if Windows Setup fails. You can use the same USB that holds your Ventoy ISO.
+The USB must be writable and stay connected during Setup.
+
+### Using the app
+
+1. Connect the USB to your Windows PC. If you use Ventoy, open its main storage
+   partition in File Explorer, where you copied the generated ISO.
+2. On the patcher's completion screen, click Prepare USB for setup logs.
+3. Select the USB drive's root, such as `E:\`. Select the main storage partition,
+   not the small VTOYEFI partition or a folder inside the drive.
+4. Wait for USB prepared. Check that `MacBookPatcher-Logging.enabled` is present
+   in the USB root. Preparing logging does not format the USB or install Ventoy.
+5. Safely eject the USB, connect it to the Mac and boot the generated ISO using
+   Ventoy's WIMBOOT option. Keep the USB connected while Setup runs.
+
+### Manual setup
+
+Create a new file named `MacBookPatcher-Logging.enabled` in the same place as
+the `.iso` file, at the root of the USB's main storage partition (for example,
+`E:\`).
+
+1. Open Notepad and enter this exact line:
+
+   ```text
+   MacBookWindowsISOPatcher setup logging v1
+   ```
+
+2. Choose File → Save As and open the USB folder containing your ISO.
+3. Set File name to `MacBookPatcher-Logging.enabled`, Save as type to All Files,
+   and Encoding to ANSI. Save the file.
+4. Check that its name ends in `.enabled`, not `.enabled.txt`.
+
+The line inside the file is required by the current logger; an empty file will
+not enable logging.
+
+For example, the USB should contain:
+
+```text
+E:\
+├── YourPatchedWindows.iso
+└── MacBookPatcher-Logging.enabled
+```
+
+The marker goes outside the ISO. Only USB drives with this marker receive
+automatic log copies.
+
+### Find and share the logs
+
+After booting Setup, look on the USB under
+`MacBookPatcher-Logs\<model>\<session>`. Each session has its own folder:
+
+| Model profile | Log folder on the USB |
+| --- | --- |
+| 2016 A1706 | `MacBookPatcher-Logs\A1706\<session>` |
+| 2017 A1706 | `MacBookPatcher-Logs\A1706-2017\<session>` |
+| 2016 A1708 | `MacBookPatcher-Logs\A1708-2016\<session>` |
+| 2016 A1707 | `MacBookPatcher-Logs\A1707-2016\<session>` |
+| iMac18,1 | `MacBookPatcher-Logs\iMac18,1\<session>` |
+
+Automatic collection runs in the booted installer and stops at reboot. Without
+a writable marked USB, logs held only in the installer's memory are lost at reboot.
+
+To recover saved Windows Setup logs after a restart, on the Mac run
+`Support\Collect setup logs.cmd` as administrator from the generated ISO. After
+installation, a copy is also available at
+`C:\MacBookPatcher\Support\Collect setup logs.cmd`. Keep the marked USB connected
+so the collector can copy the recovered logs to it. This cannot recover logs
+that existed only in memory before a reboot.
+
+If you report a problem, attach the entire session folder, preferably as a ZIP,
+along with the build log exported using Save build logs. Review the files before
+sharing; Windows logs can contain account names and paths. Nothing is uploaded
+automatically.
+
 ## Something did not work?
 
 Use Copy error to keep the error message and Save build logs to export the
@@ -185,11 +263,9 @@ build log.
 
 [Open a GitHub issue](https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues)
 with your Mac model/identifier, Windows edition/build, display connection,
-what happened and the last visible screen. Attach your build log and, for A1706
-Setup failures, the session folder from the prepared USB:
-
-- 2016 A1706: `MacBookPatcher-Logs\A1706\<session>`
-- 2017 A1706: `MacBookPatcher-Logs\A1706-2017\<session>`
+what happened and the last visible screen. Attach your build log and, for
+boot or Setup failures, the session folder from the prepared USB. See
+[Set up USB logging](#set-up-usb-logging) for preparation and log locations.
 
 Review logs before sharing; Windows logs can contain
 account names and paths. The app does not upload them automatically.
