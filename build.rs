@@ -34,7 +34,7 @@ fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let compiler = cc::Build::new().get_compiler();
     for (name, windows, libs) in [
-        ("a1706iris", false, vec![]),
+        ("a1706iris", false, vec!["cfgmgr32.lib"]),
         ("a1706cue", false, vec!["user32.lib", "winmm.lib"]),
         ("a1706gpu", false, vec!["cfgmgr32.lib"]),
         ("a1706gpu2017", false, vec!["cfgmgr32.lib", "advapi32.lib"]),

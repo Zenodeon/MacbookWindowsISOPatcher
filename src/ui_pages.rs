@@ -303,13 +303,16 @@ impl PatcherApp {
                 });
             } else {
                 ui.label(
-                    RichText::new("Windows 10 · 64-bit · English (US)")
+                    RichText::new("Windows 10 · 64-bit · Any language · Multiple editions")
                         .size(13.0)
                         .color(colors.muted),
                 );
             }
             egui::CollapsingHeader::new("Compatibility details").show(ui, |ui| {
-                ui.label("Requires Windows 10 x64, en-US, builds 19041–19045. Windows 11 and split SWM images are not supported.");
+                ui.label("• Windows 10, 64-bit (x64), builds 19041–19045.");
+                ui.label("• All languages and client editions supported.");
+                ui.label("• Single-edition and multi-edition ISOs supported.");
+                ui.label("• Windows 11 and split SWM images are not supported.");
             });
         });
         if !cfg!(windows) {
@@ -372,6 +375,17 @@ impl PatcherApp {
                             egui::TextFormat {
                                 font_id: egui::FontId::proportional(12.0),
                                 color: colors.accent,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    if !image.language.is_empty() {
+                        text.append(
+                            &format!("  ·  {}", image.language),
+                            0.0,
+                            egui::TextFormat {
+                                font_id: egui::FontId::proportional(12.0),
+                                color: colors.muted,
                                 ..Default::default()
                             },
                         );

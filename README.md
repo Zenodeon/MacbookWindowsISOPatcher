@@ -52,7 +52,14 @@ in Windows afterward. Use a wired USB keyboard and mouse for initial testing.
 
 ## Files you need
 
-- **An original Microsoft Windows 10 ISO**.
+- **An original Microsoft Windows 10 x64 ISO**, builds 19041–19045, in any
+  language. Both single-edition and multi-edition media are supported, using
+  `install.wim` or `install.esd`. Select any of the compatible client editions
+  shown in the app. Older Windows 10 builds, Windows 11, ARM/x86 and split SWM
+  images are not supported.
+
+The ISO's Windows language is preserved. The hardware-verified reference is
+English (US) Pro; other languages and editions still need testing on the Mac.
 
 The patcher downloads the drivers for your selected model and provides download
 or installation actions for missing build tools. You do not need to collect the
