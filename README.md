@@ -85,26 +85,83 @@ is saved as a separate custom ISO.
 
 ## Install Windows on the Mac
 
-1. **Prepare a Windows partition** using Boot Camp Assistant or another method.
-2. **Set up the USB with [Ventoy](https://www.ventoy.net/)** and copy the generated
-   ISO onto it.
-3. **Prepare setup logging**, when the completion page offers it. Click
-   **Prepare USB for setup logs**, select the USB root and wait for **USB prepared**.
-   These logs help troubleshoot failures and improve support for your Mac model.
-4. **Boot the USB**, select your ISO in Ventoy, and choose **WIMBOOT**.
-   Keep the USB connected during Windows Setup.
-5. **Complete Windows Setup** using the partition you prepared.
-6. **Install Boot Camp drivers** in Windows: run `C:\BootCamp\Setup.exe` as
-   administrator, then restart.
-7. **Open Apple Software Update** from Windows search. If it is missing, install
-   [Apple's desktop iTunes installer](https://www.apple.com/itunes/download/win64/),
-   then check again. Install the applicable updates and restart.
-8. **Check the MacBook's features**, including the display, keyboard, trackpad,
-   sound and Wi-Fi. [Report anything that still fails](https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues).
+### 1. Prepare the partition
 
-The app creates the ISO; partitioning and preparing a bootable Ventoy USB are
-separate steps. **Prepare USB for setup logs** adds a logging marker and does not
-format the drive or install Ventoy.
+For dual boot, use [Boot Camp Assistant](https://support.apple.com/en-nz/102622)
+in macOS to create a separate Windows partition while keeping macOS. Choose how
+much space to give Windows and note the BOOTCAMP partition's size.
+
+If you prepare the partition another way, identify the intended Windows partition
+before continuing. The patcher does not partition your disk.
+
+### 2. Prepare the USB
+
+1. On your Windows PC, connect a USB drive with enough space for the generated ISO.
+   Back up anything on that USB first. Installing Ventoy erases the selected USB.
+2. Visit the [Ventoy homepage](https://www.ventoy.net/), download its Windows
+   package and extract it.
+3. Open `Ventoy2Disk.exe`. Check that the selected device is your USB drive,
+   then click Install and confirm the prompts.
+4. Open the USB's main storage partition in File Explorer. Copy the generated
+   ISO file onto it. Do not extract the ISO or copy it to the small VTOYEFI partition.
+5. When the patcher's completion page offers Prepare USB for setup logs, click
+   it, select the USB's main storage root, such as `E:\`, and wait for USB prepared.
+   These logs help troubleshoot failures and improve support for your Mac model.
+6. Safely eject the USB from the Windows PC.
+
+Prepare USB for setup logs adds a logging marker. It does not format the USB
+or install Ventoy.
+
+### 3. Boot the Mac
+
+1. Shut down the Mac completely.
+2. Plug in the prepared USB, connect your external display and connect power.
+   Use the built-in keyboard or a wired USB keyboard for the startup keys.
+   For iMac Built-in screen mode, use its built-in display instead.
+3. Hold Option (⌥), or Alt on a Windows keyboard, while pressing the power
+   button to turn on the Mac.
+4. Release the key when the startup disks appear.
+5. Select the USB boot entry, usually labelled EFI Boot, and press Return.
+6. In Ventoy, use the arrow keys to highlight your generated ISO and press Enter.
+   In the next menu, select WIMBOOT and press Enter.
+7. Wait for Windows Setup to open. Keep the USB connected during installation
+   so Setup can read its files and save diagnostic logs.
+
+The display patch runs after the installer starts booting. It cannot guarantee
+that the Mac's earlier startup picker appears on the external screen.
+
+See [Apple's startup-key instructions](https://support.apple.com/en-gb/102603)
+and [Ventoy's WIMBOOT guide](https://www.ventoy.net/en/doc_wimboot.html).
+
+### 4. Install Windows
+
+1. Choose your language and keyboard, then continue with Windows Setup.
+2. When asked for the installation type, choose Custom: Install Windows only.
+3. Select the BOOTCAMP partition you prepared. Check its size, then click Format
+   to format that partition as NTFS. If you used another partitioning method,
+   select only the partition you reserved for Windows.
+4. Leave the macOS, EFI and recovery partitions untouched. Formatting erases the
+   selected partition, so verify your selection before confirming.
+5. Select the prepared Windows partition and click Next.
+6. Follow Setup through its restarts. Boot the internal Windows installation on
+   subsequent restarts, rather than selecting the USB installer again. If needed,
+   hold Option at startup and select the internal Windows entry.
+7. Finish the Windows first-run setup until you reach the desktop.
+
+You can keep both operating systems installed and hold Option at startup to
+choose macOS or Windows.
+
+### 5. Install drivers
+
+1. In Windows, open `C:\BootCamp\Setup.exe`, run it as administrator and complete
+   the Boot Camp driver installation. Restart Windows afterward.
+2. Search Windows for Apple Software Update and open it. If it is missing,
+   install [Apple's desktop iTunes installer](https://www.apple.com/itunes/download/win64/),
+   then search again.
+3. Install the applicable updates offered by Apple Software Update, then restart.
+4. Check the display, keyboard, trackpad or mouse, sound and Wi-Fi.
+   [Report anything that still fails](https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues)
+   using the troubleshooting instructions below.
 
 ## Something did not work?
 
