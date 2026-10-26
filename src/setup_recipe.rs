@@ -19,6 +19,7 @@ pub enum SetupRecipe {
     A1706_2017,
     A1708_2016,
     A1707_2016,
+    IMac18_1,
 }
 impl SetupRecipe {
     pub fn for_model(model: &str) -> Option<Self> {
@@ -27,6 +28,7 @@ impl SetupRecipe {
             "a1706-2017" => Some(Self::A1706_2017),
             "a1708-2016" => Some(Self::A1708_2016),
             "a1707-2016" => Some(Self::A1707_2016),
+            crate::domain::IMAC_MODEL_ID => Some(Self::IMac18_1),
             _ => None,
         }
     }
@@ -36,6 +38,7 @@ impl SetupRecipe {
             Self::A1706_2017 => "a1706-2017",
             Self::A1708_2016 => "a1708-2016",
             Self::A1707_2016 => "a1707-2016",
+            Self::IMac18_1 => crate::domain::IMAC_MODEL_ID,
         }
     }
     pub fn log_folder(self) -> &'static str {
@@ -44,6 +47,7 @@ impl SetupRecipe {
             Self::A1706_2017 => "A1706-2017",
             Self::A1708_2016 => "A1708-2016",
             Self::A1707_2016 => "A1707-2016",
+            Self::IMac18_1 => "iMac18,1",
         }
     }
     pub fn graphics(self) -> &'static str {
@@ -52,6 +56,7 @@ impl SetupRecipe {
             Self::A1706_2017 => "Intel Iris Plus 650",
             Self::A1708_2016 => "Intel Iris 540",
             Self::A1707_2016 => "Radeon Pro 450/455/460",
+            Self::IMac18_1 => "Intel Iris Plus 640",
         }
     }
     pub fn payload_version(self) -> &'static str {
@@ -60,9 +65,72 @@ impl SetupRecipe {
             Self::A1706_2017 => "a1706-2017-external-1",
             Self::A1708_2016 => "a1708-2016-external-1",
             Self::A1707_2016 => "a1707-2016-external-1",
+            Self::IMac18_1 => "imac18-1-2017-display-1",
         }
     }
+    pub fn startup_for_target(
+        self,
+        target: crate::domain::DisplayTarget,
+    ) -> anyhow::Result<String> {
+        target.validate(self.model())?;
+        if self != Self::IMac18_1 {
+            return Ok(self.startup());
+        }
+        let mut script = Self::A1708_2016
+            .startup()
+            .replace("a1708-2016", self.model())
+            .replace("A1708-2016", "iMac18,1")
+            .replace("Intel Iris 540", self.graphics())
+            .replace("2016 restart", "2017 restart")
+            .replace("external-display setup", "screen-selectable setup");
+        script=script.replace(
+            "for %%D in (AppleSSD64 AppleSPIDevice AppleSPIKeyboard AppleSPITrackpad CirrusAudioCS4208x64)",
+            "for %%D in (AppleSSD64 AppleUSBCompositeDevice64 AppleKeyboardInstaller64 AppleWirelessMouse64 AppleWirelessTrackpad64 CirrusAudioCS4206x64 CirrusAudioCS4208x64)");
+        script = script.replace(
+            r#"if exist "%~1:\$WinPEDriver$\AppleSSD64\" ("#,
+            r#"if exist "%~1:\Support\imac18-1-2017.profile" if exist "%~1:\$WinPEDriver$\" ("#,
+        );
+        script = script.replace("  goto :afterdrv", "  goto :startupfailed");
+        let start = script
+            .find("if exist %SystemRoot%\\System32\\DisplaySwitch.exe (\r\n  \"%LOGGER%\"")
+            .expect("display stage");
+        let end = script[start..]
+            .find("set \"SRC=\"")
+            .expect("setup source stage")
+            + start;
+        let display = format!(
+            r#"set "PHASE=display-selection"
+"%LOGGER%" --profile {profile} --event display-switch-start "{label}"
+if not exist %SystemRoot%\System32\DisplaySwitch.exe goto :displayfailed
+%SystemRoot%\System32\DisplaySwitch.exe {switch}
+set "DISPLAY_RC=!ERRORLEVEL!"
+"%LOGGER%" --profile {profile} --event display-switch-return "!DISPLAY_RC!"
+if not "!DISPLAY_RC!"=="0" goto :displayfailed
+"#,
+            profile = self.model(),
+            label = target.label(),
+            switch = target.switch()
+        )
+        .replace('\n', "\r\n");
+        script = format!("{}{}{}", &script[..start], display, &script[end..]);
+        script = script.replace(
+            &format!("--profile {} --start", self.model()),
+            &format!(
+                "--profile {} --start\r\n\"%LOGGER%\" --profile {} --event display-target \"{}\"",
+                self.model(),
+                self.model(),
+                target.label()
+            ),
+        );
+        script.push_str(&format!("\r\n:displayfailed\r\n\"%LOGGER%\" --profile {} --event display-switch-failed \"{} RC=!DISPLAY_RC!\"\r\necho Requested screen selection failed. Setup has not been launched.\r\npause\r\ngoto :eof\r\n:startupfailed\r\n\"%LOGGER%\" --profile {} --event startup-drivers-missing\r\necho The iMac startup driver bundle is missing. Setup has not been launched.\r\npause\r\ngoto :eof\r\n",self.model(),target.label(),self.model()));
+        Ok(script)
+    }
     pub fn startup(self) -> String {
+        if self == Self::IMac18_1 {
+            return self
+                .startup_for_target(crate::domain::DisplayTarget::External)
+                .expect("default iMac screen");
+        }
         if matches!(self, Self::A1708_2016 | Self::A1707_2016) {
             let mut script = Self::A1706_2017
                 .startup()
@@ -163,8 +231,106 @@ mod tests {
     use super::*;
     #[test]
     #[cfg(windows)]
+    fn imac_display_switch_failure_or_missing_executable_stops_setup() {
+        use crate::domain::DisplayTarget;
+        for target in [DisplayTarget::BuiltIn, DisplayTarget::External] {
+            for status in [0, 5, -1] {
+                let root = std::env::temp_dir()
+                    .join(format!("imac screen fixture {}", uuid::Uuid::new_v4()));
+                std::fs::create_dir(&root).unwrap();
+                let source = SetupRecipe::IMac18_1.startup_for_target(target).unwrap();
+                let start = source.find("set \"PHASE=display-selection\"").unwrap();
+                let end = source[start..].find("set \"SRC=\"").unwrap() + start;
+                let mut stage = source[start..end].replace("\"%LOGGER%\"", "call :logger");
+                stage = stage.replace(
+                    &format!(
+                        "%SystemRoot%\\System32\\DisplaySwitch.exe {}",
+                        target.switch()
+                    ),
+                    &format!("cmd.exe /d /c exit /b {status}"),
+                );
+                stage = stage.replace(
+                    "if not exist %SystemRoot%\\System32\\DisplaySwitch.exe goto :displayfailed",
+                    if status == -1 {
+                        "goto :displayfailed"
+                    } else {
+                        "rem Fixture executable is present"
+                    },
+                );
+                assert!(!stage.contains("DisplaySwitch.exe"));
+                let script = format!(
+                    "@echo off\r\nsetlocal EnableDelayedExpansion\r\n{stage}echo launch\r\nexit /b 0\r\n:displayfailed\r\necho stopped\r\nexit /b 0\r\n:logger\r\nexit /b 0\r\n"
+                );
+                let path = root.join("display.cmd");
+                std::fs::write(&path, script).unwrap();
+                let mut cmd = std::process::Command::new(crate::platform::system_binary("cmd.exe"));
+                let output = crate::platform::hidden(&mut cmd)
+                    .args(["/d", "/c"])
+                    .arg(path)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                assert_eq!(
+                    String::from_utf8_lossy(&output.stdout).trim(),
+                    if status == 0 { "launch" } else { "stopped" }
+                );
+                std::fs::remove_dir_all(root).unwrap();
+            }
+        }
+    }
+    #[test]
+    fn imac_targets_share_graphics_but_route_only_the_requested_screen() {
+        use crate::domain::DisplayTarget;
+        for target in [DisplayTarget::BuiltIn, DisplayTarget::External] {
+            let s = SetupRecipe::IMac18_1.startup_for_target(target).unwrap();
+            assert!(s.contains(&format!("DisplaySwitch.exe {}", target.switch())));
+            assert!(!s.contains(if target == DisplayTarget::BuiltIn {
+                "DisplaySwitch.exe /external"
+            } else {
+                "DisplaySwitch.exe /internal"
+            }));
+            assert!(s.contains("Support\\imac18-1-2017.profile"));
+            assert!(
+                !s.contains("AppleSPIDevice")
+                    && !s.contains("AppleSPIKeyboard")
+                    && !s.contains("AppleDFR64")
+            );
+            assert!(s.contains("CirrusAudioCS4206x64") && s.contains("AppleUSBCompositeDevice64"));
+            assert!(s.contains("MacBookSetupGPU.exe --profile imac18-1-2017 --wait-ready"));
+            assert!(s.contains("display-target") && s.contains(target.label()));
+            assert!(s.contains("if not \"!DISPLAY_RC!\"==\"0\" goto :displayfailed"));
+            assert_eq!(s.matches("pnputil /restart-device").count(), 1);
+            assert!(s.find("--start").unwrap() < s.find("\nwpeinit").unwrap());
+            assert!(
+                s.find("--wait-ready").unwrap()
+                    < s.find(&format!("DisplaySwitch.exe {}", target.switch()))
+                        .unwrap()
+            );
+            assert!(
+                s.find(&format!("DisplaySwitch.exe {}", target.switch()))
+                    .unwrap()
+                    < s.find("launching setup").unwrap()
+            );
+            assert!(s.is_ascii() && !s.as_bytes().contains(&0));
+        }
+        assert!(
+            SetupRecipe::A1706_2016
+                .startup_for_target(DisplayTarget::BuiltIn)
+                .is_err()
+        );
+    }
+    #[test]
+    #[cfg(windows)]
     fn failed_restart_stops_setup_and_success_restarts_only_once() {
-        for recipe in [SetupRecipe::A1708_2016, SetupRecipe::A1707_2016] {
+        for recipe in [
+            SetupRecipe::A1708_2016,
+            SetupRecipe::A1707_2016,
+            SetupRecipe::IMac18_1,
+        ] {
             for status in [0, 5] {
                 let root = std::env::temp_dir()
                     .join(format!("GPU restart fixture {}", uuid::Uuid::new_v4()));

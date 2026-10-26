@@ -37,6 +37,12 @@ pub const MODEL_PROFILES: &[ModelProfile] = &[
         identifier: "MacBookPro14,2",
         details: "A1706 · Intel Iris Plus 650 · Touch Bar · T1",
     },
+    ModelProfile {
+        id: crate::domain::IMAC_MODEL_ID,
+        name: "iMac 21.5-inch · 2017 · Core i5",
+        identifier: "iMac18,1",
+        details: "Intel Iris Plus 640",
+    },
 ];
 
 #[cfg(test)]

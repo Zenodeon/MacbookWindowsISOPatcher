@@ -33,6 +33,7 @@ other models are still in progress.
 | MacBook Pro 13-inch 2017 · A1706 · Touch Bar | `MacBookPro14,2` | Iris Plus 650 | Ready for testing · Unverified |
 | MacBook Pro 13-inch 2017 · No Touch Bar | Pending | Model-dependent | Coming soon |
 | MacBook Pro 15-inch 2017 | Pending | Model-dependent | Coming soon |
+| iMac 21.5-inch 2017 · Core i5 | `iMac18,1` | Iris Plus 640 | Ready for testing · Unverified |
 | MacBook Pro 2018-2020 · Intel | Pending | Model-dependent | Coming soon |
 | MacBook Air · Intel | Pending | Model-dependent | Coming soon |
 | MacBook 12-inch · Intel | Pending | Model-dependent | Coming soon |
@@ -44,6 +45,10 @@ models are a roadmap.
 
 Select the year and identifier carefully: **A1706 includes both 2016 and 2017 models**.
 The two A1706 profiles have separate external-display Setup recipes.
+
+For iMac18,1, choose Built-in screen or External screen on its model card.
+This selects the Windows Setup screen; desktop display settings can be changed
+in Windows afterward. Use a wired USB keyboard and mouse for initial testing.
 
 ## Files you need
 

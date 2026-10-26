@@ -18,11 +18,17 @@ pub const INSTALL_STEPS: [&str; 7] = [
     "Complete Windows Setup normally using the Windows partition you prepared.",
     "In Windows, run C:\\BootCamp\\Setup.exe as administrator, then restart.",
     "Search Windows for Apple Software Update. If it is missing, install Apple's desktop iTunes installer, then check for Apple Software Update again.",
-    "Install the applicable updates offered by Apple Software Update and restart. Check your MacBook's features and report anything still failing.",
+    "Install the applicable updates offered by Apple Software Update and restart. Check your Mac's features and report anything still failing.",
 ];
 
 pub fn installation_guide(model: &str) -> String {
-    let mut text = String::from("MacBook Windows installation\r\n\r\n");
+    installation_guide_for_target(model, crate::domain::DisplayTarget::External)
+}
+pub fn installation_guide_for_target(model: &str, target: crate::domain::DisplayTarget) -> String {
+    let mut text = String::from("Mac Windows installation\r\n\r\n");
+    if model == crate::domain::IMAC_MODEL_ID {
+        text.push_str(&format!("Windows Setup screen: {}. This selects the installer screen; configure the Windows desktop display separately after installation. Use a wired USB keyboard and mouse for initial testing.\r\n\r\n", target.label()));
+    }
     for (index, step) in INSTALL_STEPS.iter().enumerate() {
         text.push_str(&format!("{}. {}\r\n\r\n", index + 1, step));
     }
@@ -41,11 +47,18 @@ pub fn installation_guide(model: &str) -> String {
         }
         text.push_str("\r\n");
     }
-    text.push_str("Support varies by model and Windows edition. If Setup or any MacBook feature fails, describe what happened and include the Mac model number/identifier, Windows edition/build, build log, and any setup/startup logs.\r\nReport an issue: https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues\r\n");
+    text.push_str("Support varies by model and Windows edition. If Setup or any Mac feature fails, describe what happened and include the Mac model number/identifier, Windows edition/build, build log, and any setup/startup logs.\r\nReport an issue: https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues\r\n");
     text
 }
 
 pub fn issue_draft(model: &ModelProfile, images: &[&Image]) -> String {
+    issue_draft_for_target(model, images, crate::domain::DisplayTarget::External)
+}
+pub fn issue_draft_for_target(
+    model: &ModelProfile,
+    images: &[&Image],
+    target: crate::domain::DisplayTarget,
+) -> String {
     let editions = images
         .iter()
         .map(|image| {
@@ -75,6 +88,13 @@ pub fn issue_draft(model: &ModelProfile, images: &[&Image]) -> String {
         graphics,
         crate::APP_VERSION
     );
+    if model.id == crate::domain::IMAC_MODEL_ID {
+        body = body.replacen(
+            "\nApp version:",
+            &format!("\nWindows Setup screen: {}\nApp version:", target.label()),
+            1,
+        );
+    }
     if let Some(recipe) = crate::setup_recipe::SetupRecipe::for_model(model.id) {
         body.push_str(&format!("For boot/setup problems, attach the session folder from the USB's MacBookPatcher-Logs/{} directory and the saved build log.\n",recipe.log_folder()));
         if model.id == MODEL_ID {

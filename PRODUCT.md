@@ -28,3 +28,13 @@ No automatic disk partitioning and no USB-writing functionality.
 `C:/Github/MacbookISOBuildingSpace/REPRODUCE.md` and the v17 runtime payloads.
 The source records a successful Pro installation on the target Mac; this app's
 own hardware validation remains pending. Original media and output ISOs are not in Git.
+
+
+## iMac18,1 testing profile
+The 21.5-inch 2017 Core i5 / Iris Plus 640 iMac is an Unverified profile.
+Its card offers Built-in screen and External screen, defaulting to External.
+Both use Intel 27.20.100.9316 and Apple Boot Camp 041-88735; screen selection
+controls Windows Setup, with no permanent desktop-display configuration.
+Selecting a screen selects the iMac without authorizing downloads. Changing
+screens on that same model preserves download readiness. Other models keep
+their existing external-display behavior. Record the target in jobs and logs.

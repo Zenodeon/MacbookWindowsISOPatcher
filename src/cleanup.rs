@@ -1656,6 +1656,7 @@ mod tests {
                 },
                 selected: vec![1],
                 model: MODEL_ID.into(),
+                display_target: crate::domain::DisplayTarget::External,
                 output,
                 workspace,
                 cache: self.path("cache"),

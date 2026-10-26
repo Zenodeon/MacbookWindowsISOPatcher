@@ -265,7 +265,7 @@ pub fn prepare_for_model(
     );
     let intel_dir = if model != "a1707-2016" {
         let graphics = crate::driver_prefetch::intel_graphics(model)?;
-        if model == "a1706-2017" {
+        if crate::driver_prefetch::is_dch(model) {
             extract(tool, &paths[0], &dir.join("intel"), emit, cancel)?;
         } else {
             extract_intel(tool, &paths[0], &dir.join("intel"), emit, cancel)?;

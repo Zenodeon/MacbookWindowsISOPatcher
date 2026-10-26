@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <string.h>
 static int amd_profile;
+static int imac_profile;
 static int scenario,calls,waits,ready_calls;static ULONGLONG elapsed;
 static const char *one;
 static const char intel[]="PCI\\VEN_8086&DEV_1926&SUBSYS_1234106B&REV_06\\test-instance\0";
@@ -21,7 +22,7 @@ static CONFIGRET WINAPI mock_property(DEVINST node,ULONG property,PULONG type,PV
  *type=property==CM_DRP_HARDWAREID?REG_MULTI_SZ:REG_SZ;n=strlen(value)+1;if(property==CM_DRP_HARDWAREID)++n;assert(*size>=n);memcpy(buffer,value,n);*size=(ULONG)n;return CR_SUCCESS;
 }
 static LSTATUS WINAPI mock_open(HKEY root,LPCSTR path,DWORD options,REGSAM access,PHKEY key){(void)root;(void)options;(void)access;assert(strstr(path,"Control\\Class\\{test-guid}\\0001"));*key=(HKEY)1;return ERROR_SUCCESS;}
-static LSTATUS WINAPI mock_query(HKEY key,LPCSTR name,LPDWORD reserved,LPDWORD type,LPBYTE data,LPDWORD size){const char *version=scenario==10?"0.0.0.0":(amd_profile?"21.19.128.7":"21.20.16.5174");(void)key;(void)reserved;assert(!strcmp(name,"DriverVersion"));*type=REG_SZ;assert(*size>strlen(version));strcpy_s((char*)data,*size,version);*size=(DWORD)strlen(version)+1;return ERROR_SUCCESS;}
+static LSTATUS WINAPI mock_query(HKEY key,LPCSTR name,LPDWORD reserved,LPDWORD type,LPBYTE data,LPDWORD size){const char *version=scenario==10?"0.0.0.0":(amd_profile?"21.19.128.7":imac_profile?"27.20.100.9316":"21.20.16.5174");(void)key;(void)reserved;assert(!strcmp(name,"DriverVersion"));*type=REG_SZ;assert(*size>strlen(version));strcpy_s((char*)data,*size,version);*size=(DWORD)strlen(version)+1;return ERROR_SUCCESS;}
 static LSTATUS WINAPI mock_close(HKEY key){(void)key;return ERROR_SUCCESS;}
 #define CM_Get_Device_ID_List_SizeA mock_size
 #define CM_Get_Device_ID_ListA mock_list
@@ -61,6 +62,21 @@ int main(void){
   reset(0);assert(wait_profile("PCI\\VEN_8086&DEV_1927\\wrong")==2&&ready_calls==0);
   assert(select_profile_ids("PCI\\VEN_8086&DEV_191B\\hd530\0PCI\\VEN_8086&DEV_1927\\iris550\0",selected,sizeof(selected))==0);
   if(d){char mixed[1024]={0};const char *hd="PCI\\VEN_8086&DEV_191B\\hd530";strcpy_s(mixed,sizeof(mixed),hd);memcpy(mixed+strlen(hd)+1,one,strlen(one)+2);assert(select_profile_ids(mixed,selected,sizeof(selected))==1&&!strcmp(selected,one));}
+ }
+ {const char imac[]="PCI\\VEN_8086&DEV_5926&SUBSYS_016E106B&REV_06\\imac-fixture\0";
+  assert(select_profile("imac18-1-2017"));one=imac;
+  reset(0);assert(discover_profile()==0&&calls==1);
+  reset(1);assert(discover_profile()==0&&calls==3&&waits==2);
+  for(s=3;s<=4;++s){reset(s);assert(discover_profile()==1&&calls==5&&waits==4);}
+  reset(5);assert(discover_profile()==2&&calls==1);
+  reset(0);assert(wait_profile(one)==0&&ready_calls==1);
+  reset(11);assert(wait_profile(one)==0&&ready_calls==3);
+  for(s=7;s<=10;++s){reset(s);assert(wait_profile(one)==1&&waits==60);}
+  reset(12);assert(wait_profile(one)==1&&waits==60);
+  reset(0);assert(wait_profile(intel)==2&&ready_calls==0);
+  assert(!strcmp(gpu_label(imac),"Intel Iris Plus 640"));
+  assert(select_profile_ids("PCI\\VEN_8086&DEV_5927\\other\0",selected,sizeof(selected))==0);
+  {char *args[]={"gpu","--profile","imac18-1-2017","--wait-ready",(char*)one};reset(0);assert(gpu2017_production_main(5,args)==0);}
  }
  puts("2016 profile GPU production-path tests passed");return 0;
 }

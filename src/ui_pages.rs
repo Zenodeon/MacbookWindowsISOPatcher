@@ -4,11 +4,11 @@ impl PatcherApp {
     pub(super) fn model_page(&mut self, ui: &mut egui::Ui) {
         Self::heading(
             ui,
-            "Choose your MacBook",
-            "Choose your model. External-display graphics drivers are selected automatically.",
+            "Choose your Mac",
+            "Choose your model. Graphics drivers are selected automatically.",
         );
         let colors = appearance::palette(ui.ctx());
-        Self::section(ui, "MacBook models", colors.model, |ui| {
+        Self::section(ui, "Mac models", colors.model, |ui| {
             for (index, model) in MODEL_PROFILES.iter().enumerate() {
                 let checked = self.model_selected == Some(index);
                 let width = ui.available_width();
@@ -26,7 +26,13 @@ impl PatcherApp {
                     inner_width,
                 );
                 let status_height = 30.0;
-                let height = 24.0 + title.size().y + details.size().y + status_height;
+                let options_height = if model.id == IMAC_MODEL_ID {
+                    if inner_width >= 304.0 { 44.0 } else { 82.0 }
+                } else {
+                    0.0
+                };
+                let height =
+                    24.0 + title.size().y + details.size().y + status_height + options_height;
                 let (rect, response) =
                     ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
                 let fill = if checked || response.hovered() {
@@ -113,13 +119,58 @@ impl PatcherApp {
                 if checked {
                     row.label(RichText::new("Selected").size(12.0).color(colors.accent));
                 }
+                if model.id == IMAC_MODEL_ID {
+                    let choices = egui::Rect::from_min_size(
+                        egui::pos2(origin.x, status_rect.max.y + 2.0),
+                        egui::vec2(inner_width, options_height),
+                    );
+                    let mut controls = ui.new_child(
+                        egui::UiBuilder::new()
+                            .id_salt("imac-screen-target")
+                            .max_rect(choices)
+                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                    );
+                    self.imac_screen_choices(&mut controls);
+                }
                 ui.add_space(6.0);
             }
             ui.hyperlink_to(
-                "Identify your MacBook model",
-                "https://support.apple.com/en-us/108052",
+                if self.model().is_some_and(|m| m.id == IMAC_MODEL_ID) {
+                    "Identify your iMac model"
+                } else {
+                    "Identify your MacBook model"
+                },
+                if self.model().is_some_and(|m| m.id == IMAC_MODEL_ID) {
+                    "https://support.apple.com/en-us/108054"
+                } else {
+                    "https://support.apple.com/en-us/108052"
+                },
             );
         });
+    }
+    fn imac_screen_choices(&mut self, ui: &mut egui::Ui) -> Vec<(DisplayTarget, egui::Response)> {
+        let mut responses = Vec::new();
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x=8.0;
+            for target in [DisplayTarget::BuiltIn,DisplayTarget::External] {
+                let response=ui.add_enabled(!self.busy && !self.closing && !self.dismounting && !self.installing_adk,
+                    egui::Button::new(RichText::new(target.label()).color(if self.imac_display_target==target {Color32::WHITE}else{ui.visuals().text_color()})).selected(self.imac_display_target==target).corner_radius(8).min_size(egui::vec2(148.0,32.0)))
+                    .on_hover_text("Screen used by Windows Setup. Desktop display settings can be changed in Windows.");
+                if response.clicked() {self.select_imac_target(target);}
+                responses.push((target,response));
+            }
+        });
+        #[cfg(test)]
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new("imac-choice-test-geometry"),
+                responses
+                    .iter()
+                    .map(|(t, r)| (*t, r.rect, r.id))
+                    .collect::<Vec<_>>(),
+            )
+        });
+        responses
     }
     pub(super) fn section(
         ui: &mut egui::Ui,
@@ -151,12 +202,18 @@ impl PatcherApp {
             if let Some(model) = self.model() {
                 ui.label(RichText::new(model.name).strong());
                 ui.label(format!("{} · {}", model.identifier, model.details));
+                if model.id == IMAC_MODEL_ID {
+                    ui.label(format!(
+                        "Windows Setup screen: {}",
+                        self.display_target().label()
+                    ));
+                }
                 if model.hardware_verified() {
                     ui.label("External HDMI fix for a disconnected internal display.");
                 } else {
                     ui.colored_label(
                         colors.warning,
-                        "Unverified external-display Setup recipe. Please report your test results.",
+                        if model.id==IMAC_MODEL_ID {"Unverified Windows Setup recipe. Please report your test results."}else{"Unverified external-display Setup recipe. Please report your test results."},
                     );
                 }
                 if model.id == "a1707-2016" {
@@ -370,7 +427,12 @@ impl PatcherApp {
 
     pub(super) fn review_page(&mut self, ui: &mut egui::Ui) {
         let hardware_verified = self.model().is_some_and(|model| model.hardware_verified());
-        let description = if hardware_verified {
+        let description = if self.model().is_some_and(|m| m.id == IMAC_MODEL_ID) {
+            format!(
+                "Iris Plus 640 graphics 27.20.100.9316, Windows Setup on the {}, and Apple Boot Camp drivers will be included.",
+                self.display_target().label().to_lowercase()
+            )
+        } else if hardware_verified {
             "Iris graphics, the HDMI fix, and Boot Camp drivers will be included.".to_owned()
         } else if self.model().is_some_and(|model| model.id == "a1706-2017") {
             "Iris Plus 650 graphics 27.20.100.9316, external-display Setup startup, and Apple Boot Camp drivers will be included.".to_owned()
@@ -395,6 +457,12 @@ impl PatcherApp {
         let colors = appearance::palette(ui.ctx());
         if let Some(model) = self.model() {
             ui.label(RichText::new(model.name).strong());
+            if model.id == IMAC_MODEL_ID {
+                ui.label(format!(
+                    "Windows Setup screen: {}",
+                    self.display_target().label()
+                ));
+            }
             if !hardware_verified {
                 ui.colored_label(
                     colors.warning,
@@ -556,5 +624,134 @@ impl PatcherApp {
                 );
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod imac_tests {
+    use super::*;
+    fn render(
+        app: &mut PatcherApp,
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+        width: f32,
+        full: bool,
+    ) -> Vec<(DisplayTarget, egui::Rect, egui::Id)> {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 700.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    if full {
+                        egui::ScrollArea::vertical()
+                            .vertical_scroll_offset(350.0)
+                            .show(ui, |ui| app.model_page(ui));
+                    } else {
+                        app.imac_screen_choices(ui);
+                    }
+                });
+            },
+        );
+        ctx.data(|d| d.get_temp(egui::Id::new("imac-choice-test-geometry")))
+            .unwrap()
+    }
+    fn click(app: &mut PatcherApp, ctx: &egui::Context, pos: egui::Pos2, width: f32, full: bool) {
+        render(
+            app,
+            ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+            width,
+            full,
+        );
+        render(
+            app,
+            ctx,
+            vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+            width,
+            full,
+        );
+    }
+    #[test]
+    fn nested_card_choices_support_pointer_keyboard_and_keep_download_authorization() {
+        let ctx = egui::Context::default();
+        let mut app = PatcherApp::new_with_context(&ctx);
+        assert_eq!(app.imac_display_target, DisplayTarget::External);
+        render(&mut app, &ctx, vec![], 1240.0, true);
+        let choices = render(&mut app, &ctx, vec![], 1240.0, true);
+        click(&mut app, &ctx, choices[0].1.center(), 1240.0, true);
+        assert_eq!(app.model().unwrap().id, IMAC_MODEL_ID);
+        assert_eq!(app.display_target(), DisplayTarget::BuiltIn);
+        assert!(app.drivers.requested_model.is_none() && !app.drivers.running);
+        app.drivers.requested_model = Some(IMAC_MODEL_ID);
+        app.drivers.ready = true;
+        app.drivers.running = true;
+        let choices = render(&mut app, &ctx, vec![], 1240.0, true);
+        ctx.memory_mut(|m| m.request_focus(choices[1].2));
+        render(
+            &mut app,
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: Some(egui::Key::Enter),
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+            1240.0,
+            true,
+        );
+        assert_eq!(app.display_target(), DisplayTarget::External);
+        assert_eq!(app.drivers.requested_model, Some(IMAC_MODEL_ID));
+        assert!(app.drivers.ready && !app.drivers.cancel.is_cancelled());
+    }
+    #[test]
+    fn narrow_controls_wrap_and_busy_controls_do_not_change_target() {
+        let ctx = egui::Context::default();
+        let mut app = PatcherApp::new_with_context(&ctx);
+        let choices = render(&mut app, &ctx, vec![], 250.0, false);
+        assert!(choices[1].1.min.y > choices[0].1.max.y);
+        assert!(choices.iter().all(|(_, rect, _)| rect.max.x <= 250.0));
+        app.busy = true;
+        click(&mut app, &ctx, choices[0].1.center(), 250.0, false);
+        assert_eq!(app.imac_display_target, DisplayTarget::External);
+        assert!(app.model_selected.is_none());
+    }
+    #[test]
+    fn target_survives_navigation_and_other_models_but_resets_after_dismount() {
+        let ctx = egui::Context::default();
+        let mut app = PatcherApp::new_with_context(&ctx);
+        app.select_imac_target(DisplayTarget::BuiltIn);
+        for page in [Page::Iso, Page::Review, Page::Model] {
+            app.page = page;
+            assert_eq!(app.display_target(), DisplayTarget::BuiltIn);
+        }
+        app.model_selected = Some(0);
+        assert_eq!(app.display_target(), DisplayTarget::External);
+        app.model_selected = MODEL_PROFILES.iter().position(|m| m.id == IMAC_MODEL_ID);
+        assert_eq!(app.display_target(), DisplayTarget::BuiltIn);
+        app.sender
+            .send(Message::Dismounted(Ok(false), None))
+            .unwrap();
+        app.consume();
+        assert_eq!(app.imac_display_target, DisplayTarget::External);
     }
 }

@@ -132,7 +132,11 @@ impl PatcherApp {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        self.completion_link(&completion::issue_draft(model, &images));
+        self.completion_link(&completion::issue_draft_for_target(
+            model,
+            &images,
+            self.display_target(),
+        ));
     }
     pub(super) fn complete_page(&mut self, ui: &mut egui::Ui) {
         let colors = appearance::palette(ui.ctx());
@@ -142,7 +146,7 @@ impl PatcherApp {
         Self::heading(
             ui,
             "Your ISO is ready",
-            "Save the build logs, then follow these steps on your MacBook.",
+            "Save the build logs, then follow these steps on your Mac.",
         );
         Self::section(ui, "Build complete", colors.ready, |ui| {
             if let Some(path) = &self.finished {
@@ -158,6 +162,12 @@ impl PatcherApp {
             if let Some(model) = self.model() {
                 ui.label(model.name);
                 ui.label(format!("{} · {}", model.identifier, model.details));
+                if model.id == IMAC_MODEL_ID {
+                    ui.label(format!(
+                        "Windows Setup screen: {}",
+                        self.display_target().label()
+                    ));
+                }
             }
             if let Some(inventory) = &self.inventory {
                 let editions = inventory
@@ -174,6 +184,9 @@ impl PatcherApp {
             ui.spacing_mut().item_spacing.y = 8.0;
             for (index, step) in completion::INSTALL_STEPS[..4].iter().enumerate() {
                 ui.label(format!("{}. {step}", index + 1));
+            }
+            if self.model().is_some_and(|m| m.id == IMAC_MODEL_ID) {
+                ui.label("Use a wired USB keyboard and mouse for initial testing. Desktop display settings can be changed in Windows after installation.");
             }
             if ui.button("Download Ventoy").clicked() {
                 self.completion_link(completion::VENTOY_URL);

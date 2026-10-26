@@ -18,7 +18,11 @@ pub fn version(image: &Image) -> String {
 pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
     let recipe = crate::setup_recipe::SetupRecipe::for_model(&req.model)
         .context("No support recipe for this model")?;
+    req.display_target.validate(&req.model)?;
     fs::create_dir_all(dir)?;
+    if req.model == crate::domain::IMAC_MODEL_ID {
+        fs::write(dir.join("imac18-1-2017.profile"), b"imac18-1-2017\r\n")?;
+    }
     let model = crate::models::MODEL_PROFILES
         .iter()
         .find(|m| m.id == req.model)
@@ -34,7 +38,7 @@ pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
         "source_iso_filename": req.inventory.iso.file_name().unwrap_or_default().to_string_lossy(),
         "windows_images": req.selected_images()?, "setup_image": req.inventory.setup_image,
         "reference_windows": (req.model==crate::domain::MODEL_ID).then_some("19045.3803 Professional"), "reference_setup": (req.model==crate::domain::MODEL_ID).then_some("19041.3803"),
-        "setup_recipe": recipe.model(), "log_folder": recipe.log_folder(),
+        "setup_recipe": recipe.model(), "log_folder": recipe.log_folder(), "display_target": req.display_target, "setup_screen": req.display_target.label(),
         "collection": "WinPE only; manual recovery after reboot; no upload"
     });
     fs::write(

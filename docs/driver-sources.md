@@ -142,6 +142,37 @@ Both recipes are Unverified and require direct-adapter hardware testing.
 Matching a signed INF establishes package support, not working external output
 or successful Windows installation on the Mac.
 
+## iMac18,1 screen-selection recipe
+
+The 21.5-inch 2017 Core i5 iMac uses the existing signed Intel DCH
+27.20.100.9316 package. Its unchanged INF maps `8086:5926` to `iKBLD_w10_DS`.
+Source extraction checks and selected CopyFiles validation apply to this device,
+with igfx demand-start from its actual DriverStore path and BasicDisplay enabled.
+Both Built-in screen and External screen use these drivers; the startup recipe
+requests `/internal` or `/external` respectively before opening Windows Setup.
+
+Apple Boot Camp package **041-88735** explicitly lists `iMac18,1`:
+
+- URL: https://swcdn.apple.com/content/downloads/53/06/041-88735-A_5MC8H30E1T/uzofvyg87dqhkn2qh1ipxy4f1uxduhitsb/BootCampESD.pkg
+- Distribution: https://swdist.apple.com/content/downloads/53/06/041-88735-A_5MC8H30E1T/uzofvyg87dqhkn2qh1ipxy4f1uxduhitsb/041-88735.English.dist
+- Size: 398,603,681 bytes.
+- SHA-256: `fdcf5c6d075da15908accdc8877b3f0e90ec96c8f736c509cbe5cc51adcca95d`.
+- This is a developer-established full-file pin from the official HTTPS download.
+  Apple's catalog Digest `a26e58aca8289d6a7f913c9136ad1b0e0e24db94` matches
+  the compressed XAR table-of-contents SHA-1, not the whole-file SHA-1.
+- The XAR RSA signature, embedded certificate chain, official Apple root and
+  archive payload checksums were verified during inspection. Boot Camp reports
+  build 6721. The full production extraction was exercised with pinned packages.
+
+The iMac adds Cirrus CS4206 to its own boot allowlist. Storage, USB/input and
+optional audio drivers are loaded when available. Touch Bar/SPI devices and
+AppleSSD presence are not prerequisites for the SATA model. The matching ISO's
+Support/imac18-1-2017.profile marker locates the staged driver tree.
+Existing MacBook allowlists and startup payloads retain their behavior.
+
+Hardware reference: https://support.apple.com/en-us/111921.
+Both screen modes remain Unverified until tested on the actual iMac.
+
 ## Build tools
 
 7-Zip has an official installation link. The ADK button downloads Microsoft's

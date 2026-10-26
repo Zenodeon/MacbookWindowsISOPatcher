@@ -41,6 +41,42 @@ pub const BOOT_ALLOWLIST: &[&str] = &[
     "IntelEthernetInstaller64",
     "SerialIO",
 ];
+pub const IMAC_MODEL_ID: &str = "imac18-1-2017";
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DisplayTarget {
+    BuiltIn,
+    #[default]
+    External,
+}
+impl DisplayTarget {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::BuiltIn => "Built-in screen",
+            Self::External => "External screen",
+        }
+    }
+    pub fn switch(self) -> &'static str {
+        match self {
+            Self::BuiltIn => "/internal",
+            Self::External => "/external",
+        }
+    }
+    pub fn validate(self, model: &str) -> Result<()> {
+        ensure!(
+            self == Self::External || model == IMAC_MODEL_ID,
+            "Built-in screen selection is supported only for iMac18,1"
+        );
+        Ok(())
+    }
+}
+pub fn boot_allowlist(model: &str) -> Vec<&'static str> {
+    let mut folders = BOOT_ALLOWLIST.to_vec();
+    if model == IMAC_MODEL_ID {
+        folders.push("CirrusAudioCS4206x64");
+    }
+    folders
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Image {
     pub index: u32,
@@ -97,6 +133,8 @@ pub struct BuildRequest {
     pub inventory: Inventory,
     pub selected: Vec<u32>,
     pub model: String,
+    #[serde(default)]
+    pub display_target: DisplayTarget,
     pub output: PathBuf,
     pub workspace: PathBuf,
     pub cache: PathBuf,
@@ -105,6 +143,7 @@ pub struct BuildRequest {
 }
 impl BuildRequest {
     pub fn selected_images(&self) -> Result<Vec<&Image>> {
+        self.display_target.validate(&self.model)?;
         ensure!(
             crate::models::MODEL_PROFILES
                 .iter()
@@ -257,6 +296,23 @@ mod tests {
         assert!(i.unsupported_reason().is_none());
         assert!(!i.source_tested());
     }
+    #[test]
+    fn display_targets_are_backward_compatible_and_model_scoped() {
+        let mut req = request();
+        let mut json = serde_json::to_value(&req).unwrap();
+        json.as_object_mut().unwrap().remove("display_target");
+        let old: BuildRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(old.display_target, DisplayTarget::External);
+        req.display_target = DisplayTarget::BuiltIn;
+        assert!(req.selected_images().is_err());
+        req.model = IMAC_MODEL_ID.into();
+        assert!(req.selected_images().is_ok());
+        let decoded: BuildRequest =
+            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
+        assert_eq!(decoded.display_target, DisplayTarget::BuiltIn);
+        assert!(boot_allowlist(IMAC_MODEL_ID).contains(&"CirrusAudioCS4206x64"));
+        assert!(!boot_allowlist(MODEL_ID).contains(&"CirrusAudioCS4206x64"));
+    }
     fn request() -> BuildRequest {
         BuildRequest {
             inventory: Inventory {
@@ -269,6 +325,7 @@ mod tests {
             },
             selected: vec![6],
             model: MODEL_ID.into(),
+            display_target: crate::domain::DisplayTarget::External,
             output: "C:/output.iso".into(),
             workspace: "C:/work".into(),
             cache: "C:/cache".into(),

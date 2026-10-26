@@ -128,3 +128,13 @@ a footer retry action on failure. The footer keeps progress
 visible while browsing pages. Cancel and finish the previous job before switching
 models or cache locations; ignore late results from an older job. Wait for download
 cleanup before normal close. Hardware verification status does not block building.
+
+
+## iMac screen options
+Keep the existing model card design. Only the iMac18,1 card has a second row
+of rounded selected-state buttons: Built-in screen and External screen.
+External is the initial choice. Screen buttons select the model, support keyboard
+focus and wrap within the card; clicking them must not toggle the whole card
+or restart driver downloads. Preserve the chosen target when navigating back.
+Use Mac in shared workflow labels while retaining MacBook ISO Patcher branding.
+Show the selected Setup screen in Review and completion details.

@@ -239,6 +239,10 @@ impl PatcherApp {
             return;
         }
         let (view, model_index) = match view.as_str() {
+            "models-imac" | "models-imac-internal" => ("models", 4),
+            "review-imac" | "review-imac-internal" | "complete-imac" | "complete-imac-internal" => {
+                ("review-ready", 4)
+            }
             "models-download" => ("models", 0),
             "iso-download" | "iso-driver-ready" | "iso-driver-error" => ("iso", 0),
             "models-unverified" => ("models", 1),
@@ -263,6 +267,13 @@ impl PatcherApp {
             other => (other, 0),
         };
         let driver_preview = std::env::var("MACBOOK_PATCHER_PREVIEW").unwrap_or_default();
+        if driver_preview.contains("imac") {
+            self.imac_display_target = if driver_preview.ends_with("-internal") {
+                DisplayTarget::BuiltIn
+            } else {
+                DisplayTarget::External
+            };
+        }
         if driver_preview.ends_with("-download") || driver_preview.contains("-driver-") {
             self.model_selected = Some(model_index);
             self.drivers.requested_model = Some(MODEL_PROFILES[model_index].id);

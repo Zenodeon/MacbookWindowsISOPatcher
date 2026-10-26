@@ -573,7 +573,7 @@ fn run_job(
     );
     let pe_drivers = root.join("$WinPEDriver$");
     fs::create_dir(&pe_drivers)?;
-    for folder in BOOT_ALLOWLIST {
+    for folder in boot_allowlist(&req.model) {
         if req.model != MODEL_ID && !assets.drivers.join(folder).is_dir() {
             continue;
         }
@@ -691,7 +691,12 @@ fn run_job(
         } else {
             inject_signed_driver(&mount.mount, &graphics, &req.model, emit, cancel)?;
         }
-        write_boot_payload_for_model(&mount.mount, &root.join("Support"), &req.model)?;
+        write_boot_payload_for_target(
+            &mount.mount,
+            &root.join("Support"),
+            &req.model,
+            req.display_target,
+        )?;
         for rel in ["DisplaySwitch.exe", "en-US/DisplaySwitch.exe.mui"] {
             let source = job.join("boot-support").join(rel);
             if source.is_file() {
@@ -740,7 +745,7 @@ fn run_job(
         format!(
             "Model: {}\r\n\r\n{}",
             req.model,
-            crate::completion::installation_guide(&req.model)
+            crate::completion::installation_guide_for_target(&req.model, req.display_target)
         ),
     )?;
     // Keep the temporary ISO on the output filesystem for an atomic, no-clobber publication.
@@ -895,7 +900,7 @@ pub fn validate_intel_for_model(dir: &Path, model: &str) -> Result<()> {
         supports_generic_gpu(&compact, profile.device_id),
         "Intel driver does not support this model's graphics hardware"
     );
-    if model == "a1706-2017" {
+    if crate::driver_prefetch::is_dch(model) {
         for file in intel_2017_package_files(&inf)? {
             ensure!(
                 dir.join(&file).is_file(),
@@ -952,7 +957,11 @@ fn intel_2017_package_files(inf: &str) -> Result<Vec<PathBuf>> {
 // SourceDisksFiles describes the download media, including unused firmware
 // tools. The DriverStore must contain the files copied by this GPU's install
 // section, rather than every source-media entry.
+#[cfg(test)]
 fn intel_2017_store_files(inf: &str) -> Result<Vec<PathBuf>> {
+    dch_store_files(inf, "5927")
+}
+fn dch_store_files(inf: &str, device_id: &str) -> Result<Vec<PathBuf>> {
     use std::collections::{BTreeMap, BTreeSet};
     let sources = intel_2017_package_files(inf)?;
     let mut sections: BTreeMap<String, Vec<&str>> = BTreeMap::new();
@@ -967,10 +976,9 @@ fn intel_2017_store_files(inf: &str) -> Result<Vec<PathBuf>> {
             if let Some((key, value)) = line.split_once('=') {
                 let fields: Vec<_> = value.split(',').map(str::trim).collect();
                 if key.trim().starts_with('%')
-                    && fields
-                        .iter()
-                        .skip(1)
-                        .any(|id| id.eq_ignore_ascii_case(r"PCI\VEN_8086&DEV_5927"))
+                    && fields.iter().skip(1).any(|id| {
+                        id.eq_ignore_ascii_case(&format!(r"PCI\VEN_8086&DEV_{device_id}"))
+                    })
                 {
                     install.insert(fields[0].to_ascii_lowercase());
                 }
@@ -1089,8 +1097,8 @@ fn validate_signed_store(mount: &Path, intel: &Path, model: &str) -> Result<Path
         }
     }
     let found = found.context("Signed Intel package is missing from the driver store")?;
-    if model == "a1706-2017" {
-        for file in intel_2017_store_files(&text_file(&intel.join(profile.inf))?)? {
+    if crate::driver_prefetch::is_dch(model) {
+        for file in dch_store_files(&text_file(&intel.join(profile.inf))?, profile.device_id)? {
             ensure!(
                 found.join(&file).is_file(),
                 "2017 driver store file missing: {}",
@@ -1130,7 +1138,7 @@ pub fn validate_model_boot_drivers(root: &Path, model: &str) -> Result<()> {
         count += 1;
         let name = child.file_name().to_string_lossy().to_string();
         ensure!(
-            BOOT_ALLOWLIST.contains(&name.as_str()),
+            boot_allowlist(model).contains(&name.as_str()),
             "Forbidden boot-path driver folder: {name}"
         );
     }
@@ -1174,7 +1182,7 @@ fn prepare_setup_boot_graphics(mount: &Path, intel: &Path, model: &str, emit: &E
         return prepare_amd_boot_graphics(mount, intel, emit, false);
     }
     ensure!(
-        model == "a1706-2017",
+        crate::driver_prefetch::is_dch(model),
         "No Setup graphics recipe for this model"
     );
     let store = validate_signed_store(mount, intel, model)?;
@@ -1200,7 +1208,10 @@ fn prepare_setup_boot_graphics(mount: &Path, intel: &Path, model: &str, emit: &E
             .replace('/', r"\")
     );
     emit(Event::Log(format!(
-        "Preparing 2017 Iris Plus 650: demand-start igfx from {image_path}"
+        "Preparing {}: demand-start igfx from {image_path}",
+        crate::setup_recipe::SetupRecipe::for_model(model)
+            .unwrap()
+            .graphics()
     )));
     for line in boot_registry_path(mount, false, &image_path)?.lines() {
         emit(Event::Log(line.to_owned()));
@@ -1349,7 +1360,16 @@ fn boot_registry_path(mount: &Path, validate_only: bool, image_path: &str) -> Re
 fn write_boot_payload(mount: &Path, support: &Path) -> Result<()> {
     write_boot_payload_for_model(mount, support, MODEL_ID)
 }
+#[cfg(test)]
 fn write_boot_payload_for_model(mount: &Path, support: &Path, model: &str) -> Result<()> {
+    write_boot_payload_for_target(mount, support, model, DisplayTarget::External)
+}
+fn write_boot_payload_for_target(
+    mount: &Path,
+    support: &Path,
+    model: &str,
+    target: DisplayTarget,
+) -> Result<()> {
     let recipe = crate::setup_recipe::SetupRecipe::for_model(model)
         .context("No Setup startup recipe for this model")?;
     let dir = mount.join("Windows/System32");
@@ -1357,7 +1377,7 @@ fn write_boot_payload_for_model(mount: &Path, support: &Path, model: &str) -> Re
         support.join("build-manifest.json"),
         dir.join("build-manifest.json"),
     )?;
-    let script = recipe.startup();
+    let script = recipe.startup_for_target(target)?;
     let script = script.as_bytes();
     ensure!(
         script.is_ascii() && !script.contains(&0),
@@ -1398,6 +1418,7 @@ fn write_boot_payload_for_model(mount: &Path, support: &Path, model: &str) -> Re
             recipe,
             crate::setup_recipe::SetupRecipe::A1708_2016
                 | crate::setup_recipe::SetupRecipe::A1707_2016
+                | crate::setup_recipe::SetupRecipe::IMac18_1
         ) {
             fs::write(
                 dir.join("MacBookSetupGPU.exe"),
@@ -1513,6 +1534,189 @@ pub const ANSWER_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[cfg(windows)]
+    fn imac_payload_places_the_selected_target_and_neutral_helper() {
+        for target in [DisplayTarget::BuiltIn, DisplayTarget::External] {
+            let root = std::env::temp_dir().join(format!("imac-payload-{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(root.join("Windows/System32")).unwrap();
+            let support = root.join("Support");
+            fs::create_dir(&support).unwrap();
+            let manifest =
+                serde_json::json!({"model_profile":IMAC_MODEL_ID,"display_target":target});
+            fs::write(
+                support.join("build-manifest.json"),
+                serde_json::to_vec(&manifest).unwrap(),
+            )
+            .unwrap();
+            write_boot_payload_for_target(&root, &support, IMAC_MODEL_ID, target).unwrap();
+            let dir = root.join("Windows/System32");
+            let startup = fs::read_to_string(dir.join("a1706.cmd")).unwrap();
+            assert!(startup.contains(&format!("DisplaySwitch.exe {}", target.switch())));
+            assert_eq!(
+                fs::read(dir.join("build-manifest.json")).unwrap(),
+                fs::read(support.join("build-manifest.json")).unwrap()
+            );
+            assert!(
+                fs::read(dir.join("MacBookSetupGPU.exe"))
+                    .unwrap()
+                    .starts_with(b"MZ")
+            );
+            assert!(
+                fs::read(dir.join("MacBookSetupLogger.exe"))
+                    .unwrap()
+                    .starts_with(b"MZ")
+            );
+            assert!(!dir.join("a1706gpu.exe").exists() && !dir.join("a1706gpu2017.exe").exists());
+            assert_eq!(
+                fs::read(dir.join("winpeshl.ini")).unwrap(),
+                include_bytes!("../payloads/a1706/winpeshl.ini")
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test]
+    fn imac_dch_dependencies_and_startup_storage_are_model_specific() {
+        let inf = "%GPU%=Iris,PCI\\VEN_8086&DEV_5926\n%Other%=Other,PCI\\VEN_8086&DEV_5927\n[Iris]\nCopyFiles=Kernel\n[Kernel]\nigdkmd64.sys\n[Other]\nCopyFiles=Unused\n[Unused]\nigsc.dll\n[SourceDisksFiles]\nigdkmd64.sys=1\nigsc.dll=1";
+        let files = dch_store_files(inf, "5926").unwrap();
+        assert!(files.contains(&PathBuf::from("igdkmd64.sys")));
+        assert!(!files.contains(&PathBuf::from("igsc.dll")));
+        let root = std::env::temp_dir().join(format!("imac-SATA-fixture-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("AppleUSBCompositeDevice64")).unwrap();
+        fs::write(root.join("AppleUSBCompositeDevice64/input.inf"), b"fixture").unwrap();
+        assert!(validate_model_boot_drivers(&root, IMAC_MODEL_ID).is_ok());
+        assert!(validate_model_boot_drivers(&root, "a1706-2017").is_err());
+        fs::create_dir(root.join("CirrusAudioCS4206x64")).unwrap();
+        assert!(validate_model_boot_drivers(&root, IMAC_MODEL_ID).is_ok());
+        assert!(validate_model_boot_drivers(&root, "a1708-2016").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    #[cfg(windows)]
+    #[ignore = "Requires explicit cached iMac/Intel packages; extracts actual production assets without elevation"]
+    fn imac_cached_packages_extract_real_assets() {
+        let cache = PathBuf::from(
+            std::env::var_os("MACBOOK_IMAC_TEST_CACHE").expect("Explicit isolated cache"),
+        );
+        assert!(
+            cache.starts_with(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join(".cache/imac18-1-research")
+            )
+        );
+        let emit: Emit = Arc::new(|e| println!("{e:?}"));
+        let cancel = Cancellation::default();
+        let assets = download::prepare_for_model(
+            IMAC_MODEL_ID,
+            &cache,
+            Path::new("C:/Program Files/7-Zip/7z.exe"),
+            &emit,
+            &cancel,
+        )
+        .unwrap();
+        validate_intel_for_model(assets.intel.as_ref().unwrap(), IMAC_MODEL_ID).unwrap();
+        assert!(assets.bootcamp.join("Setup.exe").is_file());
+        assert!(assets.drivers.join("CirrusAudioCS4206x64").is_dir());
+        assert!(
+            !assets.drivers.join("IntelHDGraphics64").exists()
+                && !assets.drivers.join("IntelIrisSetup").exists()
+        );
+        let paths = serde_json::json!({"intel":assets.intel,"bootcamp":assets.bootcamp,"drivers":assets.drivers});
+        fs::write(
+            cache.join("validated-assets.json"),
+            serde_json::to_vec_pretty(&paths).unwrap(),
+        )
+        .unwrap();
+        println!("Validated actual iMac packages and production extraction: {paths}");
+    }
+    #[test]
+    #[cfg(windows)]
+    #[ignore = "Administrator-only single disposable WinPE servicing probe; aborts at host initialization errors"]
+    fn imac_disposable_winpe_servicing_probe() {
+        assert!(platform::is_admin(), "Administrator access required");
+        let root =
+            PathBuf::from(std::env::var_os("MACBOOK_IMAC_PROBE_ROOT").expect("New fixture root"));
+        assert!(
+            !root.exists()
+                && root.starts_with(Path::new(env!("CARGO_MANIFEST_DIR")).join(".cache"))
+                && root
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("i18-probe-")
+        );
+        let source =
+            PathBuf::from(std::env::var_os("MACBOOK_IMAC_PROBE_BOOT").expect("Stock boot.wim"));
+        let intel = PathBuf::from(
+            std::env::var_os("MACBOOK_IMAC_PROBE_INTEL").expect("Validated Intel source"),
+        );
+        let emit: Emit = Arc::new(|e| println!("{e:?}"));
+        let cancel = Cancellation::default();
+        fs::create_dir(&root).unwrap();
+        let original = platform::powershell(
+            "(Get-FileHash -LiteralPath $env:PROBE_SOURCE -Algorithm SHA256).Hash",
+            &[("PROBE_SOURCE", source.as_os_str())],
+        )
+        .unwrap();
+        let result = (|| -> Result<()> {
+            let image = root.join("boot.wim");
+            copy_file(&source, &image, &cancel)?;
+            let mount_path = root.join("mount");
+            let mounted = ImageMount::open(&image, 2, &mount_path, &emit, &cancel)?;
+            // Check the host OS provider before importing any model-specific driver.
+            dism(
+                vec![
+                    format!("/Image:{}", mount_path.display()),
+                    "/Get-Drivers".into(),
+                ],
+                &emit,
+                &cancel,
+            )
+            .context("Host DISM provider probe failed before iMac graphics configuration")?;
+            validate_intel_for_model(&intel, IMAC_MODEL_ID)?;
+            inject_signed_driver(&mount_path, &intel, IMAC_MODEL_ID, &emit, &cancel)?;
+            prepare_setup_boot_graphics(&mount_path, &intel, IMAC_MODEL_ID, &emit)?;
+            let support = root.join("Support");
+            fs::create_dir(&support)?;
+            fs::write(
+                support.join("build-manifest.json"),
+                br#"{"model_profile":"imac18-1-2017","display_target":"external"}"#,
+            )?;
+            write_boot_payload_for_target(
+                &mount_path,
+                &support,
+                IMAC_MODEL_ID,
+                DisplayTarget::External,
+            )?;
+            mounted.commit(&cancel)?;
+            let mounted = ImageMount::open(&image, 2, &mount_path, &emit, &cancel)?;
+            let store = validate_signed_store(&mount_path, &intel, IMAC_MODEL_ID)?;
+            let kernel = store.join("igdkmd64.sys");
+            let expected = format!(
+                r"\SystemRoot\{}",
+                kernel
+                    .strip_prefix(mount_path.join("Windows"))?
+                    .to_string_lossy()
+                    .replace('/', r"\")
+            );
+            boot_registry_path(&mount_path, true, &expected)?;
+            ensure!(
+                fs::read(mount_path.join("Windows/System32/MacBookSetupGPU.exe"))?
+                    .starts_with(b"MZ"),
+                "GPU helper missing"
+            );
+            drop(mounted);
+            Ok(())
+        })();
+        assert_eq!(
+            original,
+            platform::powershell(
+                "(Get-FileHash -LiteralPath $env:PROBE_SOURCE -Algorithm SHA256).Hash",
+                &[("PROBE_SOURCE", source.as_os_str())]
+            )
+            .unwrap()
+        );
+        result.unwrap_or_else(|e| panic!("{e:#}"));
+    }
     #[test]
     fn intel_2017_manifest_requires_declared_files_and_rejects_path_escapes() {
         let inf = "[SourceDisksFiles]\nigdkmd64.sys=1\ndg1_oprom.rom=1,\\oprom\n[Other]\nignored=1";

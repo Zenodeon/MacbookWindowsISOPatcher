@@ -1096,6 +1096,7 @@ mod tests {
             },
             selected: vec![1],
             model: crate::domain::MODEL_ID.into(),
+            display_target: crate::domain::DisplayTarget::External,
             output: output.clone(),
             workspace: f.path("work"),
             cache: f.path("cache"),

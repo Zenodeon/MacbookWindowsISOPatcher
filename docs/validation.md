@@ -652,3 +652,59 @@ initialization stage described above. The debug preview was compiled.
 The four unmounted disposable WIM copies remain in .cache/r16-6612b5ba
 (10,749,772,884 bytes total). Automatic approval review rejected their cleanup
 with "blocked by policy". No cleanup was retried through another mechanism.
+
+
+## iMac18,1 and selectable Setup screen (2026-10-26)
+
+The unreleased local development build adds imac18-1-2017 for the 21.5-inch 2017
+Core i5 / Iris Plus 640 iMac. Its model card offers Built-in screen and External
+screen, with External as the default. Both modes remain Unverified.
+
+- DisplayTarget is serialized in build requests/jobs. Older jobs without the
+  field default to External; BuiltIn is rejected for existing MacBook models.
+  Screen choices select the iMac, support pointer/keyboard operation and wrap
+  within the card. Same-model changes preserve download authorization/readiness
+  and do not start transfers. Back navigation/model changes retain the choice;
+  a successful dismount/workflow reset restores External.
+- Both modes use Intel 27.20.100.9316 for 8086:5926 and Apple Boot Camp 041-88735.
+  The actual pinned packages passed the full production extraction path,
+  including the DCH CAB, iMac-specific audio and removal of Apple's old loose
+  Intel graphics folders. The Apple archive's signed XAR TOC, payload checksums
+  and certificate chain to Apple's official root were verified during research.
+- Selected CopyFiles dependencies follow 5926 rather than hardcoded 5927. BasicDisplay
+  stays enabled; igfx uses demand-start from its validated DriverStore path.
+  Existing MacBook startup bytes/helpers and source BCD behavior are preserved.
+- Both iMac targets share discovery, a single restart, optional Apple startup
+  drivers and structured readiness. DisplaySwitch /internal or /external then
+  requests the chosen Setup screen. Missing/failed switching stops Setup and is
+  logged. CMD production-stage fixtures cover successful/failed restart and
+  display switching, including a missing executable. The choice does not
+  permanently configure the installed Windows desktop.
+- The iMac-only Cirrus CS4206 allowance does not expand other models' boot
+  allowlists. SATA fixtures accept USB drivers without AppleSSD, SPI or Touch Bar
+  requirements. Support/imac18-1-2017.profile identifies its startup bundle.
+- Manifests, Review, completion details, installation guides and issue drafts
+  retain the target. Automatic and manual recovery logging use
+  MacBookPatcher-Logs/iMac18,1 with the same USB marker, limits and asynchronous
+  behavior. Native tests cover new-profile propagation and preserve older folders.
+- Tests cover immediate/delayed/missing/ambiguous/error enumeration, wrong GPU,
+  service/version mismatch, readiness timeout, routing and payload placement.
+  171 default automated tests passed, plus the separately run real-package
+  extraction test. Formatting and Clippy with warnings as errors passed.
+- Real debug UI captures were inspected in both themes at 1240 x 700 and
+  800 x 520, covering model controls, Review and completion. The selected button
+  text has explicit light-theme contrast. The mechanical UI detector returned
+  no findings. Completion screenshots use simulated data, not a rebuilt ISO.
+  Local captures and verification output: .cache/imac18-1-research/.
+
+The single elevated disposable WinPE probe reproduced host DISM error 87 during
+/Get-Drivers, before any iMac-specific graphics configuration. It stopped there;
+no further image copies/tests were run. The disposable mount was discarded,
+DISM reported no remaining mounted images, and the original boot.wim SHA256
+was unchanged. Full offline servicing/persistence remains unvalidated on this
+host. The copied WIM and logs are retained for diagnosis; no full ISO was built.
+
+Hardware acceptance remains pending for both targets. Test Built-in with the
+internal panel connected; test External through the intended direct USB-C
+HDMI/DisplayPort adapter, including the intended disconnected-panel setup.
+Require visible Setup, successful installation and subsequent device checks.

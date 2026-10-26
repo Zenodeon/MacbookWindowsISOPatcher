@@ -39,9 +39,10 @@ pub fn intel_graphics(model: &str) -> Result<IntelGraphics> {
         MODEL_ID => "1927",
         "a1708-2016" => "1926",
         "a1706-2017" => "5927",
+        crate::domain::IMAC_MODEL_ID => "5926",
         _ => bail!("No Intel graphics profile exists for this Mac model"),
     };
-    let kaby_lake = model == "a1706-2017";
+    let kaby_lake = is_dch(model);
     Ok(IntelGraphics {
         device_id,
         version: if kaby_lake {
@@ -68,12 +69,21 @@ const APPLE_2017_13: DriverPackage = DriverPackage {
     hash: "6e1213a2a8abbc7815f342010f4e9c14aaaab27c2086d1d3fc1a5f1b41859bc9",
 };
 
+pub fn is_dch(model: &str) -> bool {
+    matches!(model, "a1706-2017" | crate::domain::IMAC_MODEL_ID)
+}
+const APPLE_IMAC_2017: DriverPackage = DriverPackage {
+    filename: "BootCampESD-041-88735.pkg",
+    url: "https://swcdn.apple.com/content/downloads/53/06/041-88735-A_5MC8H30E1T/uzofvyg87dqhkn2qh1ipxy4f1uxduhitsb/BootCampESD.pkg",
+    hash: "fdcf5c6d075da15908accdc8877b3f0e90ec96c8f736c509cbe5cc51adcca95d",
+};
 pub fn packages_for_model(model: &str) -> Result<&'static [DriverPackage]> {
     match model {
         MODEL_ID => Ok(&[INTEL, APPLE_2016_13]),
         "a1708-2016" => Ok(&[INTEL, APPLE_2016_13]),
         "a1707-2016" => Ok(&[APPLE_2016_15]),
         "a1706-2017" => Ok(&[INTEL_KABY, APPLE_2017_13]),
+        crate::domain::IMAC_MODEL_ID => Ok(&[INTEL_KABY, APPLE_IMAC_2017]),
         _ => bail!("No driver package manifest exists for this Mac model"),
     }
 }
@@ -103,6 +113,21 @@ pub fn download_for_model(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn imac_uses_its_own_apple_bundle_and_shared_signed_dch_package() {
+        let model = crate::domain::IMAC_MODEL_ID;
+        let p = intel_graphics(model).unwrap();
+        assert_eq!(p.device_id, "5926");
+        assert_eq!(p.version, "27.20.100.9316");
+        assert!(is_dch(model));
+        let packages = packages_for_model(model).unwrap();
+        assert_eq!(packages[0].hash, INTEL_KABY.hash);
+        assert_eq!(packages[1].filename, "BootCampESD-041-88735.pkg");
+        assert_eq!(
+            packages[1].hash,
+            "fdcf5c6d075da15908accdc8877b3f0e90ec96c8f736c509cbe5cc51adcca95d"
+        );
+    }
     #[test]
     fn models_receive_their_own_apple_and_compatible_intel_packages() {
         for model in crate::models::MODEL_PROFILES {

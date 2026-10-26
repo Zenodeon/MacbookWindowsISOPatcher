@@ -119,6 +119,7 @@ pub struct PatcherApp {
     page: Page,
     scroll_page: (Page, bool),
     model_selected: Option<usize>,
+    imac_display_target: DisplayTarget,
     drivers: DriverDownloads,
     storage: storage_settings::StorageSettings,
     iso: String,
@@ -226,6 +227,7 @@ impl PatcherApp {
             page: Page::Model,
             scroll_page: (Page::Model, false),
             model_selected: None,
+            imac_display_target: DisplayTarget::External,
             drivers: DriverDownloads::default(),
             storage: storage_settings::StorageSettings::with_recovery_failure(recovery_failed),
             iso: String::new(),
@@ -453,6 +455,7 @@ impl PatcherApp {
                             self.donation = false;
                             self.finished = None;
                             self.reset_logging_usb();
+                            self.imac_display_target = DisplayTarget::External;
                             self.notice = if self.closing {
                                 None
                             } else {
@@ -650,8 +653,28 @@ impl PatcherApp {
         self.model_selected
             .and_then(|index| MODEL_PROFILES.get(index))
     }
+    fn display_target(&self) -> DisplayTarget {
+        if self.model().is_some_and(|m| m.id == IMAC_MODEL_ID) {
+            self.imac_display_target
+        } else {
+            DisplayTarget::External
+        }
+    }
+    fn select_imac_target(&mut self, target: DisplayTarget) {
+        let index = MODEL_PROFILES
+            .iter()
+            .position(|m| m.id == IMAC_MODEL_ID)
+            .expect("iMac profile");
+        if self.model_selected != Some(index) {
+            self.drivers.selection_changed();
+        }
+        self.model_selected = Some(index);
+        self.imac_display_target = target;
+        self.error = None;
+    }
     fn request(&self) -> anyhow::Result<BuildRequest> {
         Ok(BuildRequest {
+            display_target: self.display_target(),
             inventory: self
                 .inventory
                 .clone()
@@ -659,7 +682,7 @@ impl PatcherApp {
             selected: self.selected.iter().copied().collect(),
             model: self
                 .model()
-                .ok_or_else(|| anyhow::anyhow!("Select a MacBook model first"))?
+                .ok_or_else(|| anyhow::anyhow!("Select a Mac model first"))?
                 .id
                 .into(),
             output: PathBuf::from(self.output.trim()),
@@ -1080,7 +1103,7 @@ impl eframe::App for PatcherApp {
                 match dropped_iso(&dropped) {
                     Ok(Some(path)) => {
                         if self.model().is_none() {
-                            self.show_error("Select a MacBook model first.");
+                            self.show_error("Select a Mac model first.");
                         } else {
                             self.iso = platform::display_path(&path);
                             self.page = Page::Iso;
@@ -1164,7 +1187,7 @@ impl eframe::App for PatcherApp {
                         });
                         ui.add_space(22.0);
                         for (page, label) in [
-                            (Page::Model, "MacBook model"),
+                            (Page::Model, "Mac model"),
                             (Page::Iso, "Windows ISO"),
                             (Page::Editions, "Windows editions"),
                             (Page::Review, "Review"),
@@ -1204,7 +1227,7 @@ impl eframe::App for PatcherApp {
                                             }
                                         )
                                     })
-                                    .unwrap_or_else(|| "Select a MacBook model".into()),
+                                    .unwrap_or_else(|| "Select a Mac model".into()),
                             )
                             .size(13.0)
                             .color(muted(ui)),
@@ -1417,7 +1440,7 @@ impl eframe::App for PatcherApp {
                 if self.iso_mount.is_some() {
                     "Dismount the current ISO before choosing another"
                 } else if self.model().is_none() {
-                    "Select a MacBook model first"
+                    "Select a Mac model first"
                 } else if self.busy || self.scanning || self.dismounting || self.installing_adk {
                     "Finish the current operation first"
                 } else {

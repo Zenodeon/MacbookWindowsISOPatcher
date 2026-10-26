@@ -1,4 +1,4 @@
-/* Explicit 2016 A1708/A1707 profiles. Never selects an unrelated GPU. */
+/* Explicit A1708, A1707 and iMac18,1 profiles. Never selects an unrelated GPU. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cfgmgr32.h>
@@ -8,7 +8,10 @@
 #include <string.h>
 
 static int amd_profile;
+static int imac_profile;
 static int select_profile(const char *profile) {
+    imac_profile=0;
+    if(!strcmp(profile,"imac18-1-2017")){amd_profile=0;imac_profile=1;return 1;}
     if(!strcmp(profile,"a1708-2016")){amd_profile=0;return 1;}
     if(!strcmp(profile,"a1707-2016")){amd_profile=1;return 1;}
     return 0;
@@ -18,12 +21,12 @@ static const char *amd_ids[]={"PCI\\VEN_1002&DEV_67EF&SUBSYS_0160106B&REV_C0",
         "PCI\\VEN_1002&DEV_67EF&SUBSYS_0167106B&REV_EF"};
 static const char *gpu_label(const char *id) {
     const char *labels[]={"Radeon Pro 460","Radeon Pro 455","Radeon Pro 450"};int i;
-    if(!amd_profile)return "Intel Iris 540";
+    if(!amd_profile)return imac_profile?"Intel Iris Plus 640":"Intel Iris 540";
     for(i=0;i<3;++i)if(!_strnicmp(id,amd_ids[i],strlen(amd_ids[i])))return labels[i];
     return "Unrecognized Radeon";
 }
 static int is_profile_id(const char *p) {
-    const char *prefix="PCI\\VEN_8086&DEV_1926";size_t n=strlen(prefix);
+    const char *prefix=imac_profile?"PCI\\VEN_8086&DEV_5926":"PCI\\VEN_8086&DEV_1926";size_t n=strlen(prefix);
     int i;
     if(strpbrk(p,"\"<>|\r\n"))return 0;
     if(!amd_profile)return !_strnicmp(p,prefix,n)&&(p[n]=='&'||p[n]=='\\');
@@ -80,7 +83,7 @@ static int ready_profile(const char *id) {
     bytes=sizeof(version)-1;result=RegQueryValueExA(key,"DriverVersion",NULL,&type,(LPBYTE)version,&bytes);RegCloseKey(key);
     if(result!=ERROR_SUCCESS||type!=REG_SZ||bytes>=sizeof(version))return 0;
     fprintf(stderr,"Readiness: Graphics driver version %s\n",version);
-    return !strcmp(version,amd_profile?"21.19.128.7":"21.20.16.5174");
+    return !strcmp(version,amd_profile?"21.19.128.7":imac_profile?"27.20.100.9316":"21.20.16.5174");
 }
 static int wait_profile(const char *id) {
     ULONGLONG started=GetTickCount64();

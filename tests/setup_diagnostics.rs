@@ -196,6 +196,54 @@ fn iso_support_payload_contains_metadata_and_copyable_marker() {
             .into_owned();
         assert!(body.contains(identifier) && body.contains(version) && body.contains(folder));
     }
+    for target in [
+        macbook_iso_patcher::domain::DisplayTarget::BuiltIn,
+        macbook_iso_patcher::domain::DisplayTarget::External,
+    ] {
+        let mut imac = req.clone();
+        imac.model = "imac18-1-2017".into();
+        imac.display_target = target;
+        let dir = root.join(format!("Support-iMac-{target:?}"));
+        macbook_iso_patcher::diagnostics::write_support(&dir, &imac, &root.join("imac-job"))
+            .unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(dir.join("build-manifest.json")).unwrap()).unwrap();
+        assert_eq!(manifest["model_identifier"], "iMac18,1");
+        assert_eq!(manifest["intel_driver"], "27.20.100.9316");
+        assert_eq!(
+            manifest["display_target"],
+            serde_json::to_value(target).unwrap()
+        );
+        assert_eq!(manifest["setup_screen"], target.label());
+        assert_eq!(manifest["log_folder"], "iMac18,1");
+        assert!(dir.join("imac18-1-2017.profile").is_file());
+        assert!(
+            fs::read_to_string(dir.join("Collect setup logs.cmd"))
+                .unwrap()
+                .contains("--profile imac18-1-2017 --collect")
+        );
+        let guide =
+            macbook_iso_patcher::completion::installation_guide_for_target(&imac.model, target);
+        assert!(guide.contains(target.label()) && guide.contains("wired USB keyboard"));
+        let model = macbook_iso_patcher::models::MODEL_PROFILES
+            .iter()
+            .find(|m| m.id == imac.model)
+            .unwrap();
+        assert!(!model.hardware_verified());
+        let draft = reqwest::Url::parse(&macbook_iso_patcher::completion::issue_draft_for_target(
+            model,
+            &[],
+            target,
+        ))
+        .unwrap();
+        let body = draft
+            .query_pairs()
+            .find(|(key, _)| key == "body")
+            .unwrap()
+            .1
+            .into_owned();
+        assert!(body.contains(target.label()) && body.contains("iMac18,1"));
+    }
     let mut req2017 = req.clone();
     req2017.model = "a1706-2017".into();
     let dir2017 = root.join("Support2017");
