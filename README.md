@@ -1,15 +1,15 @@
 # MacBook ISO Patcher
 
-Patch your Windows ISO to boot Windows Setup on a **headless MacBook** and send
-the display output to an **external screen**, so you can continue installation
+Patch your Windows ISO to boot Windows Setup on a headless MacBook and send
+the display output to an external screen, so you can continue installation
 without an internal display.
 
 ![MacBook ISO Patcher model selection in dark mode](assets/readme/model-selection-dark.png)
 
 ## Tested on a headless MacBook
 
-Photos from the working Windows 10 setup on a **headless MacBook Pro 13-inch
-A1706 (2016)**, using an external screen. This is the setup the patcher's 2016
+Photos from the working Windows 10 setup on a headless MacBook Pro 13-inch
+A1706 (2016), using an external screen. This is the setup the patcher's 2016
 A1706 recipe is based on.
 
 | Windows Setup on the external screen | Windows finishing setup |
@@ -18,9 +18,9 @@ A1706 recipe is based on.
 
 ## Supported Macs
 
-The goal is to support **Intel-based Macs first**, then explore support for
-**Apple silicon (M-series) Macs**. The only hardware-verified model so
-far is a **headless MacBook Pro 13-inch A1706 (2016)**. Support and testing for
+The goal is to support Intel-based Macs first, then explore support for
+Apple silicon (M-series) Macs. The only hardware-verified model so
+far is a headless MacBook Pro 13-inch A1706 (2016). Support and testing for
 other models are still in progress.
 
 | Mac | Identifier | Graphics | Status |
@@ -43,7 +43,7 @@ The verified result comes from the working 2016 A1706 Windows 10 Pro recipe.
 Newly generated ISOs still need testing on the target Mac. Coming-soon and planned
 models are a roadmap.
 
-Select the year and identifier carefully: **A1706 includes both 2016 and 2017 models**.
+Select the year and identifier carefully: A1706 includes both 2016 and 2017 models.
 The two A1706 profiles have separate external-display Setup recipes.
 
 For iMac18,1, choose Built-in screen or External screen on its model card.
@@ -52,7 +52,7 @@ in Windows afterward. Use a wired USB keyboard and mouse for initial testing.
 
 ## Files you need
 
-- **An original Microsoft Windows 10 x64 ISO**, builds 19041–19045, in any
+- An original Microsoft Windows 10 x64 ISO, builds 19041–19045, in any
   language. Both single-edition and multi-edition media are supported, using
   `install.wim` or `install.esd`. Select any of the compatible client editions
   shown in the app. Older Windows 10 builds, Windows 11, ARM/x86 and split SWM
@@ -65,23 +65,23 @@ The patcher downloads the drivers for your selected model and provides download
 or installation actions for missing build tools. You do not need to collect the
 Mac drivers yourself.
 
-Run the patcher on a **64-bit Windows 10 or 11 PC**, with internet access and
+Run the patcher on a 64-bit Windows 10 or 11 PC, with internet access and
 enough free storage for the build. Your original ISO stays unchanged; the result
 is saved as a separate custom ISO.
 
 ## Create your Custom MacBook Windows ISO
 
 1. Open the patcher on your Windows PC.
-2. Choose your MacBook model, then press **Start download & continue to Windows ISO**
+2. Choose your MacBook model, then press Start download & continue to Windows ISO
    to start downloading its drivers.
 3. Drag your original Windows ISO into the app, or browse for it. Select the
-   Windows edition or editions you want to include. **Start with one edition**
+   Windows edition or editions you want to include. Start with one edition
    and test it on your Mac first. Once it works, come back and build an ISO with
    multiple editions if you need them.
 4. Review the output location and WorkingSpace. Finish any missing-tool
    installation and wait for the model's driver downloads to complete.
-5. Press **Build ISO** and approve the administrator prompt. When it finishes,
-   use **Open ISO location** to find the file and **Save build logs** to keep a copy.
+5. Press Build ISO and approve the administrator prompt. When it finishes,
+   use Open ISO location to find the file and Save build logs to keep a copy.
 
 ## Install Windows on the Mac
 
@@ -165,7 +165,7 @@ choose macOS or Windows.
 
 ## Something did not work?
 
-Use **Copy error** to keep the error message and **Save build logs** to export the
+Use Copy error to keep the error message and Save build logs to export the
 build log.
 
 [Open a GitHub issue](https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues)
@@ -173,8 +173,8 @@ with your Mac model/identifier, Windows edition/build, display connection,
 what happened and the last visible screen. Attach your build log and, for A1706
 Setup failures, the session folder from the prepared USB:
 
-- **2016 A1706:** `MacBookPatcher-Logs\A1706\<session>`
-- **2017 A1706:** `MacBookPatcher-Logs\A1706-2017\<session>`
+- 2016 A1706: `MacBookPatcher-Logs\A1706\<session>`
+- 2017 A1706: `MacBookPatcher-Logs\A1706-2017\<session>`
 
 Review logs before sharing; Windows logs can contain
 account names and paths. The app does not upload them automatically.
