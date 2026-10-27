@@ -838,3 +838,18 @@ Require visible Setup, successful installation and subsequent device checks.
   replacement dialog's fixed footer. Simulated-state captures are retained in
   .cache/usb-routes-preview/. No README changes, release build, ISO rebuild, ZIP
   or push was performed. Physical USB validation remains pending as noted above.
+
+## Release 0.1.6 (2026-10-27)
+
+- Versioned the app as 0.1.6 and documented USB copy/verification, standalone
+  logging preparation, automatic/manual routes and completion instructions.
+- 194 automated tests passed; 12 optional integration tests were ignored.
+  Formatting, Clippy with warnings as errors and the optimized Windows build
+  passed. The final executable is rebuilt from the release commit so its
+  embedded revision refers to committed source.
+- Delivery is a single MacBookISOPatcher-0.1.6.exe. Publication verifies the
+  uploaded byte count and SHA-256 against the local artifact before publishing.
+- Physical USB copying/removal/reconnection and exFAT behavior remain pending;
+  test coverage used disposable files and simulated USB destinations. Existing
+  DISM Error 87 and model hardware-verification limitations remain unchanged.
+  No full ISO rebuild or Mac hardware test was performed for this release.
