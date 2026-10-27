@@ -162,7 +162,7 @@ impl PatcherApp {
                         ui.label("Wait for storage cleanup or the folder move to finish before preparing a USB.");
                     }
                     ui.add_space(12.0);
-                    ui.label(RichText::new("Adds a logging marker without erasing files. Keep the USB connected during Windows Setup.").size(13.0).color(colors.muted));
+                    ui.label(RichText::new("Adds a logging marker. Keep the USB connected during Windows Setup.").size(13.0).color(colors.muted));
                 });
                 let mut actions = ui.new_child(egui::UiBuilder::new().max_rect(footer));
                 actions.horizontal(|ui| {
@@ -317,7 +317,7 @@ impl PatcherApp {
                     "Setup logs help us troubleshoot problems and improve support for your Mac.",
                 );
                 ui.label("Install Ventoy, copy the patched ISO to its main USB partition, then choose that USB’s root folder, such as E:\\.");
-                ui.label("Adds a logging marker without erasing files.");
+                ui.label("Adds a logging marker.");
                 if ui
                     .add_enabled(
                         self.usb_preparation_allowed(),
