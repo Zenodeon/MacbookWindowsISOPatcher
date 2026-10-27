@@ -331,6 +331,7 @@ impl PatcherApp {
                             }
                         });
                         ui.add_space(10.0);
+                        ui.label("Manual Route (optional)");
                         ui.label(completion::MANUAL_USB_INSTRUCTIONS);
                         ui.horizontal_wrapped(|ui| {
                             if ui

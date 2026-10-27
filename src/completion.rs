@@ -95,7 +95,7 @@ pub fn installation_guide_for_target(model: &str, target: crate::domain::Display
             ));
         }
         if index == 1 {
-            text.push_str(&format!("{MANUAL_USB_INSTRUCTIONS} In the patcher, use Open ISO folder and Prepare USB for setup logs.\r\n\r\n"));
+            text.push_str(&format!("Manual Route (optional)\r\n\r\n{MANUAL_USB_INSTRUCTIONS} In the patcher, use Open ISO folder and Prepare USB for setup logs.\r\n\r\n"));
         }
     }
     text.push_str(&format!("Ventoy: {VENTOY_URL}\r\nDesktop iTunes: {ITUNES_URL}\r\nApple update guidance: {APPLE_UPDATE_URL}\r\n\r\n"));
