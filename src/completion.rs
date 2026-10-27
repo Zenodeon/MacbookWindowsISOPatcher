@@ -84,7 +84,11 @@ pub fn installation_guide_for_target(model: &str, target: crate::domain::Display
                     "Use Share logs / report an issue below.",
                     "Create an issue using the GitHub link at the end of this guide.",
                 );
-            text.push_str(&format!("{}.{} {step}\r\n\r\n", index + 1, step_index + 1));
+            text.push_str(&format!(
+                "{}.{} - {step}\r\n\r\n",
+                index + 1,
+                step_index + 1
+            ));
         }
     }
     text.push_str(&format!("Ventoy: {VENTOY_URL}\r\nDesktop iTunes: {ITUNES_URL}\r\nApple update guidance: {APPLE_UPDATE_URL}\r\n\r\n"));
@@ -273,7 +277,7 @@ mod tests {
             assert!(position >= previous);
             previous = position;
             for step_index in 0..section.steps.len() {
-                assert!(guide.contains(&format!("{}.{} ", index + 1, step_index + 1)));
+                assert!(guide.contains(&format!("{}.{} - ", index + 1, step_index + 1)));
             }
         }
         assert_eq!(INSTALL_SECTIONS[1].steps.len(), 3);

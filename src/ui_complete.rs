@@ -314,7 +314,7 @@ impl PatcherApp {
                 |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
                     for (step_index, step) in section.steps.iter().enumerate() {
-                        ui.label(format!("{}.{} {step}", index + 1, step_index + 1));
+                        ui.label(format!("{}.{} - {step}", index + 1, step_index + 1));
                     }
                     if index == 1 {
                         ui.horizontal_wrapped(|ui| {
