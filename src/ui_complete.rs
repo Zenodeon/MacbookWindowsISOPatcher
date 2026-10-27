@@ -137,11 +137,13 @@ impl PatcherApp {
                 egui::ScrollArea::vertical().id_salt("logging-usb-body").auto_shrink([false, false]).show(&mut content, |ui| {
                     ui.label(RichText::new("Prepare USB for setup logs").size(25.0).strong());
                     ui.add_space(8.0);
-                    ui.label("If Windows Setup doesn’t work, these logs help us understand why and update the patcher to fix issues affecting your Mac model.");
+                    ui.label("Setup logs help us troubleshoot problems and improve support for your Mac.");
                     ui.add_space(10.0);
-                    ui.label("First install Ventoy on your USB, then copy the patched ISO file onto its main storage partition. Do not extract the ISO or copy it to the small VTOYEFI partition.");
+                    ui.label("1. Install Ventoy on your USB.");
                     ui.add_space(8.0);
-                    ui.label("Then choose that same partition’s root, such as E:\\, where you copied the ISO. Do not select the ISO itself or a folder inside the USB. This adds a logging marker alongside the ISO; it does not erase files, install Ventoy or copy an ISO.");
+                    ui.label("2. Copy the patched ISO to the main USB partition, not VTOYEFI.");
+                    ui.add_space(8.0);
+                    ui.label("3. Choose that USB’s root folder below, such as E:\\.");
                     ui.add_space(14.0);
                     self.logging_usb_selection(ui);
                     if let Some(error) = self.usb_error.clone() {
@@ -160,7 +162,7 @@ impl PatcherApp {
                         ui.label("Wait for storage cleanup or the folder move to finish before preparing a USB.");
                     }
                     ui.add_space(12.0);
-                    ui.label(RichText::new("Keep the prepared USB connected during Windows Setup. Logs are saved under MacBookPatcher-Logs. Nothing is uploaded automatically.").size(13.0).color(colors.muted));
+                    ui.label(RichText::new("Adds a logging marker without erasing files. Keep the USB connected during Windows Setup.").size(13.0).color(colors.muted));
                 });
                 let mut actions = ui.new_child(egui::UiBuilder::new().max_rect(footer));
                 actions.horizontal(|ui| {
@@ -311,9 +313,11 @@ impl PatcherApp {
         if let Some(recipe) = recipe {
             Self::section(ui, "Prepare USB for setup logs", colors.surface, |ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
-                ui.label("If Windows Setup doesn’t work, these logs help us understand why and update the patcher to fix issues affecting your Mac model.");
-                ui.label("Install Ventoy on your USB first, then copy the patched ISO file onto its main storage partition. Do not extract the ISO or use the small VTOYEFI partition. For logging, choose that same partition’s root, such as E:\\, where you copied the ISO.");
-                ui.label("Setup support logs are saved only to a marked USB. Prepare it here, or copy MacBookPatcher-Logging.enabled from the ISO’s Support folder to the USB root.");
+                ui.label(
+                    "Setup logs help us troubleshoot problems and improve support for your Mac.",
+                );
+                ui.label("Install Ventoy, copy the patched ISO to its main USB partition, then choose that USB’s root folder, such as E:\\.");
+                ui.label("Adds a logging marker without erasing files.");
                 if ui
                     .add_enabled(
                         self.usb_preparation_allowed(),
