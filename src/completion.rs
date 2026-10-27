@@ -15,41 +15,45 @@ pub struct InstallationSection {
     pub title: &'static str,
     pub steps: &'static [&'static str],
 }
-pub const INSTALL_SECTIONS: [InstallationSection; 5] = [
+pub const INSTALL_SECTIONS: [InstallationSection; 6] = [
     InstallationSection {
         title: "Prepare the partition",
         steps: &[
-            "For dual boot, use Boot Camp Assistant in macOS to create a Windows partition while keeping macOS. Choose its size and note the BOOTCAMP partition.",
-            "You can prepare the Windows partition using Boot Camp Assistant or another method. The patcher does not partition your disk.",
+            "Prepare a Windows partition using Boot Camp Assistant or another method. Keep macOS if you want to dual boot.",
         ],
     },
     InstallationSection {
         title: "Prepare the USB",
         steps: &[
-            "On your Windows PC, download Ventoy's Windows package and extract it. Back up your USB first: installing Ventoy erases the selected USB.",
-            "Run Ventoy2Disk.exe, select the correct USB and click Install.",
-            "Copy the patched ISO file to the USB's main storage partition. Do not extract it or use the small VTOYEFI partition.",
-            "Prepare USB logging using the button below before safely ejecting the USB.",
+            "Set up a spare USB with Ventoy.",
+            "Copy the patched ISO onto that USB.",
+            "Prepare USB logging using the button below.",
         ],
     },
     InstallationSection {
         title: "Boot the Mac",
         steps: &[
-            "Shut down the Mac. Connect the prepared USB, display and power. Use the built-in keyboard or a wired USB keyboard.",
+            "Shut down the Mac. Connect the prepared USB, display and power.",
             "Turn on the Mac and hold Option (Alt on a Windows keyboard) until the startup disks appear.",
-            "Select the USB entry, usually EFI Boot, and press Return. The names and number of entries can vary.",
+            "Select EFI Boot or the Ventoy USB entry and press Return.",
             "In Ventoy, highlight the patched ISO, press Enter, then choose WIMBOOT. Keep the USB connected during Setup.",
-            "The patch starts after the installer begins booting. The earlier Mac startup picker may not appear on the external screen.",
+        ],
+    },
+    InstallationSection {
+        title: "Windows Setup",
+        steps: &[
+            "A command window should appear over the purple Windows Setup background.",
+            "Allow about 1–3 minutes for the Windows installer window to open.",
+            "If after 3 minutes the screen is still black, shows only the purple background, or you hear only Narrator audio without an installer window, Setup has not opened successfully.",
+            "If this happens, shut down the Mac. Connect the USB to another computer and find the MacBookPatcher-Logs folder.",
+            "Use Share logs / report an issue below. Describe what you saw or heard, your Mac model and display connection. Attach the available log session folder and your saved build log.",
         ],
     },
     InstallationSection {
         title: "Install Windows",
         steps: &[
-            "Choose your language and keyboard. Select Custom: Install Windows only when asked.",
-            "Select BOOTCAMP, check its size and click Format to use NTFS. If you prepared another partition, use only the partition reserved for Windows. Formatting erases that partition.",
-            "Leave the macOS, EFI and recovery partitions untouched. Select your Windows partition and click Next.",
-            "After Setup restarts, boot the internal Windows installation, not the USB installer again. Finish setup until you reach the desktop.",
-            "For dual boot, hold Option at startup to choose macOS or Windows.",
+            "Install Windows normally.",
+            "If you used Boot Camp Assistant, select the BOOTCAMP partition. Otherwise, use the partition you reserved for Windows.",
         ],
     },
     InstallationSection {
@@ -72,10 +76,15 @@ pub fn installation_guide_for_target(model: &str, target: crate::domain::Display
     }
     for (index, section) in INSTALL_SECTIONS.iter().enumerate() {
         text.push_str(&format!("{}. {}\r\n\r\n", index + 1, section.title));
-        for step in section.steps {
+        for (step_index, step) in section.steps.iter().enumerate() {
             // The ISO's text guide has no interactive button.
-            let step = step.replace("using the button below", "in the patcher");
-            text.push_str(&format!("- {step}\r\n\r\n"));
+            let step = step
+                .replace("using the button below", "in the patcher")
+                .replace(
+                    "Use Share logs / report an issue below.",
+                    "Create an issue using the GitHub link at the end of this guide.",
+                );
+            text.push_str(&format!("{}.{} {step}\r\n\r\n", index + 1, step_index + 1));
         }
     }
     text.push_str(&format!("Ventoy: {VENTOY_URL}\r\nDesktop iTunes: {ITUNES_URL}\r\nApple update guidance: {APPLE_UPDATE_URL}\r\n\r\n"));
@@ -252,31 +261,52 @@ mod tests {
         assert!(!body.contains("21.20.16.5174"));
     }
     #[test]
-    fn installation_sections_match_readme_order_and_include_boot_and_partition_details() {
-        let readme = include_str!("../README.md");
+    fn six_sections_use_numbered_substeps_and_simple_usb_instructions() {
         let guide = installation_guide(MODEL_ID);
+        assert_eq!(INSTALL_SECTIONS.len(), 6);
+        assert_eq!(INSTALL_SECTIONS[3].title, "Windows Setup");
+        assert_eq!(INSTALL_SECTIONS[4].title, "Install Windows");
         let mut previous = 0;
         for (index, section) in INSTALL_SECTIONS.iter().enumerate() {
             let heading = format!("{}. {}", index + 1, section.title);
-            assert!(readme.contains(&heading));
             let position = guide.find(&heading).unwrap();
             assert!(position >= previous);
             previous = position;
+            for step_index in 0..section.steps.len() {
+                assert!(guide.contains(&format!("{}.{} ", index + 1, step_index + 1)));
+            }
         }
-        for term in [
-            "Ventoy2Disk.exe",
-            "VTOYEFI",
-            "Option",
-            "EFI Boot",
-            "WIMBOOT",
-            "NTFS",
-            "internal Windows installation",
-            "macOS, EFI and recovery",
+        assert_eq!(INSTALL_SECTIONS[1].steps.len(), 3);
+        assert_eq!(INSTALL_SECTIONS[4].steps.len(), 2);
+        assert!(guide.contains("spare USB with Ventoy"));
+        assert!(guide.contains("EFI Boot or the Ventoy USB"));
+        assert!(!guide.contains("Ventoy2Disk.exe") && !guide.contains("NTFS"));
+        assert!(!guide.contains("button below") && !guide.contains("report an issue below"));
+        assert!(!guide.contains("earlier Mac startup picker"));
+    }
+    #[test]
+    fn setup_expectations_include_wait_symptoms_and_manual_reporting() {
+        let guide = installation_guide(MODEL_ID);
+        for detail in [
+            "command window",
+            "purple Windows Setup background",
+            "1–3 minutes",
+            "after 3 minutes",
+            "still black",
+            "Narrator audio",
+            "shut down the Mac",
+            "another computer",
+            "MacBookPatcher-Logs",
+            "saw or heard",
+            "display connection",
+            "available log session folder",
+            "saved build log",
         ] {
-            assert!(guide.contains(term), "Missing installation detail: {term}");
+            assert!(guide.contains(detail), "Missing setup guidance: {detail}");
         }
-        assert!(!guide.contains("button below"));
-        assert!(guide.contains("installing Ventoy erases"));
+        assert!(
+            guide.find("4. Windows Setup").unwrap() < guide.find("5. Install Windows").unwrap()
+        );
     }
     #[test]
     fn guide_uses_menu_wimboot_and_checks_updater_before_itunes() {

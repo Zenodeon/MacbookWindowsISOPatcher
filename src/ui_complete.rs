@@ -303,7 +303,7 @@ impl PatcherApp {
         });
         for (index, section) in completion::INSTALL_SECTIONS.iter().enumerate() {
             let color = match index {
-                0 | 3 => colors.source,
+                0 | 4 => colors.source,
                 1 => colors.surface,
                 _ => colors.model,
             };
@@ -313,8 +313,8 @@ impl PatcherApp {
                 color,
                 |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
-                    for step in section.steps {
-                        ui.label(*step);
+                    for (step_index, step) in section.steps.iter().enumerate() {
+                        ui.label(format!("{}.{} {step}", index + 1, step_index + 1));
                     }
                     if index == 1 {
                         ui.horizontal_wrapped(|ui| {
@@ -330,7 +330,7 @@ impl PatcherApp {
                     if index == 2 && self.model().is_some_and(|m| m.id == IMAC_MODEL_ID) {
                         ui.label(format!("For this iMac, use the {} selected for Windows Setup. Use a wired USB keyboard and mouse. Desktop display settings can be changed later in Windows.", self.display_target().label().to_lowercase()));
                     }
-                    if index == 4 && recipe.is_some() {
+                    if index == 5 && recipe.is_some() {
                         ui.label(
                             RichText::new(
                                 "Keep the included graphics driver for your selected Mac model.",

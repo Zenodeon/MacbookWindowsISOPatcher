@@ -761,3 +761,23 @@ Require visible Setup, successful installation and subsequent device checks.
   800 x 520. Wrapped action buttons and scrollable sections fit the viewports.
   Captures use simulated completed-build data and are stored locally under
   .cache/completion-steps-preview/. No release build or ISO rebuild was run.
+
+## Simplified six-step completion guide (2026-10-27)
+
+- Completion and future ISO guides now share six sections with numbered
+  substeps. A new Windows Setup section describes the command window, purple
+  background, approximate 1-3 minute wait, stalled-display/Narrator symptoms
+  and manual reporting with available USB session logs and the saved build log.
+  This changes instructions only; no timer or failure detector was added.
+- USB preparation is three brief steps. EFI Boot or Ventoy USB are named in
+  startup instructions. Installation is reduced to normal Setup and selecting
+  BOOTCAMP or the partition reserved for Windows. Logging controls remain in
+  the shared popup; iMac guidance and existing completion actions remain.
+- 180 automated tests passed; 12 optional tests were ignored. Tests verify six
+  sections, substep numbering, shortened copy, setup expectations and reporting.
+  Formatting, Clippy with warnings as errors and debug compilation passed.
+- Actual debug captures in both themes at 1240 x 700 and 800 x 520 were reviewed
+  for wrapping, section order and visible actions. Simulated completed-build
+  captures are retained under .cache/six-step-preview/. The mechanical UI
+  detector reported no findings. README is unchanged. No release build, ISO
+  rebuild, ZIP or push was performed.
