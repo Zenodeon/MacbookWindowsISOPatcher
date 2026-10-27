@@ -740,3 +740,24 @@ Require visible Setup, successful installation and subsequent device checks.
   in both themes, including empty, preparing, prepared, failure and long-path
   states. Fixture paths/statuses are simulated. Captures are retained locally
   under .cache/usb-popup-preview/. No release build or ISO rebuild was run.
+
+## Numbered completion instructions (2026-10-27)
+
+- Completion uses five expanded sections matching README order: partition, USB,
+  Mac startup, Windows installation and drivers. Shared grouped instructions also
+  generate the installation guide included in future ISOs.
+- Download Ventoy and Prepare USB for setup logs sit in section 2. The logging
+  action opens the same popup as the sidebar and preserves its shared state.
+  Completion no longer repeats logging explanations, selected paths or status.
+- The guide covers dual boot, Ventoy USB installation, Option/Alt startup,
+  variable startup entries, EFI Boot, WIMBOOT, NTFS partition selection and
+  internal Windows startup after restarts. Existing iMac screen guidance,
+  reporting, log export and ISO-location actions remain available.
+- 179 automated tests passed, with 12 optional tests ignored. Regression checks
+  cover README section order, installation details, shared dialog state and
+  plain-text guide wording. Formatting, Clippy with warnings as errors and the
+  debug build passed. The mechanical UI detector reported no findings.
+- Actual renderer captures were reviewed in both themes at 1240 x 700 and
+  800 x 520. Wrapped action buttons and scrollable sections fit the viewports.
+  Captures use simulated completed-build data and are stored locally under
+  .cache/completion-steps-preview/. No release build or ISO rebuild was run.

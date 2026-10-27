@@ -11,14 +11,55 @@ pub const VENTOY_URL: &str = "https://www.ventoy.net/";
 pub const ITUNES_URL: &str = "https://www.apple.com/itunes/download/win64/";
 pub const APPLE_UPDATE_URL: &str = "https://support.apple.com/en-us/118406";
 pub const ISSUES_URL: &str = "https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues/new";
-pub const INSTALL_STEPS: [&str; 7] = [
-    "Prepare a Windows partition using Boot Camp Assistant or another method.",
-    "Set up a USB drive with Ventoy, then copy the generated ISO onto it.",
-    "Boot the USB, select the ISO in Ventoy, and choose WIMBOOT. Keep the USB connected during Setup.",
-    "Complete Windows Setup normally using the Windows partition you prepared.",
-    "In Windows, run C:\\BootCamp\\Setup.exe as administrator, then restart.",
-    "Search Windows for Apple Software Update. If it is missing, install Apple's desktop iTunes installer, then check for Apple Software Update again.",
-    "Install the applicable updates offered by Apple Software Update and restart. Check your Mac's features and report anything still failing.",
+pub struct InstallationSection {
+    pub title: &'static str,
+    pub steps: &'static [&'static str],
+}
+pub const INSTALL_SECTIONS: [InstallationSection; 5] = [
+    InstallationSection {
+        title: "Prepare the partition",
+        steps: &[
+            "For dual boot, use Boot Camp Assistant in macOS to create a Windows partition while keeping macOS. Choose its size and note the BOOTCAMP partition.",
+            "You can prepare the Windows partition using Boot Camp Assistant or another method. The patcher does not partition your disk.",
+        ],
+    },
+    InstallationSection {
+        title: "Prepare the USB",
+        steps: &[
+            "On your Windows PC, download Ventoy's Windows package and extract it. Back up your USB first: installing Ventoy erases the selected USB.",
+            "Run Ventoy2Disk.exe, select the correct USB and click Install.",
+            "Copy the patched ISO file to the USB's main storage partition. Do not extract it or use the small VTOYEFI partition.",
+            "Prepare USB logging using the button below before safely ejecting the USB.",
+        ],
+    },
+    InstallationSection {
+        title: "Boot the Mac",
+        steps: &[
+            "Shut down the Mac. Connect the prepared USB, display and power. Use the built-in keyboard or a wired USB keyboard.",
+            "Turn on the Mac and hold Option (Alt on a Windows keyboard) until the startup disks appear.",
+            "Select the USB entry, usually EFI Boot, and press Return. The names and number of entries can vary.",
+            "In Ventoy, highlight the patched ISO, press Enter, then choose WIMBOOT. Keep the USB connected during Setup.",
+            "The patch starts after the installer begins booting. The earlier Mac startup picker may not appear on the external screen.",
+        ],
+    },
+    InstallationSection {
+        title: "Install Windows",
+        steps: &[
+            "Choose your language and keyboard. Select Custom: Install Windows only when asked.",
+            "Select BOOTCAMP, check its size and click Format to use NTFS. If you prepared another partition, use only the partition reserved for Windows. Formatting erases that partition.",
+            "Leave the macOS, EFI and recovery partitions untouched. Select your Windows partition and click Next.",
+            "After Setup restarts, boot the internal Windows installation, not the USB installer again. Finish setup until you reach the desktop.",
+            "For dual boot, hold Option at startup to choose macOS or Windows.",
+        ],
+    },
+    InstallationSection {
+        title: "Install drivers",
+        steps: &[
+            "In Windows, run C:\\BootCamp\\Setup.exe as administrator, then restart.",
+            "Search Windows for Apple Software Update. If it is missing, install Apple's desktop iTunes installer, then check for Apple Software Update again.",
+            "Install the applicable updates and restart. Check the display, keyboard, trackpad or mouse, sound and Wi-Fi. Report anything still failing.",
+        ],
+    },
 ];
 
 pub fn installation_guide(model: &str) -> String {
@@ -29,8 +70,13 @@ pub fn installation_guide_for_target(model: &str, target: crate::domain::Display
     if model == crate::domain::IMAC_MODEL_ID {
         text.push_str(&format!("Windows Setup screen: {}. This selects the installer screen; configure the Windows desktop display separately after installation. Use a wired USB keyboard and mouse for initial testing.\r\n\r\n", target.label()));
     }
-    for (index, step) in INSTALL_STEPS.iter().enumerate() {
-        text.push_str(&format!("{}. {}\r\n\r\n", index + 1, step));
+    for (index, section) in INSTALL_SECTIONS.iter().enumerate() {
+        text.push_str(&format!("{}. {}\r\n\r\n", index + 1, section.title));
+        for step in section.steps {
+            // The ISO's text guide has no interactive button.
+            let step = step.replace("using the button below", "in the patcher");
+            text.push_str(&format!("- {step}\r\n\r\n"));
+        }
     }
     text.push_str(&format!("Ventoy: {VENTOY_URL}\r\nDesktop iTunes: {ITUNES_URL}\r\nApple update guidance: {APPLE_UPDATE_URL}\r\n\r\n"));
     if let Some(recipe) = crate::setup_recipe::SetupRecipe::for_model(model) {
@@ -204,6 +250,33 @@ mod tests {
                 && body.contains("MacBookPatcher-Logs/A1706-2017")
         );
         assert!(!body.contains("21.20.16.5174"));
+    }
+    #[test]
+    fn installation_sections_match_readme_order_and_include_boot_and_partition_details() {
+        let readme = include_str!("../README.md");
+        let guide = installation_guide(MODEL_ID);
+        let mut previous = 0;
+        for (index, section) in INSTALL_SECTIONS.iter().enumerate() {
+            let heading = format!("{}. {}", index + 1, section.title);
+            assert!(readme.contains(&heading));
+            let position = guide.find(&heading).unwrap();
+            assert!(position >= previous);
+            previous = position;
+        }
+        for term in [
+            "Ventoy2Disk.exe",
+            "VTOYEFI",
+            "Option",
+            "EFI Boot",
+            "WIMBOOT",
+            "NTFS",
+            "internal Windows installation",
+            "macOS, EFI and recovery",
+        ] {
+            assert!(guide.contains(term), "Missing installation detail: {term}");
+        }
+        assert!(!guide.contains("button below"));
+        assert!(guide.contains("installing Ventoy erases"));
     }
     #[test]
     fn guide_uses_menu_wimboot_and_checks_updater_before_itunes() {

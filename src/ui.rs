@@ -1251,7 +1251,7 @@ impl eframe::App for PatcherApp {
                             .add(egui::Button::new("Prepare USB for setup logs").wrap())
                             .clicked()
                         {
-                            self.usb_popup_open = true;
+                            self.open_logging_usb_popup();
                         }
                         ui.add_space(8.0);
                         if ui.button("Settings").clicked() {

@@ -13,6 +13,9 @@ pub(super) struct LoggingUsb {
 }
 
 impl PatcherApp {
+    pub(super) fn open_logging_usb_popup(&mut self) {
+        self.usb_popup_open = true;
+    }
     fn usb_preparation_allowed(&self) -> bool {
         !self.preparing_usb && !self.storage.deleting && !self.storage.moving && !self.closing
     }
@@ -298,58 +301,47 @@ impl PatcherApp {
                 ui.label(editions);
             }
         });
-        Self::section(ui, "Install Windows", colors.source, |ui| {
-            ui.spacing_mut().item_spacing.y = 8.0;
-            for (index, step) in completion::INSTALL_STEPS[..4].iter().enumerate() {
-                ui.label(format!("{}. {step}", index + 1));
-            }
-            if self.model().is_some_and(|m| m.id == IMAC_MODEL_ID) {
-                ui.label("Use a wired USB keyboard and mouse for initial testing. Desktop display settings can be changed in Windows after installation.");
-            }
-            if ui.button("Download Ventoy").clicked() {
-                self.completion_link(completion::VENTOY_URL);
-            }
-        });
-        if let Some(recipe) = recipe {
-            Self::section(ui, "Prepare USB for setup logs", colors.surface, |ui| {
-                ui.spacing_mut().item_spacing.y = 8.0;
-                ui.label(
-                    "Setup logs help us troubleshoot problems and improve support for your Mac.",
-                );
-                ui.label("Install Ventoy, copy the patched ISO to its main USB partition, then choose that USB’s root folder, such as E:\\.");
-                ui.label("Adds a logging marker.");
-                if ui
-                    .add_enabled(
-                        self.usb_preparation_allowed(),
-                        egui::Button::new(if self.preparing_usb {
-                            "Preparing USB…"
-                        } else {
-                            "Prepare USB for setup logs"
-                        }),
-                    )
-                    .clicked()
-                {
-                    self.prepare_logging_usb();
-                }
-                self.logging_usb_selection(ui);
-                ui.label("Keep the prepared USB connected during Windows Setup.");
-                ui.label(format!("Logs: MacBookPatcher-Logs\\{}. Automatic collection ends at reboot; use Support\\Collect setup logs.cmd to recover saved Setup logs afterward.",recipe.log_folder()));
-            });
+        for (index, section) in completion::INSTALL_SECTIONS.iter().enumerate() {
+            let color = match index {
+                0 | 3 => colors.source,
+                1 => colors.surface,
+                _ => colors.model,
+            };
+            Self::section(
+                ui,
+                &format!("{}. {}", index + 1, section.title),
+                color,
+                |ui| {
+                    ui.spacing_mut().item_spacing.y = 8.0;
+                    for step in section.steps {
+                        ui.label(*step);
+                    }
+                    if index == 1 {
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.button("Download Ventoy").clicked() {
+                                self.completion_link(completion::VENTOY_URL);
+                            }
+                            if recipe.is_some() && ui.button("Prepare USB for setup logs").clicked()
+                            {
+                                self.open_logging_usb_popup();
+                            }
+                        });
+                    }
+                    if index == 2 && self.model().is_some_and(|m| m.id == IMAC_MODEL_ID) {
+                        ui.label(format!("For this iMac, use the {} selected for Windows Setup. Use a wired USB keyboard and mouse. Desktop display settings can be changed later in Windows.", self.display_target().label().to_lowercase()));
+                    }
+                    if index == 4 && recipe.is_some() {
+                        ui.label(
+                            RichText::new(
+                                "Keep the included graphics driver for your selected Mac model.",
+                            )
+                            .size(13.0)
+                            .color(colors.muted),
+                        );
+                    }
+                },
+            );
         }
-
-        Self::section(ui, "Finish setup in Windows", colors.model, |ui| {
-            ui.spacing_mut().item_spacing.y = 8.0;
-            for (index, step) in completion::INSTALL_STEPS[4..].iter().enumerate() {
-                ui.label(format!("{}. {step}", index + 5));
-            }
-            if recipe.is_some() {
-                ui.label(
-                    RichText::new("Keep the included graphics driver for your selected Mac model.")
-                        .size(13.0)
-                        .color(muted(ui)),
-                );
-            }
-        });
         Self::section(ui, "Something did not work?", colors.surface, |ui| {
             ui.label("Support varies by Mac model and Windows edition. Describe the failure and attach your saved build log and any Windows Setup/startup logs.");
             if let Some(recipe) = recipe {
@@ -381,6 +373,27 @@ impl PatcherApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn logging_entry_points_open_shared_dialog_without_restarting_preparation() {
+        let mut app = PatcherApp::new_with_context(&egui::Context::default());
+        app.open_logging_usb_popup();
+        assert!(app.usb_popup_open && app.usb_logging.is_none());
+        let (id, path) = app.select_logging_usb(Some("E:/".into())).unwrap();
+        app.usb_popup_open = false;
+        app.page = Page::Complete;
+        app.open_logging_usb_popup();
+        assert_eq!(app.usb_logging_id, id);
+        assert!(app.preparing_usb);
+        app.finish_logging_usb(id, Ok(path.clone()));
+        app.usb_popup_open = false;
+        app.open_logging_usb_popup();
+        assert_eq!(app.usb_logging.as_ref().unwrap().path, path);
+        assert_eq!(
+            app.usb_logging.as_ref().unwrap().status,
+            UsbPreparationStatus::Prepared
+        );
+        assert!(!app.preparing_usb);
+    }
     #[test]
     fn standalone_usb_has_no_model_or_workflow_requirement_but_excludes_cleanup() {
         let mut app = PatcherApp::new_with_context(&egui::Context::default());
