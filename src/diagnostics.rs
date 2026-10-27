@@ -74,6 +74,12 @@ pub fn write_support(dir: &Path, req: &BuildRequest, job: &Path) -> Result<()> {
     Ok(())
 }
 pub fn prepare_usb(root: &Path) -> Result<()> {
+    usb_helper(root, "--prepare-usb")
+}
+pub fn validate_usb(root: &Path) -> Result<()> {
+    usb_helper(root, "--check-usb")
+}
+fn usb_helper(root: &Path, action: &str) -> Result<()> {
     ensure!(cfg!(windows), "USB preparation requires Windows");
     #[cfg(windows)]
     {
@@ -88,12 +94,13 @@ pub fn prepare_usb(root: &Path) -> Result<()> {
             let normalized = crate::platform::display_path(root);
             let mut cmd = std::process::Command::new(&helper);
             let output = crate::platform::hidden(&mut cmd)
-                .args(["--prepare-usb", &normalized])
+                .args([action, &normalized])
                 .output()?;
             ensure!(
                 output.status.success(),
-                "USB preparation failed for {normalized} ({}). {}",
+                "USB preparation failed for {normalized} ({}). {} {}",
                 output.status,
+                String::from_utf8_lossy(&output.stdout).trim(),
                 String::from_utf8_lossy(&output.stderr).trim()
             );
             Ok(())
@@ -104,7 +111,7 @@ pub fn prepare_usb(root: &Path) -> Result<()> {
     }
     #[cfg(not(windows))]
     {
-        let _ = root;
+        let _ = (root, action);
         Ok(())
     }
 }

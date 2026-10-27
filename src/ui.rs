@@ -11,6 +11,8 @@ mod output_choices;
 mod pages;
 #[path = "ui_settings.rs"]
 mod storage_settings;
+#[path = "ui_usb.rs"]
+mod usb_copy;
 use downloads::DriverDownloads;
 use macbook_iso_patcher::transfer::DownloadProgress;
 #[cfg(debug_assertions)]
@@ -75,6 +77,8 @@ enum Message {
     OutputChecked(Result<macbook_iso_patcher::cleanup::OutputCandidate, String>),
     OutputDeleted(Result<macbook_iso_patcher::cleanup::CleanupReport, String>),
     UsbPrepared(u64, Result<PathBuf, String>),
+    UsbCopyProgress(u64, macbook_iso_patcher::usb::Progress),
+    UsbCopyDone(u64, Result<macbook_iso_patcher::usb::Outcome, String>),
     Scanned(Result<(Inventory, platform::MountedIso), String>),
     Dismounted(Result<bool, String>, Option<platform::MountedIso>),
     AdkStatus(String),
@@ -149,6 +153,7 @@ pub struct PatcherApp {
     usb_popup_origin: bool,
     usb_error: Option<String>,
     usb_error_copied: bool,
+    usb_copy: usb_copy::UsbCopy,
     adk_status: String,
     window_fitted: bool,
     notice: Option<String>,
@@ -261,6 +266,7 @@ impl PatcherApp {
             usb_popup_origin: false,
             usb_error: None,
             usb_error_copied: false,
+            usb_copy: usb_copy::UsbCopy::default(),
             adk_status: String::new(),
             window_fitted: false,
             notice: startup_notice,
@@ -349,6 +355,12 @@ impl PatcherApp {
                     }
                 }
                 Message::UsbPrepared(id, result) => self.finish_logging_usb(id, result),
+                Message::UsbCopyProgress(id, progress) => {
+                    if id == self.usb_copy.epoch {
+                        self.usb_copy.progress = Some(progress);
+                    }
+                }
+                Message::UsbCopyDone(id, result) => self.usb_copy.finish(id, result),
                 Message::StorageMoveProgress(progress) => {
                     self.storage.move_progress = Some(progress)
                 }
@@ -604,7 +616,7 @@ impl PatcherApp {
         });
     }
     fn dismount(&mut self, ctx: &egui::Context, only_owned: bool) {
-        if self.storage.moving {
+        if self.storage.moving || self.usb_copy.busy {
             return;
         }
         if self.busy || self.scanning || self.dismounting || (!only_owned && self.installing_adk) {
@@ -1130,6 +1142,7 @@ impl eframe::App for PatcherApp {
             || self.installing_adk
             || self.drivers.running
             || self.preparing_usb
+            || self.usb_copy.busy
             || self.storage.busy()
         {
             ctx.request_repaint_after(Duration::from_millis(150));
@@ -1142,11 +1155,13 @@ impl eframe::App for PatcherApp {
                 || self.iso_mount.is_some()
                 || self.drivers.running
                 || self.storage.busy()
+                || self.usb_copy.busy
                 || self.output_conflict.as_ref().is_some_and(|d| d.checking))
         {
             self.closing = true;
             self.confirm_dismount = false;
             self.drivers.cancel.cancel();
+            self.usb_copy.cancel.cancel();
             if self.busy {
                 self.cancel.cancel();
             }
@@ -1158,6 +1173,7 @@ impl eframe::App for PatcherApp {
             && !self.dismounting
             && !self.drivers.running
             && !self.storage.busy()
+            && !self.usb_copy.busy
             && !self.output_conflict.as_ref().is_some_and(|d| d.checking)
         {
             if self.iso_mount.is_some() {
@@ -1339,7 +1355,7 @@ impl eframe::App for PatcherApp {
                     }
                     if self.inventory.is_some() && !self.donation
                         && ui.add_enabled(
-                            cfg!(windows) && !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.closing,
+                            cfg!(windows) && !self.busy && !self.scanning && !self.dismounting && !self.installing_adk && !self.closing && !self.usb_copy.busy,
                             egui::Button::new(if self.dismounting { "Dismounting…" } else { "Dismount ISO" }),
                         ).on_hover_text("Dismount the selected source ISO from Windows. The ISO file stays unchanged.").clicked()
                     {
@@ -1540,6 +1556,7 @@ impl eframe::App for PatcherApp {
         }
         self.output_popup(ctx);
         self.logging_usb_popup(ctx);
+        self.copy_usb_popup(ctx);
         if self.output_conflict.is_none()
             && let Some(error) = &self.error
         {

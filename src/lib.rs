@@ -13,6 +13,7 @@ pub mod prerequisites;
 pub mod progress;
 pub mod relocation;
 pub mod transfer;
+pub mod usb;
 pub mod wim;
 
 pub mod setup_recipe;

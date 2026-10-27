@@ -10,6 +10,11 @@ impl PatcherApp {
             return;
         };
         self.window_fitted = true; // Keep the explicitly requested screenshot viewport size.
+        if view.starts_with("copy-usb") {
+            self.close_ready = true;
+            self.preview_copy_usb(&view);
+            return;
+        }
         if view.starts_with("logging-usb") {
             self.close_ready = true;
             self.usb_popup_open = true;

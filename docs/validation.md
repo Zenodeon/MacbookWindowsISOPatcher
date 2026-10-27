@@ -781,3 +781,42 @@ Require visible Setup, successful installation and subsequent device checks.
   captures are retained under .cache/six-step-preview/. The mechanical UI
   detector reported no findings. README is unchanged. No release build, ISO
   rebuild, ZIP or push was performed.
+
+## Prepare USB from completed ISO (2026-10-27)
+
+- Completion now opens a separate Prepare USB dialog. Selecting a root does not
+  start copying. The sidebar remains the original logging-only tool. Completion
+  and future ISO guides describe copying the new ISO and enabling setup logs.
+- The background operation checks native USB-root eligibility (including fixed
+  USB disks), rejects VTOYEFI, links/junctions, source aliases and nested roots,
+  checks filesystem size limits/free space and uses an anchored Windows volume
+  GUID so drive-letter changes cannot redirect its copy. A per-volume activity
+  lock prevents overlapping app copies.
+- Copies are staged in a uniquely named partial file, flushed and SHA-256
+  verified. Source, temporary and conflicting destination identities are checked
+  before publication. Replacement requires confirmation and preserves the old
+  ISO until verification; publication races preserve existing files. Keep both
+  chooses the first unused numbered filename. The existing logging helper runs
+  after publication; marker failures retain the published copy for marker-only
+  retries. Errors and cancellation remove only the owned partial file.
+- Closing/reopening preserves preparation state. Cancellation and conflict
+  choices use a fixed footer. Application close cancels the copy and waits for
+  completion before source dismount/exit. Storage cleanup/moves, logging-only
+  preparation and source dismount cannot race this operation. Opening the ready
+  USB folder rechecks its volume identity before using the saved drive letter.
+- 193 automated tests passed, with 12 optional tests ignored. New tests cover
+  copy/verification/marker success, conflict and replacement, keep both, marker
+  retry without the source, cancellation, corrupt copies, source/destination
+  changes, destination races, simulated USB removal, file-size/free-space limits,
+  active locks, hard links, junctions, read-only storage and locked destinations.
+  UI state tests cover picker cancellation, duplicate prevention, late results,
+  close/reopen and cleanup guards. Existing native collector tests also passed.
+- Formatting, Clippy with warnings as errors, debug compilation and diff checks
+  passed. The mechanical UI detector reported no findings. Actual debug-renderer
+  screenshots were inspected in both themes at 1240 x 700 and 800 x 520, including
+  copy progress, ready, conflict, replacement confirmation and marker failure.
+  Captures in .cache/prepare-usb-preview/ use simulated USB states. Copy tests use
+  disposable host files and injected volume/marker fixtures; physical USB copying,
+  exFAT servicing behavior and actual removal/reconnection remain unverified.
+  No physical USB was modified. No README changes, release build, ISO rebuild,
+  ZIP or push was performed; the user's running app was left open.

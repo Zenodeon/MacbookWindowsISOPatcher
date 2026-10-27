@@ -17,7 +17,11 @@ impl PatcherApp {
         self.usb_popup_open = true;
     }
     fn usb_preparation_allowed(&self) -> bool {
-        !self.preparing_usb && !self.storage.deleting && !self.storage.moving && !self.closing
+        !self.preparing_usb
+            && !self.usb_copy.busy
+            && !self.storage.deleting
+            && !self.storage.moving
+            && !self.closing
     }
     fn prepare_logging_usb(&mut self) {
         if !self.usb_preparation_allowed() {
@@ -58,6 +62,7 @@ impl PatcherApp {
         Some((self.usb_logging_id, path))
     }
     pub(super) fn reset_logging_usb(&mut self) {
+        self.usb_copy.reset();
         self.usb_logging_id = self.usb_logging_id.wrapping_add(1);
         self.usb_logging = None;
         self.preparing_usb = false;
@@ -321,9 +326,8 @@ impl PatcherApp {
                             if ui.button("Download Ventoy").clicked() {
                                 self.completion_link(completion::VENTOY_URL);
                             }
-                            if recipe.is_some() && ui.button("Prepare USB for setup logs").clicked()
-                            {
-                                self.open_logging_usb_popup();
+                            if ui.button("Prepare USB").clicked() {
+                                self.open_copy_usb();
                             }
                         });
                     }

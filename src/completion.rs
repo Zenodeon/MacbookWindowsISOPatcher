@@ -26,8 +26,7 @@ pub const INSTALL_SECTIONS: [InstallationSection; 6] = [
         title: "Prepare the USB",
         steps: &[
             "Set up a spare USB with Ventoy.",
-            "Copy the patched ISO onto that USB.",
-            "Prepare USB logging using the button below.",
+            "Use Prepare USB below to copy the patched ISO onto that USB and enable setup logging.",
         ],
     },
     InstallationSection {
@@ -80,6 +79,10 @@ pub fn installation_guide_for_target(model: &str, target: crate::domain::Display
             // The ISO's text guide has no interactive button.
             let step = step
                 .replace("using the button below", "in the patcher")
+                .replace(
+                    "Use Prepare USB below",
+                    "Use Prepare USB on the patcher's completion page",
+                )
                 .replace(
                     "Use Share logs / report an issue below.",
                     "Create an issue using the GitHub link at the end of this guide.",
@@ -280,7 +283,7 @@ mod tests {
                 assert!(guide.contains(&format!("{}.{} - ", index + 1, step_index + 1)));
             }
         }
-        assert_eq!(INSTALL_SECTIONS[1].steps.len(), 3);
+        assert_eq!(INSTALL_SECTIONS[1].steps.len(), 2);
         assert_eq!(INSTALL_SECTIONS[4].steps.len(), 2);
         assert!(guide.contains("spare USB with Ventoy"));
         assert!(guide.contains("EFI Boot or the Ventoy USB"));
