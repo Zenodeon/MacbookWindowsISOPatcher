@@ -1365,7 +1365,7 @@ impl eframe::App for PatcherApp {
                     let model_left = ui.cursor().min.x;
                     let model_right = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if self.page==Page::Complete {
-                            if Self::primary(ui,"Open ISO location",!self.closing && !self.dismounting){self.open_finished_iso();}
+                            if Self::primary(ui,"Prepare USB",!self.closing && !self.dismounting){self.open_copy_usb();}
                         } else if self.page==Page::Build && !self.busy && self.finished.is_none() {
                             if Self::primary(ui,"Retry build",self.can_retry_build()){self.begin(ctx);}
                         } else if self.busy || self.page == Page::Build { self.build_iso_button(ui, false); }

@@ -330,6 +330,22 @@ impl PatcherApp {
                                 self.open_copy_usb();
                             }
                         });
+                        ui.add_space(10.0);
+                        ui.label(completion::MANUAL_USB_INSTRUCTIONS);
+                        ui.horizontal_wrapped(|ui| {
+                            if ui
+                                .add_enabled(
+                                    !self.closing && !self.dismounting,
+                                    egui::Button::new("Open ISO folder"),
+                                )
+                                .clicked()
+                            {
+                                self.open_finished_iso();
+                            }
+                            if ui.button("Prepare USB for setup logs").clicked() {
+                                self.open_logging_usb_popup();
+                            }
+                        });
                     }
                     if index == 2 && self.model().is_some_and(|m| m.id == IMAC_MODEL_ID) {
                         ui.label(format!("For this iMac, use the {} selected for Windows Setup. Use a wired USB keyboard and mouse. Desktop display settings can be changed later in Windows.", self.display_target().label().to_lowercase()));

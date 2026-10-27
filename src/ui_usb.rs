@@ -199,6 +199,7 @@ impl PatcherApp {
                 let mut content=ui.new_child(egui::UiBuilder::new().max_rect(body));content.set_clip_rect(body.expand(3.0).intersect(ui.clip_rect()));
                 egui::ScrollArea::vertical().id_salt("copy-usb-body").auto_shrink([false,false]).show(&mut content,|ui|{
                     ui.label(RichText::new("Prepare USB").size(25.0).strong());
+                    ui.label("Copies your ISO and enables USB logging.");
                     ui.label("Set up a spare USB with Ventoy, then choose its main storage partition.");
                     ui.add_space(12.0);
                     if let Some(source)=&self.usb_copy.source {
@@ -293,6 +294,24 @@ mod tests {
             },
             volume: "test-usb".into(),
         }
+    }
+    #[test]
+    fn manual_routes_do_not_start_or_reset_an_active_copy() {
+        let mut app = PatcherApp::new_with_context(&egui::Context::default());
+        app.finished =
+            Some(std::env::temp_dir().join(format!("missing-{}.iso", uuid::Uuid::new_v4())));
+        app.open_copy_usb();
+        app.usb_copy.busy = true;
+        let epoch = app.usb_copy.epoch;
+        app.usb_copy.open = false;
+        app.open_finished_iso();
+        assert!(app.error.is_some()); // Missing ISO remains actionable.
+        assert!(app.usb_copy.busy && app.usb_copy.epoch == epoch && !app.usb_copy.open);
+        app.open_logging_usb_popup();
+        assert!(app.usb_popup_open && !app.preparing_usb);
+        assert!(app.usb_copy.busy && app.usb_copy.epoch == epoch);
+        app.open_copy_usb(); // Both automatic entry points reuse this operation.
+        assert!(app.usb_copy.open && app.usb_copy.busy && app.usb_copy.epoch == epoch);
     }
     #[test]
     fn selecting_usb_never_starts_and_cancelled_picker_preserves_state() {

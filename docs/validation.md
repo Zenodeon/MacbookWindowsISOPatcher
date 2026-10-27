@@ -820,3 +820,21 @@ Require visible Setup, successful installation and subsequent device checks.
   exFAT servicing behavior and actual removal/reconnection remain unverified.
   No physical USB was modified. No README changes, release build, ISO rebuild,
   ZIP or push was performed; the user's running app was left open.
+
+## Automatic and manual USB routes (2026-10-27)
+
+- The completion footer opens Prepare USB, sharing the same operation as the
+  section 2 action. Its popup explicitly says it copies the ISO and enables USB
+  logging. Section 2 also offers a manual route: Open ISO folder selects the
+  completed ISO in Explorer, and Prepare USB for setup logs opens the existing
+  logging-only popup. The sidebar logging tool and copy safeguards are unchanged.
+- Future ISO guides describe both routes. A new UI regression test checks that
+  manual actions do not launch/reset an active copy, including the missing-ISO
+  error path. Existing ISO-location and USB operation tests remain passing.
+- 194 tests passed; 12 optional tests were ignored. Formatting, Clippy with
+  warnings as errors, debug compilation and diff checks passed. The mechanical
+  UI detector returned no findings. Actual debug captures were inspected in both
+  themes at 1240 x 700 and 800 x 520, including manual action wrapping and the
+  replacement dialog's fixed footer. Simulated-state captures are retained in
+  .cache/usb-routes-preview/. No README changes, release build, ISO rebuild, ZIP
+  or push was performed. Physical USB validation remains pending as noted above.

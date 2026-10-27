@@ -11,6 +11,7 @@ pub const VENTOY_URL: &str = "https://www.ventoy.net/";
 pub const ITUNES_URL: &str = "https://www.apple.com/itunes/download/win64/";
 pub const APPLE_UPDATE_URL: &str = "https://support.apple.com/en-us/118406";
 pub const ISSUES_URL: &str = "https://github.com/Zenodeon/MacbookWindowsISOPatcher/issues/new";
+pub const MANUAL_USB_INSTRUCTIONS: &str = "Or copy it yourself: open the ISO folder, copy the ISO to your Ventoy USB, then enable USB logging.";
 pub struct InstallationSection {
     pub title: &'static str,
     pub steps: &'static [&'static str],
@@ -92,6 +93,9 @@ pub fn installation_guide_for_target(model: &str, target: crate::domain::Display
                 index + 1,
                 step_index + 1
             ));
+        }
+        if index == 1 {
+            text.push_str(&format!("{MANUAL_USB_INSTRUCTIONS} In the patcher, use Open ISO folder and Prepare USB for setup logs.\r\n\r\n"));
         }
     }
     text.push_str(&format!("Ventoy: {VENTOY_URL}\r\nDesktop iTunes: {ITUNES_URL}\r\nApple update guidance: {APPLE_UPDATE_URL}\r\n\r\n"));
@@ -290,6 +294,10 @@ mod tests {
         assert!(!guide.contains("Ventoy2Disk.exe") && !guide.contains("NTFS"));
         assert!(!guide.contains("button below") && !guide.contains("report an issue below"));
         assert!(!guide.contains("earlier Mac startup picker"));
+        assert!(guide.contains(MANUAL_USB_INSTRUCTIONS));
+        assert!(
+            guide.contains("In the patcher, use Open ISO folder and Prepare USB for setup logs.")
+        );
     }
     #[test]
     fn setup_expectations_include_wait_symptoms_and_manual_reporting() {
