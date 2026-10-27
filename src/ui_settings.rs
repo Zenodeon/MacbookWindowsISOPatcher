@@ -290,6 +290,7 @@ impl PatcherApp {
             || self.dismounting
             || self.installing_adk
             || self.drivers.running
+            || self.preparing_usb
             || self.closing
     }
     pub(super) fn storage_read_only(&self) -> bool {

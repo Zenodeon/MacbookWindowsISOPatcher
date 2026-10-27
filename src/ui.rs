@@ -145,6 +145,10 @@ pub struct PatcherApp {
     preparing_usb: bool,
     usb_logging: Option<complete::LoggingUsb>,
     usb_logging_id: u64,
+    usb_popup_open: bool,
+    usb_popup_origin: bool,
+    usb_error: Option<String>,
+    usb_error_copied: bool,
     adk_status: String,
     window_fitted: bool,
     notice: Option<String>,
@@ -253,6 +257,10 @@ impl PatcherApp {
             preparing_usb: false,
             usb_logging: None,
             usb_logging_id: 0,
+            usb_popup_open: false,
+            usb_popup_origin: false,
+            usb_error: None,
+            usb_error_copied: false,
             adk_status: String::new(),
             window_fitted: false,
             notice: startup_notice,
@@ -1239,6 +1247,13 @@ impl eframe::App for PatcherApp {
                             .color(muted(ui)),
                         );
                         ui.add_space(12.0);
+                        if ui
+                            .add(egui::Button::new("Prepare USB for setup logs").wrap())
+                            .clicked()
+                        {
+                            self.usb_popup_open = true;
+                        }
+                        ui.add_space(8.0);
                         if ui.button("Settings").clicked() {
                             self.storage.open = true;
                             self.storage.navigate_builds(false);
@@ -1524,6 +1539,7 @@ impl eframe::App for PatcherApp {
             self.resume_output_action(retry, ctx);
         }
         self.output_popup(ctx);
+        self.logging_usb_popup(ctx);
         if self.output_conflict.is_none()
             && let Some(error) = &self.error
         {

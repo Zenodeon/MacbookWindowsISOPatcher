@@ -10,6 +10,30 @@ impl PatcherApp {
             return;
         };
         self.window_fitted = true; // Keep the explicitly requested screenshot viewport size.
+        if view.starts_with("logging-usb") {
+            self.close_ready = true;
+            self.usb_popup_open = true;
+            if view != "logging-usb-empty" {
+                let status = if view.ends_with("preparing") {
+                    complete::UsbPreparationStatus::Preparing
+                } else if view.ends_with("failed") {
+                    self.usb_error = Some("USB preparation failed: the selected USB is read-only. Unlock the drive or choose another USB, then retry.".into());
+                    complete::UsbPreparationStatus::Failed
+                } else {
+                    complete::UsbPreparationStatus::Prepared
+                };
+                self.preparing_usb = status == complete::UsbPreparationStatus::Preparing;
+                self.usb_logging = Some(complete::LoggingUsb {
+                    path: PathBuf::from(if view.ends_with("long-path") {
+                        r"\\?\E:\USB root display fixture\Long path to verify selectable text wrapping in a smaller window"
+                    } else {
+                        r"\\?\E:\"
+                    }),
+                    status,
+                });
+            }
+            return;
+        }
         if view == "close-cleanup-error" {
             self.close_ready = true; // Fixture has no real mount or build worker.
             self.model_selected = Some(3);

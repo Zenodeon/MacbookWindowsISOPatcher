@@ -718,3 +718,25 @@ Hardware acceptance remains pending for both targets. Test Built-in with the
 internal panel connected; test External through the intended direct USB-C
 HDMI/DisplayPort adapter, including the intended disconnected-panel setup.
 Require visible Setup, successful installation and subsequent device checks.
+
+## Standalone USB logging popup (2026-10-27)
+
+- The sidebar entry opens USB preparation without a selected model or completed
+  build. It shares the selected root and status with the completion card.
+- Preparation remains asynchronous when the popup closes. Popup-origin failures
+  stay inline with Copy error and Retry, including after reopening. Completion
+  card failures retain the existing error dialog when the popup is not active.
+- Preparation and storage cleanup/folder moves exclude one another. Downloads
+  and ISO builds do not disable USB preparation. Cancelling the picker retains
+  the selection; new builds and workflow resets clear session state.
+- 177 default automated tests passed; 12 optional tests were ignored. New tests
+  cover standalone workflow access, cleanup/move guards, close/reopen behavior,
+  retry state and error routing. The existing native collector integration test
+  passed with disposable storage and simulated USB destinations. No physical
+  USB was prepared during this change.
+- Formatting, diff whitespace checks, Clippy with warnings as errors and the
+  debug build passed. The mechanical UI detector returned no findings.
+- Actual debug-renderer screenshots were inspected at 1240 x 700 and 800 x 520
+  in both themes, including empty, preparing, prepared, failure and long-path
+  states. Fixture paths/statuses are simulated. Captures are retained locally
+  under .cache/usb-popup-preview/. No release build or ISO rebuild was run.

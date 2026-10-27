@@ -13,8 +13,11 @@ pub(super) struct LoggingUsb {
 }
 
 impl PatcherApp {
+    fn usb_preparation_allowed(&self) -> bool {
+        !self.preparing_usb && !self.storage.deleting && !self.storage.moving && !self.closing
+    }
     fn prepare_logging_usb(&mut self) {
-        if self.preparing_usb {
+        if !self.usb_preparation_allowed() {
             return;
         }
         let selected = rfd::FileDialog::new()
@@ -23,6 +26,9 @@ impl PatcherApp {
         let Some((id, root)) = self.select_logging_usb(selected) else {
             return;
         };
+        self.spawn_usb_preparation(id, root);
+    }
+    fn spawn_usb_preparation(&self, id: u64, root: PathBuf) {
         let tx = self.sender.clone();
         std::thread::spawn(move || {
             let result = macbook_iso_patcher::diagnostics::prepare_usb(&root)
@@ -32,7 +38,7 @@ impl PatcherApp {
         });
     }
     fn select_logging_usb(&mut self, selected: Option<PathBuf>) -> Option<(u64, PathBuf)> {
-        if self.preparing_usb {
+        if !self.usb_preparation_allowed() {
             return None;
         }
         let path = selected?;
@@ -42,6 +48,9 @@ impl PatcherApp {
             status: UsbPreparationStatus::Preparing,
         });
         self.preparing_usb = true;
+        self.usb_popup_origin = self.usb_popup_open;
+        self.usb_error = None;
+        self.usb_error_copied = false;
         self.notice = None;
         Some((self.usb_logging_id, path))
     }
@@ -49,6 +58,9 @@ impl PatcherApp {
         self.usb_logging_id = self.usb_logging_id.wrapping_add(1);
         self.usb_logging = None;
         self.preparing_usb = false;
+        self.usb_error = None;
+        self.usb_error_copied = false;
+        self.usb_popup_origin = false;
     }
     pub(super) fn finish_logging_usb(&mut self, id: u64, result: Result<PathBuf, String>) {
         if id != self.usb_logging_id || self.usb_logging.is_none() {
@@ -64,7 +76,109 @@ impl PatcherApp {
             }
             Err(error) => {
                 selected.status = UsbPreparationStatus::Failed;
-                self.show_error(error);
+                self.usb_error = Some(error.clone());
+                self.usb_error_copied = false;
+                if !self.usb_popup_open && !self.usb_popup_origin {
+                    self.show_error(error);
+                }
+            }
+        }
+    }
+    fn logging_usb_selection(&self, ui: &mut egui::Ui) {
+        let Some(selected) = &self.usb_logging else {
+            return;
+        };
+        let colors = appearance::palette(ui.ctx());
+        egui::Frame::new()
+            .fill(colors.source)
+            .corner_radius(10)
+            .inner_margin(12.0)
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Selected USB");
+                    let (label, color) = match selected.status {
+                        UsbPreparationStatus::Preparing => ("Preparing USB…", colors.muted),
+                        UsbPreparationStatus::Prepared => ("USB prepared", colors.success),
+                        UsbPreparationStatus::Failed => ("Preparation failed", colors.warning),
+                    };
+                    if selected.status == UsbPreparationStatus::Preparing {
+                        ui.spinner();
+                    }
+                    ui.colored_label(color, label);
+                });
+                ui.add(
+                    egui::Label::new(platform::display_path(&selected.path))
+                        .wrap()
+                        .selectable(true),
+                );
+            });
+    }
+    pub(super) fn logging_usb_popup(&mut self, ctx: &egui::Context) {
+        if !self.usb_popup_open {
+            return;
+        }
+        let colors = appearance::palette(ctx);
+        let mut choose = false;
+        let mut retry = false;
+        let mut close = false;
+        let modal = egui::Modal::new(egui::Id::new("logging-usb"))
+            .frame(egui::Frame::new().fill(colors.surface).corner_radius(16).inner_margin(22.0))
+            .show(ctx, |ui| {
+                let size = egui::vec2(
+                    (ctx.content_rect().width() - 88.0).clamp(240.0, 570.0),
+                    (ctx.content_rect().height() - 100.0).clamp(220.0, 410.0),
+                );
+                let (shell, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                let footer = egui::Rect::from_min_max(egui::pos2(shell.left(), shell.bottom()-38.0), shell.max);
+                let body = egui::Rect::from_min_max(shell.min, egui::pos2(shell.right(), footer.top()-16.0));
+                let mut content = ui.new_child(egui::UiBuilder::new().max_rect(body));
+                content.set_clip_rect(body.expand(3.0).intersect(ui.clip_rect()));
+                egui::ScrollArea::vertical().id_salt("logging-usb-body").auto_shrink([false, false]).show(&mut content, |ui| {
+                    ui.label(RichText::new("Prepare USB for setup logs").size(25.0).strong());
+                    ui.add_space(8.0);
+                    ui.label("If Windows Setup doesn’t work, these logs help us understand why and update the patcher to fix issues affecting your Mac model.");
+                    ui.add_space(10.0);
+                    ui.label("Choose the main storage root of your USB, such as E:\\, next to the ISO. This adds a logging marker. It does not erase files, install Ventoy or copy an ISO.");
+                    ui.add_space(14.0);
+                    self.logging_usb_selection(ui);
+                    if let Some(error) = self.usb_error.clone() {
+                        ui.add_space(8.0);
+                        ui.add(egui::Label::new(RichText::new(&error).color(colors.warning)).wrap().selectable(true));
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.button(if self.usb_error_copied { "Copied" } else { "Copy error" }).clicked() {
+                                ui.ctx().copy_text(error.clone());
+                                self.usb_error_copied = true;
+                            }
+                            retry = ui.add_enabled(self.usb_preparation_allowed(), egui::Button::new("Retry")).clicked();
+                        });
+                    }
+                    if self.storage.deleting || self.storage.moving {
+                        ui.add_space(8.0);
+                        ui.label("Wait for storage cleanup or the folder move to finish before preparing a USB.");
+                    }
+                    ui.add_space(12.0);
+                    ui.label(RichText::new("Keep the prepared USB connected during Windows Setup. Logs are saved under MacBookPatcher-Logs. Nothing is uploaded automatically.").size(13.0).color(colors.muted));
+                });
+                let mut actions = ui.new_child(egui::UiBuilder::new().max_rect(footer));
+                actions.horizontal(|ui| {
+                    choose = ui.add_enabled(self.usb_preparation_allowed(), egui::Button::new("Choose USB folder")).clicked();
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| { close = ui.button("Close").clicked(); });
+                });
+            });
+        if close || modal.should_close() {
+            self.usb_popup_open = false;
+        }
+        if choose {
+            self.prepare_logging_usb();
+        }
+        if retry {
+            let path = self
+                .usb_logging
+                .as_ref()
+                .map(|selected| selected.path.clone());
+            if let Some((id, root)) = self.select_logging_usb(path) {
+                self.spawn_usb_preparation(id, root);
             }
         }
     }
@@ -199,7 +313,7 @@ impl PatcherApp {
                 ui.label("Setup support logs are saved only to a marked USB. Prepare it here, or copy MacBookPatcher-Logging.enabled from the ISO’s Support folder to the USB root.");
                 if ui
                     .add_enabled(
-                        !self.preparing_usb,
+                        self.usb_preparation_allowed(),
                         egui::Button::new(if self.preparing_usb {
                             "Preparing USB…"
                         } else {
@@ -210,38 +324,7 @@ impl PatcherApp {
                 {
                     self.prepare_logging_usb();
                 }
-                if let Some(selected) = &self.usb_logging {
-                    egui::Frame::new()
-                        .fill(colors.source)
-                        .corner_radius(10)
-                        .inner_margin(12.0)
-                        .show(ui, |ui| {
-                            ui.set_min_width(ui.available_width());
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new("Selected USB").strong());
-                                let (label, color) = match selected.status {
-                                    UsbPreparationStatus::Preparing => {
-                                        ("Preparing USB…", colors.muted)
-                                    }
-                                    UsbPreparationStatus::Prepared => {
-                                        ("USB prepared", colors.success)
-                                    }
-                                    UsbPreparationStatus::Failed => {
-                                        ("Preparation failed", colors.warning)
-                                    }
-                                };
-                                if selected.status == UsbPreparationStatus::Preparing {
-                                    ui.spinner();
-                                }
-                                ui.colored_label(color, label);
-                            });
-                            ui.add(
-                                egui::Label::new(platform::display_path(&selected.path))
-                                    .wrap()
-                                    .selectable(true),
-                            );
-                        });
-                }
+                self.logging_usb_selection(ui);
                 ui.label("Keep the prepared USB connected during Windows Setup.");
                 ui.label(format!("Logs: MacBookPatcher-Logs\\{}. Automatic collection ends at reboot; use Support\\Collect setup logs.cmd to recover saved Setup logs afterward.",recipe.log_folder()));
             });
@@ -291,6 +374,69 @@ impl PatcherApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn standalone_usb_has_no_model_or_workflow_requirement_but_excludes_cleanup() {
+        let mut app = PatcherApp::new_with_context(&egui::Context::default());
+        assert!(app.model().is_none());
+        for page in [
+            Page::Model,
+            Page::Iso,
+            Page::Review,
+            Page::Build,
+            Page::Complete,
+        ] {
+            app.page = page;
+            app.busy = true;
+            app.drivers.running = true;
+            assert!(app.usb_preparation_allowed());
+        }
+        app.storage.deleting = true;
+        assert!(app.select_logging_usb(Some("E:/".into())).is_none());
+        app.storage.deleting = false;
+        app.storage.moving = true;
+        assert!(!app.usb_preparation_allowed());
+        app.storage.moving = false;
+        app.busy = false;
+        app.drivers.running = false;
+        app.page = Page::Model;
+        assert!(app.select_logging_usb(Some("E:/".into())).is_some());
+        assert!(app.storage_blocked());
+        assert!(!app.storage_move_gate().idle);
+    }
+    #[test]
+    fn popup_can_close_and_reopen_without_losing_task_or_result() {
+        let mut app = PatcherApp::new_with_context(&egui::Context::default());
+        app.usb_popup_open = true;
+        let (id, path) = app.select_logging_usb(Some("E:/".into())).unwrap();
+        app.usb_popup_open = false;
+        assert!(app.preparing_usb);
+        app.finish_logging_usb(id, Err("USB is read-only".into()));
+        assert!(app.error.is_none());
+        app.usb_popup_open = true;
+        assert_eq!(app.usb_error.as_deref(), Some("USB is read-only"));
+        assert!(app.select_logging_usb(None).is_none());
+        assert!(app.usb_error.is_some());
+        let (retry, selected) = app.select_logging_usb(Some(path.clone())).unwrap();
+        assert_eq!(selected, path);
+        assert!(app.usb_error.is_none());
+        app.finish_logging_usb(retry, Ok(path.clone()));
+        assert_eq!(app.usb_logging.as_ref().unwrap().path, path);
+        assert_eq!(
+            app.usb_logging.as_ref().unwrap().status,
+            UsbPreparationStatus::Prepared
+        );
+        app.reset_logging_usb();
+        assert!(app.usb_error.is_none() && app.usb_logging.is_none());
+    }
+    #[test]
+    fn active_popup_receives_completion_card_errors_without_duplicate_dialog() {
+        let mut app = PatcherApp::new_with_context(&egui::Context::default());
+        let (id, _) = app.select_logging_usb(Some("E:/".into())).unwrap();
+        app.usb_popup_open = true;
+        app.finish_logging_usb(id, Err("USB disconnected".into()));
+        assert!(app.error.is_none());
+        assert_eq!(app.usb_error.as_deref(), Some("USB disconnected"));
+    }
     #[test]
     fn usb_selection_is_immediate_and_only_worker_success_marks_it_prepared() {
         let mut app = PatcherApp::new_with_context(&egui::Context::default());
